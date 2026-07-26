@@ -117,6 +117,21 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
             browser_view->toolbar()->parent());
 }
 
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       ContentsDoNotPaintUnderVerticalRail) {
+  BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  auto* vertical_region =
+      browser_view->vertical_tab_strip_region_view_for_testing();
+  ASSERT_TRUE(vertical_region);
+  ASSERT_TRUE(browser_view->contents_container());
+  browser_view->GetWidget()->LayoutRootViewIfNecessary();
+  const gfx::Rect rail = vertical_region->bounds();
+  const gfx::Rect contents = browser_view->contents_container()->bounds();
+  EXPECT_GE(contents.x(), rail.right());
+  EXPECT_FALSE(vertical_region->GetTopContainer()->GetVisible());
+}
+
 IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest, NewTabOpensSeoulCanvas) {
   EXPECT_EQ(GURL("chrome://seoul-canvas/"), browser()->GetNewTabURL());
   const int previous_count = browser()->tab_strip_model()->count();

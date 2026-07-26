@@ -39,3 +39,7 @@ apps/voice-lab/runtime/
 apps/voice-lab/models/
 apps/voice-lab/out/
 apps/voice-lab/recordings/
+
+.build/
+*.xcodeproj
+*.xcworkspace

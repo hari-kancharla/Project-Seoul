@@ -39,7 +39,7 @@ button { color: inherit; }
   min-height: 0;
   overflow: auto;
   scrollbar-gutter: stable;
-  padding: 22px 18px 112px;
+  padding: 22px 18px 28px;
 }
 
 .canvas-header {
@@ -2542,36 +2542,31 @@ progress { width: 100%;
  font-size: 9px; }
 
 .composer {
-  position: absolute;
+  position: relative;
   z-index: 4;
-  right: 14px;
-  bottom: 14px;
-  left: 14px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   min-height: 54px;
-  padding: 7px;
+  margin: 0 14px 14px;
+  padding: 8px 10px;
   border: 1px solid var(--rule);
   border-radius: 18px;
-  background: color-mix(in srgb, var(--panel-solid) 88%, transparent);
+  background: color-mix(in srgb, var(--panel-solid) 92%, transparent);
   box-shadow: var(--shadow);
   backdrop-filter: blur(22px) saturate(135%);
 }
 
 .voice-error {
- position: absolute;
+ position: relative;
  z-index: 5;
- right: 18px;
- bottom: 76px;
- left: 18px;
  display: flex;
  align-items: center;
  justify-content: space-between;
  gap: 12px;
  max-width: 760px;
- margin-inline: auto;
+ margin: 0 18px 10px;
  padding: 9px 11px;
  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--rule));
  border-radius: 11px;
@@ -2592,6 +2587,7 @@ progress { width: 100%;
  font-size: 17px; }
 
 .composer input { min-width: 0;
+ min-height: 38px;
  border: 0;
  outline: 0;
  background: transparent;
@@ -2733,13 +2729,11 @@ button:focus-visible,
 }
 
 @media (max-width: 520px) {
-  #canvas-root { padding: 18px 12px 104px; }
+  #canvas-root { padding: 18px 12px 20px; }
   .canvas-header { align-items: center; }
   .task-row { grid-template-columns: auto minmax(0, 1fr); }
   .task-controls { grid-column: 1 / -1; }
-  .composer { right: 9px;
- bottom: 9px;
- left: 9px; }
+  .composer { margin: 0 9px 9px; }
   .voice-button span:last-child { display: none; }
   .view-switcher { width: 100%; }
   .view-switcher button { flex: 1; }
