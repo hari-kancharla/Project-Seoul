@@ -11,6 +11,8 @@ source_set("product_core") {
   sources = [
     "capability_executor.cc",
     "capability_executor.h",
+    "live_collection_coordinator.cc",
+    "live_collection_coordinator.h",
     "page_field_safety.cc",
     "page_field_safety.h",
     "plan_json.cc",
@@ -58,6 +60,7 @@ test("seoul_product_unittests") {
   testonly = true
   sources = [
     "capability_executor_unittest.cc",
+    "live_collection_coordinator_unittest.cc",
     "page_field_safety_unittest.cc",
     "planner_unittest.cc",
     "product_e2e_unittest.cc",

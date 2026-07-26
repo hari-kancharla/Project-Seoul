@@ -139,6 +139,24 @@ TEST(PlannerTest, ApprovalPolicyIsEnforcedOnRiskyCapabilities) {
   EXPECT_TRUE(result.plan.steps[0].requires_approval);
 }
 
+TEST(PlannerTest, FirstUsePolicyMarksExactToolStepForApproval) {
+  ToolRegistry registry;
+  ToolDescriptor descriptor =
+      Descriptor("browser.tabs.open", "Opens one URL");
+  descriptor.approval = ApprovalPolicy::kFirstUsePerScope;
+  ASSERT_TRUE(registry.Register(std::move(descriptor)).has_value());
+  Plan plan;
+  PlanStep step;
+  step.id = "open";
+  step.kind = PlanStepKind::kToolCall;
+  step.tool = ToolId::FromString("browser.tabs.open");
+  step.args.Set("query", "https://example.test");
+  plan.steps.push_back(std::move(step));
+  Planner::EnforceApprovalPolicy(plan, registry);
+  ASSERT_EQ(plan.steps.size(), 1u);
+  EXPECT_TRUE(plan.steps.front().requires_approval);
+}
+
 TEST(PlannerTest, ModelOutputIsValidatedAndFallsBackWhenInvalid) {
   base::test::TaskEnvironment environment;
   ToolRegistry registry;
@@ -151,8 +169,10 @@ TEST(PlannerTest, ModelOutputIsValidatedAndFallsBackWhenInvalid) {
   // path must reject it and fall back to the deterministic plan.
   ModelPlanRequester requester = base::BindRepeating(
       [](const std::string& prompt, bool prefer_local,
+         bool allow_cloud_models,
          base::OnceCallback<void(std::optional<base::DictValue>, PlanOrigin)>
              callback) {
+        (void)allow_cloud_models;
         base::DictValue plan;
         plan.Set("goal", "x");
         base::ListValue steps;
@@ -174,6 +194,30 @@ TEST(PlannerTest, ModelOutputIsValidatedAndFallsBackWhenInvalid) {
   ASSERT_TRUE(result.ok) << result.failure;
   EXPECT_EQ(result.origin, PlanOrigin::kDeterministic);
   EXPECT_EQ(result.plan.steps[0].tool.value(), "info.lookup.glossary");
+}
+
+TEST(PlannerTest, PropagatesCloudPolicyToModelRequester) {
+  base::test::TaskEnvironment environment;
+  ToolRegistry registry;
+  bool observed_allow_cloud = true;
+  ModelPlanRequester requester = base::BindRepeating(
+      [](bool* observed_allow_cloud, const std::string& prompt,
+         bool prefer_local, bool allow_cloud_models,
+         base::OnceCallback<void(std::optional<base::DictValue>, PlanOrigin)>
+             callback) {
+        (void)prompt;
+        (void)prefer_local;
+        *observed_allow_cloud = allow_cloud_models;
+        std::move(callback).Run(std::nullopt, PlanOrigin::kDeterministic);
+      },
+      &observed_allow_cloud);
+  Planner planner(registry, std::move(requester));
+  base::test::TestFuture<PlannerResult> future;
+  planner.BuildPlan("private local request", AllowAll(),
+                    /*use_model=*/true, /*prefer_local=*/true,
+                    /*allow_cloud_models=*/false, future.GetCallback());
+  (void)future.Get();
+  EXPECT_FALSE(observed_allow_cloud);
 }
 
 TEST(PlannerTest, PromptCarriesCapabilityContracts) {

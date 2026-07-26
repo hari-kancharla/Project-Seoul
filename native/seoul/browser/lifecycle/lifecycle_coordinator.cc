@@ -14,7 +14,7 @@
 
 namespace seoul {
 
-LifecycleCoordinator::LifecycleCoordinator(OrganizationModel* model)
+LifecycleCoordinator::LifecycleCoordinator(OrganizationModel *model)
     : model_(model) {}
 
 LifecycleCoordinator::~LifecycleCoordinator() = default;
@@ -34,7 +34,7 @@ void LifecycleCoordinator::RequestReconciliation() {
 }
 
 void LifecycleCoordinator::SetConfirmationCallback(
-    base::RepeatingCallback<void(const NormalizedEvent&)> callback) {
+    base::RepeatingCallback<void(const NormalizedEvent &)> callback) {
   confirmation_callback_ = std::move(callback);
 }
 
@@ -44,8 +44,7 @@ void LifecycleCoordinator::SetPinHandlingSuppressor(
 }
 
 bool LifecycleCoordinator::ExpectTabInsertion(LiveWindowKey window,
-                                              LiveTabKey tab,
-                                              TabRole role) {
+                                              LiveTabKey tab, TabRole role) {
   if (shutting_down_ || reconciling_ || !window.is_valid() || !tab.is_valid() ||
       role == TabRole::kPinned ||
       expected_insertions_.size() >= kMaxExpectedInsertions ||
@@ -61,8 +60,34 @@ void LifecycleCoordinator::CancelExpectedTabInsertion(LiveTabKey tab) {
   expected_insertions_.erase(tab);
 }
 
+bool LifecycleCoordinator::ExpectTabArchival(LiveWindowKey window,
+                                             LiveTabKey tab,
+                                             std::string recovery_url,
+                                             std::string title) {
+  if (shutting_down_ || reconciling_ || !window.is_valid() || !tab.is_valid() ||
+      recovery_url.empty() ||
+      expected_archivals_.size() >= kMaxExpectedArchivals ||
+      expected_archivals_.contains(tab)) {
+    return false;
+  }
+  const TabMembershipId membership =
+      model_->FindMembershipIdByTabKey(tab.value());
+  const TabMembershipRecord *record =
+      membership.is_valid() ? model_->FindMembership(membership) : nullptr;
+  if (!record || record->role != TabRole::kTemporary) {
+    return false;
+  }
+  expected_archivals_.emplace(
+      tab, ExpectedArchival{window, std::move(recovery_url), std::move(title)});
+  return true;
+}
+
+void LifecycleCoordinator::CancelExpectedTabArchival(LiveTabKey tab) {
+  expected_archivals_.erase(tab);
+}
+
 bool LifecycleCoordinator::ShouldAcceptEvent(
-    const NormalizedEvent& event) const {
+    const NormalizedEvent &event) const {
   if (shutting_down_ && event.type != NormalizedEventType::kShutdownBegan) {
     return false;
   }
@@ -79,13 +104,14 @@ void LifecycleCoordinator::HandleQueueOverflow() {
   reconciliation_required_ = true;
   pending_events_.clear();
   expected_insertions_.clear();
+  expected_archivals_.clear();
   if (reconciliation_request_callback_) {
     reconciliation_request_callback_.Run();
   }
 }
 
-bool LifecycleCoordinator::EventsAreDuplicate(const NormalizedEvent& a,
-                                              const NormalizedEvent& b) {
+bool LifecycleCoordinator::EventsAreDuplicate(const NormalizedEvent &a,
+                                              const NormalizedEvent &b) {
   return a.type == b.type && a.window == b.window && a.tab == b.tab &&
          a.insert_kind == b.insert_kind && a.removal_kind == b.removal_kind &&
          a.pinned == b.pinned && a.order_index == b.order_index &&
@@ -96,7 +122,7 @@ bool LifecycleCoordinator::EventsAreDuplicate(const NormalizedEvent& a,
          a.batch_sequence == b.batch_sequence;
 }
 
-void LifecycleCoordinator::OnNormalizedEvent(const NormalizedEvent& event) {
+void LifecycleCoordinator::OnNormalizedEvent(const NormalizedEvent &event) {
   if (!ShouldAcceptEvent(event)) {
     return;
   }
@@ -117,67 +143,70 @@ void LifecycleCoordinator::OnNormalizedEvent(const NormalizedEvent& event) {
   DrainPendingEvents();
 }
 
-void LifecycleCoordinator::ProcessEvent(const NormalizedEvent& event) {
+void LifecycleCoordinator::ProcessEvent(const NormalizedEvent &event) {
   base::AutoReset<bool> applying(&applying_, true);
   const MutationOrigin effective =
       reconciling_ ? MutationOrigin::kStartupReconciliation : event.origin;
   base::AutoReset<MutationOrigin> origin(&current_origin_, effective);
 
   switch (event.type) {
-    case NormalizedEventType::kWindowDiscovered:
-      HandleWindowDiscovered(event);
-      break;
-    case NormalizedEventType::kWindowClosing:
-      break;
-    case NormalizedEventType::kWindowDestroyed:
-    case NormalizedEventType::kTabStripDestroyed:
-      HandleWindowGone(event);
-      break;
-    case NormalizedEventType::kTabInserted:
-      HandleTabInserted(event);
-      break;
-    case NormalizedEventType::kTabRemoved:
-      HandleTabRemoved(event);
-      break;
-    case NormalizedEventType::kTabMoved:
-      HandleTabMoved(event);
-      break;
-    case NormalizedEventType::kActiveTabChanged:
-      HandleActiveTabChanged(event);
-      break;
-    case NormalizedEventType::kPinnedStateChanged:
-      HandlePinnedStateChanged(event);
-      break;
-    case NormalizedEventType::kTabReplaced:
-      break;
-    case NormalizedEventType::kTabCloseCancelled:
-      break;
-    case NormalizedEventType::kSplitAdded:
-      HandleSplitAdded(event);
-      break;
-    case NormalizedEventType::kSplitRemoved:
-      HandleSplitRemoved(event);
-      break;
-    case NormalizedEventType::kSplitContentsChanged:
-      HandleSplitContentsChanged(event);
-      break;
-    case NormalizedEventType::kSplitVisualsChanged:
-      HandleSplitVisualsChanged(event);
-      break;
-    case NormalizedEventType::kReconciliationBegan:
-      reconciling_ = true;
-      pending_transfers_.clear();
-      expected_insertions_.clear();
-      break;
-    case NormalizedEventType::kReconciliationCompleted:
-      HandleReconciliationCompleted(event);
-      break;
-    case NormalizedEventType::kShutdownBegan:
-      shutting_down_ = true;
-      pending_transfers_.clear();
-      expected_insertions_.clear();
-      pending_events_.clear();
-      break;
+  case NormalizedEventType::kWindowDiscovered:
+    HandleWindowDiscovered(event);
+    break;
+  case NormalizedEventType::kWindowClosing:
+    break;
+  case NormalizedEventType::kWindowDestroyed:
+  case NormalizedEventType::kTabStripDestroyed:
+    HandleWindowGone(event);
+    break;
+  case NormalizedEventType::kTabInserted:
+    HandleTabInserted(event);
+    break;
+  case NormalizedEventType::kTabRemoved:
+    HandleTabRemoved(event);
+    break;
+  case NormalizedEventType::kTabMoved:
+    HandleTabMoved(event);
+    break;
+  case NormalizedEventType::kActiveTabChanged:
+    HandleActiveTabChanged(event);
+    break;
+  case NormalizedEventType::kPinnedStateChanged:
+    HandlePinnedStateChanged(event);
+    break;
+  case NormalizedEventType::kTabReplaced:
+    break;
+  case NormalizedEventType::kTabCloseCancelled:
+    CancelExpectedTabArchival(event.tab);
+    break;
+  case NormalizedEventType::kSplitAdded:
+    HandleSplitAdded(event);
+    break;
+  case NormalizedEventType::kSplitRemoved:
+    HandleSplitRemoved(event);
+    break;
+  case NormalizedEventType::kSplitContentsChanged:
+    HandleSplitContentsChanged(event);
+    break;
+  case NormalizedEventType::kSplitVisualsChanged:
+    HandleSplitVisualsChanged(event);
+    break;
+  case NormalizedEventType::kReconciliationBegan:
+    reconciling_ = true;
+    pending_transfers_.clear();
+    expected_insertions_.clear();
+    expected_archivals_.clear();
+    break;
+  case NormalizedEventType::kReconciliationCompleted:
+    HandleReconciliationCompleted(event);
+    break;
+  case NormalizedEventType::kShutdownBegan:
+    shutting_down_ = true;
+    pending_transfers_.clear();
+    expected_insertions_.clear();
+    expected_archivals_.clear();
+    pending_events_.clear();
+    break;
   }
 
   if (confirmation_callback_) {
@@ -198,7 +227,7 @@ void LifecycleCoordinator::DrainPendingEvents() {
 }
 
 void LifecycleCoordinator::HandleWindowDiscovered(
-    const NormalizedEvent& event) {
+    const NormalizedEvent &event) {
   if (!event.window.is_valid()) {
     return;
   }
@@ -211,27 +240,33 @@ void LifecycleCoordinator::HandleWindowDiscovered(
   const std::string window_key = event.window.value();
   const WorkspaceId active = model_->ActiveWorkspaceForWindow(window_key);
   if (!active.is_valid()) {
-    std::ignore = model_->SetActiveWorkspaceForWindow(window_key,
-                                        model_->default_workspace());
+    std::ignore = model_->SetActiveWorkspaceForWindow(
+        window_key, model_->default_workspace());
   }
 }
 
-void LifecycleCoordinator::HandleWindowGone(const NormalizedEvent& event) {
+void LifecycleCoordinator::HandleWindowGone(const NormalizedEvent &event) {
   if (!event.window.is_valid()) {
     return;
   }
   known_windows_.erase(event.window);
   ExpireTransfersForWindow(event.window);
   ExpireExpectedInsertionsForWindow(event.window);
+  ExpireExpectedArchivalsForWindow(event.window);
   std::ignore = model_->ForgetWindow(event.window.value());
 }
 
-void LifecycleCoordinator::HandleTabInserted(const NormalizedEvent& event) {
+void LifecycleCoordinator::HandleTabInserted(const NormalizedEvent &event) {
   if (!event.tab.is_valid()) {
     return;
   }
   const std::string tab_key = event.tab.value();
-  const TabMembershipId existing = model_->FindMembershipIdByTabKey(tab_key);
+  TabMembershipId existing = model_->FindMembershipIdByTabKey(tab_key);
+  if (!existing.is_valid() && event.restored_membership.is_valid() &&
+      model_->RebindTabMembership(event.restored_membership, tab_key)
+          .has_value()) {
+    existing = event.restored_membership;
+  }
   TabRole insertion_role = kNewTabRole;
   auto expected = expected_insertions_.find(event.tab);
   if (expected != expected_insertions_.end()) {
@@ -268,46 +303,63 @@ void LifecycleCoordinator::HandleTabInserted(const NormalizedEvent& event) {
   const MutationResult<TabMembershipId> result =
       model_->AddTabMembership(ws, tab_key, insertion_role);
   if (result.has_value() && event.order_index >= 0) {
-    std::ignore = model_->ReorderTabMembership(result.value(), event.order_index);
+    std::ignore =
+        model_->ReorderTabMembership(result.value(), event.order_index);
   }
 }
 
-void LifecycleCoordinator::HandleTabRemoved(const NormalizedEvent& event) {
+void LifecycleCoordinator::HandleTabRemoved(const NormalizedEvent &event) {
   if (!event.tab.is_valid()) {
     return;
   }
+  auto expected_archive = expected_archivals_.find(event.tab);
   switch (event.removal_kind) {
-    case TabRemovalKind::kGenuineClose: {
-      const TabMembershipId id =
-          model_->FindMembershipIdByTabKey(event.tab.value());
-      if (id.is_valid()) {
+  case TabRemovalKind::kGenuineClose: {
+    const TabMembershipId id =
+        model_->FindMembershipIdByTabKey(event.tab.value());
+    if (id.is_valid()) {
+      const bool should_archive =
+          expected_archive != expected_archivals_.end() &&
+          expected_archive->second.window == event.window;
+      if (should_archive) {
+        const MutationStatus archived =
+            model_->ArchiveTab(id, expected_archive->second.recovery_url,
+                               expected_archive->second.title);
+        if (!archived.has_value()) {
+          std::ignore = model_->RemoveTabMembership(id);
+        }
+      } else {
         std::ignore = model_->RemoveTabMembership(id);
       }
-      pending_transfers_.erase(event.tab);
-      break;
     }
-    case TabRemovalKind::kTransferOut: {
-      const TabMembershipId id =
-          model_->FindMembershipIdByTabKey(event.tab.value());
-      const TabMembershipRecord* m =
-          id.is_valid() ? model_->FindMembership(id) : nullptr;
-      if (m) {
-        EvictOldestTransferIfNeeded();
-        pending_transfers_[event.tab] = {m->workspace_id, ++sequence_};
-      }
-      break;
+    expected_archivals_.erase(event.tab);
+    pending_transfers_.erase(event.tab);
+    break;
+  }
+  case TabRemovalKind::kTransferOut: {
+    expected_archivals_.erase(event.tab);
+    const TabMembershipId id =
+        model_->FindMembershipIdByTabKey(event.tab.value());
+    const TabMembershipRecord *m =
+        id.is_valid() ? model_->FindMembership(id) : nullptr;
+    if (m) {
+      EvictOldestTransferIfNeeded();
+      pending_transfers_[event.tab] = {m->workspace_id, ++sequence_};
     }
-    case TabRemovalKind::kSidePanel:
-    case TabRemovalKind::kReplaced:
-    case TabRemovalKind::kWindowShutdown:
-    case TabRemovalKind::kStripDestroyed:
-    case TabRemovalKind::kUnknown:
-      pending_transfers_.erase(event.tab);
-      break;
+    break;
+  }
+  case TabRemovalKind::kSidePanel:
+  case TabRemovalKind::kReplaced:
+  case TabRemovalKind::kWindowShutdown:
+  case TabRemovalKind::kStripDestroyed:
+  case TabRemovalKind::kUnknown:
+    expected_archivals_.erase(event.tab);
+    pending_transfers_.erase(event.tab);
+    break;
   }
 }
 
-void LifecycleCoordinator::HandleTabMoved(const NormalizedEvent& event) {
+void LifecycleCoordinator::HandleTabMoved(const NormalizedEvent &event) {
   if (!event.tab.is_valid() || event.order_index < 0) {
     return;
   }
@@ -320,7 +372,7 @@ void LifecycleCoordinator::HandleTabMoved(const NormalizedEvent& event) {
 }
 
 void LifecycleCoordinator::HandleActiveTabChanged(
-    const NormalizedEvent& event) {
+    const NormalizedEvent &event) {
   if (!event.tab.is_valid()) {
     return;
   }
@@ -331,19 +383,19 @@ void LifecycleCoordinator::HandleActiveTabChanged(
   }
   std::ignore = model_->TouchTabActivated(id);
 
-  const TabMembershipRecord* m = model_->FindMembership(id);
+  const TabMembershipRecord *m = model_->FindMembership(id);
   if (m && event.window.is_valid() && m->workspace_id.is_valid()) {
     const WorkspaceId current =
         model_->ActiveWorkspaceForWindow(event.window.value());
     if (!(m->workspace_id == current)) {
       std::ignore = model_->SetActiveWorkspaceForWindow(event.window.value(),
-                                          m->workspace_id);
+                                                        m->workspace_id);
     }
   }
 }
 
 void LifecycleCoordinator::HandlePinnedStateChanged(
-    const NormalizedEvent& event) {
+    const NormalizedEvent &event) {
   if (!event.tab.is_valid()) {
     return;
   }
@@ -355,7 +407,7 @@ void LifecycleCoordinator::HandlePinnedStateChanged(
   if (!id.is_valid()) {
     return;
   }
-  const TabMembershipRecord* m = model_->FindMembership(id);
+  const TabMembershipRecord *m = model_->FindMembership(id);
   if (!m) {
     return;
   }
@@ -372,7 +424,7 @@ void LifecycleCoordinator::HandlePinnedStateChanged(
   }
 }
 
-void LifecycleCoordinator::HandleSplitAdded(const NormalizedEvent& event) {
+void LifecycleCoordinator::HandleSplitAdded(const NormalizedEvent &event) {
   if (event.upstream_split_token.empty() || !event.split_pane_a.is_valid() ||
       !event.split_pane_b.is_valid()) {
     return;
@@ -384,9 +436,9 @@ void LifecycleCoordinator::HandleSplitAdded(const NormalizedEvent& event) {
       model_->FindMembershipIdByTabKey(event.split_pane_a.value());
   const TabMembershipId b =
       model_->FindMembershipIdByTabKey(event.split_pane_b.value());
-  const TabMembershipRecord* ma =
+  const TabMembershipRecord *ma =
       a.is_valid() ? model_->FindMembership(a) : nullptr;
-  const TabMembershipRecord* mb =
+  const TabMembershipRecord *mb =
       b.is_valid() ? model_->FindMembership(b) : nullptr;
   if (!ma || !mb) {
     return;
@@ -396,11 +448,11 @@ void LifecycleCoordinator::HandleSplitAdded(const NormalizedEvent& event) {
   }
   const std::vector<std::string> panes = {event.split_pane_a.value(),
                                           event.split_pane_b.value()};
-  std::ignore = model_->CreateSplitGroup(ma->workspace_id, panes, event.divider_ratio,
-                           event.upstream_split_token);
+  std::ignore = model_->CreateSplitGroup(
+      ma->workspace_id, panes, event.divider_ratio, event.upstream_split_token);
 }
 
-void LifecycleCoordinator::HandleSplitRemoved(const NormalizedEvent& event) {
+void LifecycleCoordinator::HandleSplitRemoved(const NormalizedEvent &event) {
   const SplitGroupId id = FindSplitByToken(event.upstream_split_token);
   if (id.is_valid()) {
     std::ignore = model_->DissolveSplitGroup(id);
@@ -408,7 +460,7 @@ void LifecycleCoordinator::HandleSplitRemoved(const NormalizedEvent& event) {
 }
 
 void LifecycleCoordinator::HandleSplitContentsChanged(
-    const NormalizedEvent& event) {
+    const NormalizedEvent &event) {
   if (event.upstream_split_token.empty() || !event.split_pane_a.is_valid() ||
       !event.split_pane_b.is_valid()) {
     const SplitGroupId stale = FindSplitByToken(event.upstream_split_token);
@@ -422,7 +474,7 @@ void LifecycleCoordinator::HandleSplitContentsChanged(
   double ratio = event.divider_ratio;
   int active_pane = 0;
   if (existing.is_valid()) {
-    const SplitGroupRecord* s = model_->FindSplit(existing);
+    const SplitGroupRecord *s = model_->FindSplit(existing);
     if (s) {
       if (event.has_divider_ratio) {
         if (ratio < kMinDividerRatio || ratio > kMaxDividerRatio) {
@@ -448,7 +500,7 @@ void LifecycleCoordinator::HandleSplitContentsChanged(
 }
 
 void LifecycleCoordinator::HandleSplitVisualsChanged(
-    const NormalizedEvent& event) {
+    const NormalizedEvent &event) {
   if (event.split_visuals_intermediate) {
     return;
   }
@@ -456,13 +508,13 @@ void LifecycleCoordinator::HandleSplitVisualsChanged(
   if (!id.is_valid()) {
     return;
   }
-  const SplitGroupRecord* s = model_->FindSplit(id);
+  const SplitGroupRecord *s = model_->FindSplit(id);
   const int active = s ? s->active_pane_index : 0;
   std::ignore = model_->UpdateSplitLayout(id, event.divider_ratio, active);
 }
 
 void LifecycleCoordinator::HandleReconciliationCompleted(
-    const NormalizedEvent& event) {
+    const NormalizedEvent &event) {
   (void)event;
   reconciling_ = false;
   pending_transfers_.clear();
@@ -472,8 +524,8 @@ void LifecycleCoordinator::HandleReconciliationCompleted(
   }
 }
 
-WorkspaceId LifecycleCoordinator::ActiveOrDefaultWorkspace(
-    const LiveWindowKey& window) {
+WorkspaceId
+LifecycleCoordinator::ActiveOrDefaultWorkspace(const LiveWindowKey &window) {
   WorkspaceId ws;
   if (window.is_valid()) {
     ws = model_->ActiveWorkspaceForWindow(window.value());
@@ -484,8 +536,8 @@ WorkspaceId LifecycleCoordinator::ActiveOrDefaultWorkspace(
   return ws;
 }
 
-SplitGroupId LifecycleCoordinator::FindSplitByToken(
-    const std::string& token) const {
+SplitGroupId
+LifecycleCoordinator::FindSplitByToken(const std::string &token) const {
   return model_->FindSplitIdByUpstreamToken(token);
 }
 
@@ -504,17 +556,23 @@ void LifecycleCoordinator::EvictOldestTransferIfNeeded() {
 }
 
 void LifecycleCoordinator::ExpireTransfersForWindow(
-    const LiveWindowKey& window) {
+    const LiveWindowKey &window) {
   (void)window;
   pending_transfers_.clear();
 }
 
 void LifecycleCoordinator::ExpireExpectedInsertionsForWindow(
-    const LiveWindowKey& window) {
-  std::erase_if(expected_insertions_,
-                [&window](const auto& entry) {
-                  return entry.second.window == window;
-                });
+    const LiveWindowKey &window) {
+  std::erase_if(expected_insertions_, [&window](const auto &entry) {
+    return entry.second.window == window;
+  });
 }
 
-}  // namespace seoul
+void LifecycleCoordinator::ExpireExpectedArchivalsForWindow(
+    const LiveWindowKey &window) {
+  std::erase_if(expected_archivals_, [&window](const auto &entry) {
+    return entry.second.window == window;
+  });
+}
+
+} // namespace seoul

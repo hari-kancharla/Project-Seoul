@@ -32,18 +32,18 @@ struct SceneLifecyclePolicy {
   int idle_archive_minutes = 60;
   bool restore_on_activation = true;
 
-  friend bool operator==(const SceneLifecyclePolicy&,
-                         const SceneLifecyclePolicy&) = default;
+  friend bool operator==(const SceneLifecyclePolicy &,
+                         const SceneLifecyclePolicy &) = default;
 };
 
 // Assistant context defaults: what the operator may reach by default in this
 // Scene (still capped by the user's global permission context at run time).
 struct SceneAssistantDefaults {
   SceneAssistantDefaults();
-  SceneAssistantDefaults(const SceneAssistantDefaults&);
-  SceneAssistantDefaults(SceneAssistantDefaults&&);
-  SceneAssistantDefaults& operator=(const SceneAssistantDefaults&);
-  SceneAssistantDefaults& operator=(SceneAssistantDefaults&&);
+  SceneAssistantDefaults(const SceneAssistantDefaults &);
+  SceneAssistantDefaults(SceneAssistantDefaults &&);
+  SceneAssistantDefaults &operator=(const SceneAssistantDefaults &);
+  SceneAssistantDefaults &operator=(SceneAssistantDefaults &&);
   ~SceneAssistantDefaults();
 
   bool allow_network = false;
@@ -52,23 +52,23 @@ struct SceneAssistantDefaults {
   // Connector providers auto-attached to tasks started in this Scene.
   std::vector<std::string> default_connectors;
 
-  friend bool operator==(const SceneAssistantDefaults&,
-                         const SceneAssistantDefaults&) = default;
+  friend bool operator==(const SceneAssistantDefaults &,
+                         const SceneAssistantDefaults &) = default;
 };
 
 struct SceneDefinition {
   SceneDefinition();
-  SceneDefinition(const SceneDefinition&);
-  SceneDefinition(SceneDefinition&&);
-  SceneDefinition& operator=(const SceneDefinition&);
-  SceneDefinition& operator=(SceneDefinition&&);
+  SceneDefinition(const SceneDefinition &);
+  SceneDefinition(SceneDefinition &&);
+  SceneDefinition &operator=(const SceneDefinition &);
+  SceneDefinition &operator=(SceneDefinition &&);
   ~SceneDefinition();
 
   int schema_version = kSceneSchemaVersion;
   std::string id;
   std::string name;
-  std::string workspace_id;  // referenced organization workspace
-  std::string theme_id;      // referenced theme (empty: global theme)
+  std::string workspace_id; // referenced organization workspace
+  std::string theme_id;     // referenced theme (empty: global theme)
   std::vector<std::string> site_layer_ids;
   std::vector<std::string> routing_rule_ids;
   std::vector<std::string> workflow_shortcut_ids;
@@ -76,8 +76,8 @@ struct SceneDefinition {
   SceneAssistantDefaults assistant;
   bool prefer_compact = false;
 
-  friend bool operator==(const SceneDefinition&,
-                         const SceneDefinition&) = default;
+  friend bool operator==(const SceneDefinition &,
+                         const SceneDefinition &) = default;
 };
 
 enum class SceneError {
@@ -90,18 +90,21 @@ enum class SceneError {
   kUnknownWorkspace,
   kUnknownTheme,
   kUnknownSiteLayer,
+  kUnknownRoutingRule,
+  kUnknownWorkflow,
   kInvalidLifecyclePolicy,
   kUnsupportedSchema,
   kLimitExceeded,
+  kInUse,
+  kActivationFailed,
 };
 
-const char* SceneErrorToString(SceneError error);
+const char *SceneErrorToString(SceneError error);
 
-template <typename T>
-using SceneResult = base::expected<T, SceneError>;
+template <typename T> using SceneResult = base::expected<T, SceneError>;
 
 using SceneStatusResult = base::expected<void, SceneError>;
 
-}  // namespace seoul
+} // namespace seoul
 
-#endif  // SEOUL_BROWSER_SCENES_SCENE_TYPES_H_
+#endif // SEOUL_BROWSER_SCENES_SCENE_TYPES_H_

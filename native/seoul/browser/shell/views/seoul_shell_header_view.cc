@@ -11,38 +11,53 @@
 // nogncheck: //chrome/browser/ui reaches this target through the side-panel
 // Canvas registration, so a declared dep would be a dependency cycle; the
 // symbols link through //chrome/browser like the other circular includes.
-#include "chrome/browser/ui/views/chrome_layout_provider.h"  // nogncheck
+#include "chrome/browser/ui/views/chrome_layout_provider.h" // nogncheck
 #include "seoul/browser/shell/shell_controller.h"
+#include "seoul/browser/shell/views/seoul_command_launcher_view.h"
 #include "seoul/browser/shell/views/seoul_workspace_menu.h"
-#include "ui/base/mojom/menu_source_type.mojom.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/mojom/menu_source_type.mojom.h"
+#include "ui/color/color_id.h"
+#include "ui/events/event_constants.h"
+#include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/menus/simple_menu_model.h"
 #include "ui/views/accessibility/view_accessibility.h"
+#include "ui/views/background.h"
+#include "ui/views/border.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/label.h"
-#include "ui/views/layout/box_layout.h"
 #include "ui/views/controls/menu/menu_runner.h"
+#include "ui/views/layout/box_layout.h"
 #include "ui/views/widget/widget.h"
 
 namespace seoul {
 namespace {
 
 constexpr int kEssentialOverflowCommandBase = 1;
+constexpr int kShellCornerRadius = 8;
 
-std::u16string EssentialLabel(const ShellEssentialItem& essential) {
+void StyleNavigationButton(views::LabelButton *button,
+                           bool emphasized = false) {
+  button->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+  button->SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(6, 8)));
+  button->SetBackground(views::CreateRoundedRectBackground(
+      emphasized ? ui::kColorSysSurface3 : ui::kColorSysSurface1,
+      kShellCornerRadius));
+  button->SetEnabledTextColors(ui::kColorSysOnSurface);
+}
+
+std::u16string EssentialLabel(const ShellEssentialItem &essential) {
   return base::UTF8ToUTF16(essential.name.empty() ? essential.root_url
                                                   : essential.name);
 }
 
-class EssentialsOverflowMenuModel final
-    : public ui::SimpleMenuModel,
-      public ui::SimpleMenuModel::Delegate {
- public:
-  EssentialsOverflowMenuModel(
-      ShellController* controller,
-      std::vector<ShellEssentialItem> essentials)
-      : ui::SimpleMenuModel(this),
-        controller_(controller),
+class EssentialsOverflowMenuModel final : public ui::SimpleMenuModel,
+                                          public ui::SimpleMenuModel::Delegate {
+public:
+  EssentialsOverflowMenuModel(ShellController *controller,
+                              std::vector<ShellEssentialItem> essentials)
+      : ui::SimpleMenuModel(this), controller_(controller),
         essentials_(std::move(essentials)) {
     for (size_t index = 0; index < essentials_.size(); ++index) {
       AddItem(kEssentialOverflowCommandBase + static_cast<int>(index),
@@ -67,16 +82,23 @@ class EssentialsOverflowMenuModel final
     std::ignore = controller_->OpenEssential(essentials_[index].id);
   }
 
- private:
+private:
   raw_ptr<ShellController> controller_;
   std::vector<ShellEssentialItem> essentials_;
 };
 
-}  // namespace
+} // namespace
 
-SeoulShellHeaderView::SeoulShellHeaderView(ShellController* controller) {
-  SetLayoutManager(std::make_unique<views::BoxLayout>(
-      views::BoxLayout::Orientation::kVertical));
+SeoulShellHeaderView::SeoulShellHeaderView(ShellController *controller) {
+  auto *layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
+      views::BoxLayout::Orientation::kVertical, gfx::Insets::TLBR(4, 8, 8, 8),
+      8));
+  layout->set_cross_axis_alignment(
+      views::BoxLayout::CrossAxisAlignment::kStretch);
+  AddAccelerator(ui::Accelerator(ui::VKEY_K, ui::EF_PLATFORM_ACCELERATOR |
+                                                 ui::EF_SHIFT_DOWN));
+  AddAccelerator(ui::Accelerator(ui::VKEY_C, ui::EF_PLATFORM_ACCELERATOR |
+                                                 ui::EF_SHIFT_DOWN));
   BindController(controller);
 }
 
@@ -86,7 +108,7 @@ SeoulShellHeaderView::~SeoulShellHeaderView() {
   }
 }
 
-void SeoulShellHeaderView::BindController(ShellController* controller) {
+void SeoulShellHeaderView::BindController(ShellController *controller) {
   if (controller_ == controller) {
     return;
   }
@@ -103,34 +125,83 @@ void SeoulShellHeaderView::BindController(ShellController* controller) {
   }
 }
 
+void SeoulShellHeaderView::SetPresentationCollapsed(bool collapsed) {
+  if (presentation_collapsed_ == collapsed) {
+    return;
+  }
+  presentation_collapsed_ = collapsed;
+  essentials_initialized_ = false;
+  if (controller_) {
+    RebuildFromSnapshot(controller_->snapshot());
+  }
+  InvalidateLayout();
+  PreferredSizeChanged();
+}
+
 void SeoulShellHeaderView::OnShellSnapshotChanged(
-    const ShellChange& change,
-    const ShellSnapshot& snapshot) {
+    const ShellChange &change, const ShellSnapshot &snapshot) {
   (void)change;
   RebuildFromSnapshot(snapshot);
 }
 
-void SeoulShellHeaderView::RebuildFromSnapshot(const ShellSnapshot& snapshot) {
+bool SeoulShellHeaderView::AcceleratorPressed(
+    const ui::Accelerator &accelerator) {
+  const ui::Accelerator launcher(ui::VKEY_K, ui::EF_PLATFORM_ACCELERATOR |
+                                                 ui::EF_SHIFT_DOWN);
+  const ui::Accelerator compact(ui::VKEY_C, ui::EF_PLATFORM_ACCELERATOR |
+                                                ui::EF_SHIFT_DOWN);
+  if (!controller_ || !GetWidget()) {
+    return false;
+  }
+  if (accelerator == launcher) {
+    OnCommandLauncherPressed();
+    return true;
+  }
+  if (accelerator == compact) {
+    std::ignore = controller_->ToggleCompactMode();
+    return true;
+  }
+  return false;
+}
+
+void SeoulShellHeaderView::RebuildFromSnapshot(const ShellSnapshot &snapshot) {
   if (!workspace_button_) {
-    workspace_button_ = AddChildView(std::make_unique<views::LabelButton>(
-        base::BindRepeating(&SeoulShellHeaderView::OnWorkspaceButtonPressed,
-                            base::Unretained(this)),
-        u"Workspace"));
+    workspace_row_ = AddChildView(std::make_unique<views::View>());
+    auto *workspace_layout =
+        workspace_row_->SetLayoutManager(std::make_unique<views::BoxLayout>(
+            views::BoxLayout::Orientation::kHorizontal, gfx::Insets(), 4));
+    workspace_layout->set_cross_axis_alignment(
+        views::BoxLayout::CrossAxisAlignment::kStretch);
+    workspace_button_ =
+        workspace_row_->AddChildView(std::make_unique<views::LabelButton>(
+            base::BindRepeating(&SeoulShellHeaderView::OnWorkspaceButtonPressed,
+                                base::Unretained(this)),
+            u"Workspace"));
+    workspace_layout->SetFlexForView(workspace_button_, 1);
+    StyleNavigationButton(workspace_button_, true);
     workspace_button_->GetViewAccessibility().SetRole(ax::mojom::Role::kButton);
     workspace_button_->GetViewAccessibility().SetName(u"Workspace switcher");
+
+    launcher_button_ =
+        workspace_row_->AddChildView(std::make_unique<views::LabelButton>(
+            base::BindRepeating(&SeoulShellHeaderView::OnCommandLauncherPressed,
+                                base::Unretained(this)),
+            u"⌘"));
+    StyleNavigationButton(launcher_button_);
+    launcher_button_->SetTooltipText(u"Open command palette");
+    launcher_button_->GetViewAccessibility().SetName(u"Open command palette");
+
+    essentials_label_ = AddChildView(std::make_unique<views::Label>(
+        u"Essentials", views::style::CONTEXT_LABEL,
+        views::style::STYLE_SECONDARY));
+    essentials_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     essentials_container_ = AddChildView(std::make_unique<views::View>());
     essentials_layout_ = essentials_container_->SetLayoutManager(
         std::make_unique<views::BoxLayout>(
-            views::BoxLayout::Orientation::kHorizontal));
-    pinned_section_label_ = AddChildView(std::make_unique<views::Label>(
-        u"", views::style::CONTEXT_LABEL, views::style::STYLE_SECONDARY));
-    retained_section_label_ = AddChildView(std::make_unique<views::Label>(
-        u"", views::style::CONTEXT_LABEL, views::style::STYLE_SECONDARY));
-    temporary_section_label_ = AddChildView(std::make_unique<views::Label>(
-        u"", views::style::CONTEXT_LABEL, views::style::STYLE_SECONDARY));
+            views::BoxLayout::Orientation::kHorizontal, gfx::Insets(), 4));
   }
 
-  const bool collapsed = snapshot.mode == ShellMode::kCollapsed;
+  const bool collapsed = presentation_collapsed_;
   const std::u16string workspace_name =
       base::UTF8ToUTF16(snapshot.workspace.name);
   std::u16string workspace_label = workspace_name;
@@ -143,6 +214,12 @@ void SeoulShellHeaderView::RebuildFromSnapshot(const ShellSnapshot& snapshot) {
   if (snapshot.workspace.switching) {
     workspace_label = u"… " + workspace_label;
   }
+  if (!collapsed) {
+    workspace_label = base::UTF8ToUTF16(snapshot.workspace.icon.empty()
+                                            ? "◈  "
+                                            : snapshot.workspace.icon + "  ") +
+                      workspace_label + u"  ▾";
+  }
   workspace_button_->SetText(workspace_label);
   workspace_button_->SetTooltipText(
       workspace_name.empty() ? u"Workspace switcher" : workspace_name);
@@ -153,8 +230,8 @@ void SeoulShellHeaderView::RebuildFromSnapshot(const ShellSnapshot& snapshot) {
   if (snapshot.workspace.switching) {
     workspace_accessible_name += u", switching";
   }
-  workspace_button_->GetViewAccessibility().SetName(
-      workspace_accessible_name);
+  workspace_button_->GetViewAccessibility().SetName(workspace_accessible_name);
+  launcher_button_->SetVisible(!collapsed);
 
   if (!essentials_initialized_ || essentials_collapsed_ != collapsed ||
       rendered_essentials_ != snapshot.essentials) {
@@ -163,22 +240,26 @@ void SeoulShellHeaderView::RebuildFromSnapshot(const ShellSnapshot& snapshot) {
     essentials_layout_->SetOrientation(
         collapsed ? views::BoxLayout::Orientation::kVertical
                   : views::BoxLayout::Orientation::kHorizontal);
-    constexpr size_t kMaxVisibleEssentials = 6;
+    constexpr size_t kMaxVisibleEssentials = 5;
     const size_t visible_count =
         std::min(snapshot.essentials.size(), kMaxVisibleEssentials);
     for (size_t index = 0; index < visible_count; ++index) {
-      const ShellEssentialItem& essential = snapshot.essentials[index];
+      const ShellEssentialItem &essential = snapshot.essentials[index];
       const std::u16string label = EssentialLabel(essential);
-      auto* button = essentials_container_->AddChildView(
+      const std::u16string icon =
+          essential.icon.empty() ? (label.empty() ? u"★" : label.substr(0, 1))
+                                 : base::UTF8ToUTF16(essential.icon);
+      auto *button = essentials_container_->AddChildView(
           std::make_unique<views::LabelButton>(
               base::BindRepeating(
-                  [](ShellController* controller, EssentialId id) {
+                  [](ShellController *controller, EssentialId id) {
                     if (controller) {
                       std::ignore = controller->OpenEssential(id);
                     }
                   },
                   controller_, essential.id),
-              collapsed ? u"★" : label));
+              icon));
+      StyleNavigationButton(button, essential.is_active);
       button->GetViewAccessibility().SetName(label);
       if (essential.is_active) {
         button->GetViewAccessibility().SetDescription(u"Current tab");
@@ -196,7 +277,8 @@ void SeoulShellHeaderView::RebuildFromSnapshot(const ShellSnapshot& snapshot) {
               base::BindRepeating(
                   &SeoulShellHeaderView::OnEssentialsOverflowPressed,
                   base::Unretained(this)),
-              u"+" + count));
+              u"＋"));
+      StyleNavigationButton(essentials_overflow_button_);
       essentials_overflow_button_->GetViewAccessibility().SetName(
           count + u" more Essentials");
       essentials_overflow_button_->SetTooltipText(u"Show more Essentials");
@@ -205,34 +287,27 @@ void SeoulShellHeaderView::RebuildFromSnapshot(const ShellSnapshot& snapshot) {
     essentials_collapsed_ = collapsed;
     essentials_initialized_ = true;
   }
-
-  auto section_text = [&](ShellSection section, const char* fallback) {
-    for (const ShellSectionInfo& info : snapshot.sections) {
-      if (info.section == section && info.visible) {
-        return base::UTF8ToUTF16(info.label.empty() ? fallback : info.label);
-      }
-    }
-    return std::u16string();
-  };
-  pinned_section_label_->SetText(
-      section_text(ShellSection::kWorkspacePinned, "Pinned"));
-  retained_section_label_->SetText(
-      section_text(ShellSection::kRetainedTabs, "Retained"));
-  temporary_section_label_->SetText(
-      section_text(ShellSection::kTemporaryTabs, "Temporary"));
-  pinned_section_label_->SetVisible(
-      !collapsed && !pinned_section_label_->GetText().empty());
-  retained_section_label_->SetVisible(
-      !collapsed && !retained_section_label_->GetText().empty());
-  temporary_section_label_->SetVisible(
-      !collapsed && !temporary_section_label_->GetText().empty());
+  essentials_label_->SetVisible(!collapsed && !snapshot.essentials.empty());
+  essentials_container_->SetVisible(!snapshot.essentials.empty());
 }
 
 void SeoulShellHeaderView::OnWorkspaceButtonPressed() {
   if (!controller_ || !GetWidget()) {
     return;
   }
-  SeoulWorkspaceMenu::Show(GetWidget()->GetNativeWindow(), workspace_button_, controller_);
+  SeoulWorkspaceMenu::Show(GetWidget()->GetNativeWindow(), workspace_button_,
+                           controller_);
+}
+
+void SeoulShellHeaderView::OnCommandLauncherPressed() {
+  if (!controller_ || !workspace_button_ || !GetWidget()) {
+    return;
+  }
+  views::View *anchor = launcher_button_ && launcher_button_->GetVisible()
+                            ? launcher_button_
+                            : workspace_button_;
+  SeoulCommandLauncherView::Show(GetWidget()->GetNativeWindow(), anchor,
+                                 controller_);
 }
 
 void SeoulShellHeaderView::OnEssentialsOverflowPressed() {
@@ -240,15 +315,19 @@ void SeoulShellHeaderView::OnEssentialsOverflowPressed() {
       overflow_essentials_.empty() || !GetWidget()) {
     return;
   }
-  EssentialsOverflowMenuModel model(controller_, overflow_essentials_);
-  views::MenuRunner runner(&model, views::MenuRunner::HAS_MNEMONICS);
-  runner.RunMenuAt(GetWidget(), nullptr,
-                   essentials_overflow_button_->GetAnchorBoundsInScreen(),
-                   views::MenuAnchorPosition::kTopLeft,
-                   ui::mojom::MenuSourceType::kKeyboard);
+  essentials_overflow_menu_model_ =
+      std::make_unique<EssentialsOverflowMenuModel>(controller_,
+                                                    overflow_essentials_);
+  essentials_overflow_menu_runner_ = std::make_unique<views::MenuRunner>(
+      essentials_overflow_menu_model_.get(), views::MenuRunner::HAS_MNEMONICS);
+  essentials_overflow_menu_runner_->RunMenuAt(
+      GetWidget(), nullptr,
+      essentials_overflow_button_->GetAnchorBoundsInScreen(),
+      views::MenuAnchorPosition::kTopLeft,
+      ui::mojom::MenuSourceType::kKeyboard);
 }
 
 BEGIN_METADATA(SeoulShellHeaderView)
 END_METADATA
 
-}  // namespace seoul
+} // namespace seoul

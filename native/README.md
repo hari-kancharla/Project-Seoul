@@ -20,8 +20,7 @@ source and no build output**.
   `src/seoul/`. It is the source of truth; the checkout copy is disposable.
 - **Unavoidable upstream Chromium edits are minimal, ordered, reversible patches**
   under `patches/chromium/`, described by `patches/manifest.json` and applied by
-  `scripts/patches.sh`. The current two-patch series separates mechanical native
-  integration from Seoul's intentional fresh-profile product defaults.
+  `scripts/patches.sh`.
 - **Upstream vertical tabs and split view must be EXTENDED before any replacement
   is considered.** The pinned revision already ships both (see
   `../docs/native/chromium-baseline.md`); Seoul builds on them.
@@ -43,6 +42,9 @@ source and no build output**.
 - `gen.sh` - GN generation (gated by `build-host-check.sh`). `gen.sh --verify`
   prints the effective args without a checkout.
 - `build.sh` - build the `chrome` target (gated). Job count via `SEOUL_NINJA_JOBS`.
+- `test.sh` - build and run every Seoul native unit executable or the focused
+  browser integration suite. Browser cases use disposable profiles, explicit
+  headless flags, and never select an installed browser.
 - `run.sh` / `smoke.mjs` - launch with a disposable profile / launch smoke test.
 
 ## Configuration
@@ -53,8 +55,9 @@ source and no build output**.
 - `SEOUL_NINJA_JOBS` - explicit Ninja job count (validated positive integer). When
   unset, a conservative memory-aware default is used (about one job per 4 GiB of
   RAM, floored at 2). There is no unconditional hard-coded value.
-- `SEOUL_PYTHON3` - absolute path to Python 3.10 or newer when the host's
-  `python3` is older. The scripts put its directory first for Ninja actions.
+- `SEOUL_PYTHON3` - optional absolute path to Python 3.10 or newer. The scripts
+  automatically use depot_tools' pinned bootstrap Python when the host's
+  `python3` is older, and put the selected interpreter first for Ninja actions.
 - `SEOUL_MIN_RAM_GIB` (default 16) and `SEOUL_MIN_BUILD_FREE_GIB` (default 150) -
   the build-host minimums enforced by `build-host-check.sh`.
 

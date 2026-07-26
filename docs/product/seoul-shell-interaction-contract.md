@@ -142,22 +142,31 @@ Vertical-tab mode required for V0 projection visibility. Horizontal strip does n
 - Model: `BeginPromotion(kTab|kSplit)` locks the lifecycle; only a successful
   Chromium transfer may call `CommitPromotion`, while failure calls
   `AbortPromotion` and leaves the Preview ready.
+- Routing: promotion re-evaluates the current rule set. A specific-Workspace
+  result switches first and creates retained membership there; a split result
+  creates a native split. Approval/external results reject before transfer.
 - Persistence: the new membership/split persists; the preview identity ends.
 - Focus: focus the promoted tab/pane.
 - Accessibility: announce "Preview opened as tab".
 - Reduced motion: instant.
-- Failure: a preview never becomes a retained tab implicitly; only this explicit
-  promotion creates one.
+- Failure: a pre-transfer routing, Workspace, parent-tab, split, or lifecycle
+  failure restores the original Workspace when necessary and leaves the
+  Preview ready. Once native ownership transfers, the Preview identity ends;
+  the result is reported failed if its tab/split postcondition is not observed.
+  A preview never becomes a retained tab implicitly.
 
 ## Compact mode
 - Trigger: toggle compact browsing.
 - Visible: chrome/sidebar auto-hides to maximize content.
-- Model: none (a view preference, not organization state).
-- Persistence: a UI preference (outside the organization store).
+- Model: a user-owned preference keyed by durable Workspace identity, separate
+  from organization membership and temporarily overridden by an active Scene.
+- Persistence: stored with bounded product presentation state and reapplied on
+  Workspace switch and relaunch.
 - Focus: unchanged content focus; revealed chrome is reachable by keyboard.
 - Accessibility: hidden chrome must remain keyboard- and screen-reader-reachable.
 - Reduced motion: no slide; instant hide/show.
-- Failure: n/a.
+- Failure: direct changes are rejected with a clear reason while a Scene owns
+  compact presentation; native completion is verified before success.
 
 ## Keyboard navigation
 - Trigger: keyboard shortcuts for workspace switch, new/close tab, split, command

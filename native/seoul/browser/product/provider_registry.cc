@@ -227,18 +227,21 @@ bool ProviderRegistry::cloud_available() const {
          credentials_->Get(kCloudReasoningCredentialAccount).has_value();
 }
 
-bool ProviderRegistry::HasUsableProvider() const {
-  return local_available() || cloud_available();
+bool ProviderRegistry::HasUsableProvider(bool allow_cloud_models) const {
+  return local_available() || (allow_cloud_models && cloud_available());
 }
 
-ModelProvider* ProviderRegistry::PickProvider(bool prefer_local) const {
+ModelProvider* ProviderRegistry::PickProvider(
+    bool prefer_local,
+    bool allow_cloud_models) const {
   if (prefer_local) {
     if (local_available()) {
       return local_provider_.get();
     }
-    return cloud_available() ? cloud_provider_.get() : nullptr;
+    return allow_cloud_models && cloud_available() ? cloud_provider_.get()
+                                                   : nullptr;
   }
-  if (cloud_available()) {
+  if (allow_cloud_models && cloud_available()) {
     return cloud_provider_.get();
   }
   return local_available() ? local_provider_.get() : nullptr;
@@ -252,9 +255,11 @@ ModelPlanRequester ProviderRegistry::MakePlanRequester() {
 void ProviderRegistry::RequestPlan(
     const std::string& prompt,
     bool prefer_local,
+    bool allow_cloud_models,
     base::OnceCallback<void(std::optional<base::DictValue>, PlanOrigin)>
         callback) {
-  ModelProvider* provider = PickProvider(prefer_local);
+  ModelProvider* provider =
+      PickProvider(prefer_local, allow_cloud_models);
   if (!provider || shutting_down_) {
     std::move(callback).Run(std::nullopt, PlanOrigin::kDeterministic);
     return;
@@ -303,7 +308,8 @@ void ProviderRegistry::OnPlanGenerated(
 void ProviderRegistry::Generate(const GenerationRequest& request,
                                 bool prefer_local,
                                 ModelProvider::GenerateCallback callback) {
-  ModelProvider* provider = PickProvider(prefer_local);
+  ModelProvider* provider =
+      PickProvider(prefer_local, /*allow_cloud_models=*/true);
   if (!provider || shutting_down_) {
     std::move(callback).Run(
         base::unexpected("No reasoning provider is configured."));

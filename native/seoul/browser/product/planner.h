@@ -58,6 +58,7 @@ struct PlannerResult {
 using ModelPlanRequester = base::RepeatingCallback<void(
     const std::string& prompt,
     bool prefer_local,
+    bool allow_cloud_models,
     base::OnceCallback<void(std::optional<base::DictValue> output,
                             PlanOrigin origin)>)>;
 
@@ -73,6 +74,15 @@ class Planner {
   // Tries the model path when `use_model` and the requester is set; falls
   // back to the deterministic path on any model failure. The callback runs
   // exactly once on the calling sequence.
+  void BuildPlan(const std::string& goal,
+                 const ToolPermissionContext& context,
+                 bool use_model,
+                 bool prefer_local,
+                 bool allow_cloud_models,
+                 base::OnceCallback<void(PlannerResult)> callback);
+
+  // Compatibility overload for callers that do not impose a Scene model
+  // policy. Runtime tasks use the explicit overload above.
   void BuildPlan(const std::string& goal,
                  const ToolPermissionContext& context,
                  bool use_model,

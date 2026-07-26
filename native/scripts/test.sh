@@ -50,6 +50,7 @@ run_unit_tests() {
     seoul_scenes_unittests
     seoul_semantic_unittests
     seoul_shell_core_unittests
+    seoul_shell_view_unittests
     seoul_site_layers_unittests
     seoul_tasks_unittests
     seoul_themes_unittests
@@ -76,6 +77,7 @@ run_unit_tests() {
     seoul/browser/scenes:seoul_scenes_unittests
     seoul/browser/semantic:seoul_semantic_unittests
     seoul/browser/shell:seoul_shell_core_unittests
+    seoul/browser/shell:seoul_shell_view_unittests
     seoul/browser/site_layers:seoul_site_layers_unittests
     seoul/browser/tasks:seoul_tasks_unittests
     seoul/browser/themes:seoul_themes_unittests
@@ -103,7 +105,8 @@ run_unit_tests() {
 
 run_browser_tests() {
   local filter
-  filter="SeoulRuntimeBrowserTest.*"
+  filter="SeoulRuntimeSessionRestoreBrowserTest.*"
+  filter="${filter}:SeoulRuntimeBrowserTest.*"
   filter="${filter}:ChromiumMutationAdapterBrowserTest.*"
   filter="${filter}:VerticalPresentationBrowserTest.*"
   filter="${filter}:SeoulShellBrowserTest.*"
@@ -116,11 +119,19 @@ run_browser_tests() {
   [ -x "$OUT_DIR/seoul_browser_tests" ] ||
     die "browser-test binary missing after build: $OUT_DIR/seoul_browser_tests"
   stage "run Seoul browser tests"
+  # Chromium's unrelated experimental InitialWebUI toolbar waits for a
+  # compositor paint callback that is not reliable with the explicit headless
+  # backend. Seoul's native vertical Shell and chrome://seoul-canvas remain
+  # enabled and are exercised below; disabling only InitialWebUI prevents the
+  # upstream pre-test metrics wait from timing out before a Seoul test starts.
   "$OUT_DIR/seoul_browser_tests" \
     "--gtest_filter=$filter" \
     --test-launcher-bot-mode \
     --test-launcher-jobs=1 \
-    --test-launcher-batch-limit=1
+    --test-launcher-batch-limit=1 \
+    --headless=new \
+    --disable-gpu \
+    --disable-features=InitialWebUI
   log "OK: Seoul browser-test filter passed"
 }
 

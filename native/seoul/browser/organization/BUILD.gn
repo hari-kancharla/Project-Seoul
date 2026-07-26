@@ -25,7 +25,10 @@ source_set("organization_model") {
     "organization_types.h",
   ]
 
-  deps = [ "//base" ]
+  deps = [
+    "//base",
+    "//url",
+  ]
 }
 
 source_set("organization") {

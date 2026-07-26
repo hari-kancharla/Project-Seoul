@@ -67,7 +67,9 @@ TaskId TaskService::StartTask(const std::string& goal,
                               const LiveWindowKey& window,
                               const ToolPermissionContext& context,
                               bool use_model,
-                              bool prefer_local) {
+                              bool prefer_local,
+                              bool allow_cloud_models,
+                              bool user_gesture) {
   if (shutting_down_ || goal.empty() || goal.size() > kMaxGoalLength ||
       tasks_.size() >= kMaxTasksInDeck) {
     return TaskId();
@@ -80,11 +82,14 @@ TaskId TaskService::StartTask(const std::string& goal,
   task->context = context;
   task->use_model = use_model;
   task->prefer_local = prefer_local;
+  task->allow_cloud_models = allow_cloud_models;
+  task->user_gesture = user_gesture;
   tasks_[task_id] = std::move(task);
   // Planning may involve a provider round trip. Publish immediately so the
   // Task Deck never appears idle while planning is already pending.
   NotifyUpdated(task_id);
   planner_->BuildPlan(goal, context, use_model, prefer_local,
+                      allow_cloud_models,
                       base::BindOnce(&TaskService::OnPlanned,
                                      weak_factory_.GetWeakPtr(), task_id));
   return task_id;
@@ -94,10 +99,15 @@ TaskId TaskService::StartTaskWithPlan(const std::string& goal,
                                       Plan plan,
                                       PlanOrigin origin,
                                       const LiveWindowKey& window,
-                                      const ToolPermissionContext& context) {
+                                      const ToolPermissionContext& context,
+                                      bool user_gesture) {
   if (shutting_down_ || tasks_.size() >= kMaxTasksInDeck) {
     return TaskId();
   }
+  // Imported workflows and direct capability callers are untrusted plan
+  // sources too. Re-apply descriptor policy here at the final execution
+  // boundary so no caller can omit an approval bit and bypass the gate.
+  Planner::EnforceApprovalPolicy(plan, *registry_);
   if (!ValidatePlan(plan, *registry_, context).has_value()) {
     return TaskId();
   }
@@ -107,6 +117,7 @@ TaskId TaskService::StartTaskWithPlan(const std::string& goal,
   task->planning_goal = goal;
   task->window = window;
   task->context = context;
+  task->user_gesture = user_gesture;
   task->plan_origin = origin;
   task->execution = std::make_unique<TaskExecution>(
       task_id, std::move(plan),
@@ -280,7 +291,8 @@ void TaskService::PumpOnce(const TaskId& task_id) {
           const ToolDescriptor* descriptor = registry_->Find(step->tool);
           if (descriptor) {
             AgentPermissionRequest request = permission_scope_resolver_.Run(
-                task->window, *descriptor, step->args);
+                task->window, *descriptor, step->args,
+                task->user_gesture);
             const AgentPermissionDecision decision =
                 permissions_->Evaluate(request);
             if (decision.kind == AgentPermissionDecisionKind::kAllowed) {
@@ -386,6 +398,7 @@ void TaskService::DispatchStep(const TaskId& task_id,
   request.task_id = task_id;
   request.step_id = step_id;
   request.window = task->window;
+  request.user_gesture = task->user_gesture;
 
   auto timer = std::make_unique<base::OneShotTimer>();
   timer->Start(FROM_HERE, descriptor->timeout,
@@ -526,7 +539,7 @@ void TaskService::Replan(const TaskId& task_id) {
   // the original task. Replanning never silently downgrades a model-backed
   // task to lexical deterministic matching.
   planner_->BuildPlan(task->planning_goal, task->context, task->use_model,
-                      task->prefer_local,
+                      task->prefer_local, task->allow_cloud_models,
                       base::BindOnce(&TaskService::OnReplanned,
                                      weak_factory_.GetWeakPtr(), task_id));
 }
@@ -593,7 +606,7 @@ bool TaskService::ProvideInput(const TaskId& task_id,
   task->pending_user_input = false;
   NotifyUpdated(task_id);
   planner_->BuildPlan(task->planning_goal, task->context, task->use_model,
-                      task->prefer_local,
+                      task->prefer_local, task->allow_cloud_models,
                       base::BindOnce(&TaskService::OnReplanned,
                                      weak_factory_.GetWeakPtr(), task_id));
   return true;

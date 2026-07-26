@@ -73,6 +73,24 @@ export interface TaskSnapshotDoc {
   }>;
 }
 
+export interface ThreadItemDoc {
+  id: string;
+  kind: string;
+  title: string;
+  reference: string;
+  origin: string;
+  text: string;
+}
+
+export interface ThreadSnapshotDoc {
+  status: 'ready'|'error';
+  detail?: string;
+  id?: string;
+  name?: string;
+  archived?: boolean;
+  items?: ThreadItemDoc[];
+}
+
 export interface PageContextDoc {
   status: 'ready'|'unavailable';
   tab_id: string;
@@ -117,8 +135,14 @@ export interface LiveCollectionDoc {
   id: string;
   name: string;
   refresh_capability: string;
+  source_locator: string;
+  refresh_interval_minutes: number;
   enabled: boolean;
   refresh_state: string;
+  scope_available?: boolean;
+  scope_current?: boolean;
+  last_attempt_at_ms?: number;
+  last_success_at_ms?: number;
   last_error?: string;
   items?: Array<{
     stable_key: string;
@@ -130,13 +154,28 @@ export interface LiveCollectionDoc {
   }>;
 }
 
+export interface LiveCollectionSourceDoc {
+  id: string;
+  name: string;
+  description: string;
+  provider: string;
+  source_required: boolean;
+  source_field: string;
+  source_description: string;
+  source_kind: 'text'|'url'|'unsupported';
+}
+
 export interface LibrarySnapshotDoc {
   schema_version?: number;
   status?: string;
   detail?: string;
+  // Decimal uint64 emitted by the profile-owned Library service. Kept as a
+  // string so freshness checks never lose precision in JavaScript.
+  revision?: string;
   boards?: LibraryBoardDoc[];
   artifacts?: LibraryArtifactDoc[];
   live_collections?: LiveCollectionDoc[];
+  live_collection_sources?: LiveCollectionSourceDoc[];
 }
 
 export interface StudioProviderRouteDoc {
@@ -155,8 +194,24 @@ export interface StudioSceneDoc {
   name: string;
   workspace_id: string;
   theme_id: string;
-  site_layer_count: number;
+  site_layer_ids: string[];
+  routing_rule_ids: string[];
+  workflow_shortcut_ids: string[];
+  lifecycle: {
+    archive_temporary_tabs: boolean;
+    idle_archive_minutes: number;
+    restore_on_activation: boolean;
+  };
+  assistant: {
+    allow_network: boolean;
+    allow_cloud_models: boolean;
+    max_sensitivity:
+        'none'|'organization'|'page_content'|'personal'|
+        'credential_adjacent';
+    default_connectors: string[];
+  };
   prefer_compact: boolean;
+  active: boolean;
 }
 
 export interface StudioSiteLayerDoc {
@@ -169,15 +224,112 @@ export interface StudioSiteLayerDoc {
 }
 
 export interface StudioThemeDoc {
+  schema_version: number;
   id: string;
   name: string;
   scheme: 'light'|'dark'|'system';
-  background: string;
-  surface: string;
-  accent: string;
+  colors: {
+    background: string;
+    surface: string;
+    text: string;
+    muted_text: string;
+    accent: string;
+    accent_text: string;
+    border: string;
+    error: string;
+  };
+  typography: {
+    font_family: string;
+    base_size_px: number;
+    scale_ratio: number;
+    base_line_height_permille: number;
+  };
+  motion: {
+    reduced_motion: boolean;
+    reduced_transparency: boolean;
+    base_duration_ms: number;
+  };
   corner_radius_px: number;
-  reduced_motion: boolean;
-  reduced_transparency: boolean;
+  custom_colors?: Record<string, string>;
+  active: boolean;
+}
+
+export interface StudioWorkspaceDoc {
+  id: string;
+  name: string;
+  icon: string;
+  archived: boolean;
+}
+
+export interface StudioEssentialDoc {
+  id: string;
+  name: string;
+  root_url: string;
+  icon: string;
+  order: number;
+}
+
+export interface StudioRoutingRuleDoc {
+  id: string;
+  priority: number;
+  match_type: 'anything'|'origin_exact'|'url_prefix'|'url_glob';
+  pattern: string;
+  source_workspace_id: string;
+  require_user_gesture: boolean;
+  disposition:
+      'current_tab'|'new_temporary_tab'|'new_retained_tab'|
+      'specific_workspace'|'preview'|'split_pane'|
+      'external_application'|'ask_user';
+  target_workspace_id: string;
+  enabled: boolean;
+}
+
+export interface StudioWorkflowNodeDoc {
+  id: string;
+  kind: 'tool_step'|'approval'|'user_input';
+  label: string;
+  tool?: string;
+  args?: Record<string, unknown>;
+  prompt?: string;
+  requires_approval?: boolean;
+  max_iterations?: number;
+}
+
+export interface StudioWorkflowEdgeDoc {
+  from: string;
+  to: string;
+  kind: 'sequence'|'on_success'|'on_failure'|'loop_back';
+}
+
+export interface StudioWorkflowDoc {
+  schema_version: number;
+  id: string;
+  name: string;
+  description: string;
+  params: unknown[];
+  nodes: StudioWorkflowNodeDoc[];
+  edges: StudioWorkflowEdgeDoc[];
+  trigger: {
+    kind:
+        'manual'|'schedule'|'scene_activation'|'navigation'|
+        'page_state_change'|'service_event'|'startup';
+    interval_minutes?: number;
+    scene_id?: string;
+    origin_pattern?: string;
+    event_name?: string;
+  };
+  scene_scope?: string;
+  site_scope?: string;
+  version: number;
+  created_at_ms: number;
+  updated_at_ms: number;
+}
+
+export interface StudioCapabilityDoc {
+  id: string;
+  name: string;
+  description: string;
+  requires_network: boolean;
 }
 
 export interface StudioSnapshotDoc {
@@ -188,9 +340,16 @@ export interface StudioSnapshotDoc {
     local?: StudioProviderRouteDoc;
     cloud?: StudioProviderRouteDoc;
   };
+  active_scene_id?: string;
+  active_theme_id?: string;
+  workspaces?: StudioWorkspaceDoc[];
+  essentials?: StudioEssentialDoc[];
   scenes?: StudioSceneDoc[];
   themes?: StudioThemeDoc[];
   site_layers?: StudioSiteLayerDoc[];
+  routing_rules?: StudioRoutingRuleDoc[];
+  workflows?: StudioWorkflowDoc[];
+  capabilities?: StudioCapabilityDoc[];
 }
 
 export interface SiteLayerAdjustmentDoc {

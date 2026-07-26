@@ -29,6 +29,12 @@ bool FieldSensitivityFromWire(std::string_view s, FieldSensitivity* out);
 const char* ResultStateToWire(ResultState state);
 bool ResultStateFromWire(std::string_view s, ResultState* out);
 
+// Canonical schema-only codec used by typed extraction capabilities. It shares
+// the exact bounds and unknown-key rejection of SemanticResult parsing.
+base::DictValue SemanticSchemaToValue(const SemanticSchema& schema);
+base::expected<SemanticSchema, SemanticViolation> ParseSemanticSchema(
+    const base::Value& value);
+
 // Serializes one semantic result to the canonical wire document. Default
 // field metadata (nullable=true, role=none, confidence=1.0, ...) is omitted;
 // parsing restores it.

@@ -34,6 +34,9 @@ struct ComponentEvent {
 // same voice/task session on the browser side.
 struct TurnInput {
   string text;
+  // Empty for the general Canvas. Project-chat routes supply the persisted
+  // Context Thread id so the same composer records and resumes that chat.
+  string thread_id;
 };
 
 // A tool call emitted by the realtime voice model. The browser owns the
@@ -56,6 +59,66 @@ struct SiteLayerAdjustmentInput {
   string density;
 };
 
+// Complete, typed Theme authoring payload. The browser converts each color
+// through the strict Theme parser and rejects the whole mutation when any
+// contrast, typography, motion, identity, or bounds gate fails.
+struct StudioThemeInput {
+  string id;
+  string name;
+  string scheme;
+  string background;
+  string surface;
+  string text;
+  string muted_text;
+  string accent;
+  string accent_text;
+  string border;
+  string error;
+  string font_family;
+  int32 base_size_px;
+  double scale_ratio;
+  int32 line_height_permille;
+  bool reduced_motion;
+  bool reduced_transparency;
+  int32 base_duration_ms;
+  int32 corner_radius_px;
+};
+
+// Complete, typed Scene authoring payload. Every id list is bounded and every
+// reference is resolved against its authoritative profile registry before the
+// Scene can replace the stored definition.
+struct StudioSceneInput {
+  string id;
+  string name;
+  string workspace_id;
+  string theme_id;
+  array<string> site_layer_ids;
+  array<string> routing_rule_ids;
+  array<string> workflow_shortcut_ids;
+  bool archive_temporary_tabs;
+  int32 idle_archive_minutes;
+  bool restore_on_activation;
+  bool allow_network;
+  bool allow_cloud_models;
+  string max_sensitivity;
+  array<string> default_connectors;
+  bool prefer_compact;
+};
+
+// One inspectable link-routing rule. String enum values are mapped to closed
+// native enums and rejected when unknown.
+struct StudioRoutingRuleInput {
+  string id;
+  int32 priority;
+  string match_type;
+  string pattern;
+  string source_workspace_id;
+  bool require_user_gesture;
+  string disposition;
+  string target_workspace_id;
+  bool enabled;
+};
+
 // Implemented in the browser. The renderer calls these.
 interface PageHandler {
   // The renderer is ready; the browser replies by pushing the current surface
@@ -67,6 +130,7 @@ interface PageHandler {
 
   // A conversational follow-up typed into the Canvas.
   SubmitTurn(TurnInput input);
+  GetThreadSnapshot(string thread_id) => (string snapshot_json);
 
   // Voice control from Canvas UI affordances.
   StartVoice();
@@ -120,6 +184,20 @@ interface PageHandler {
                      int32 z_index) => (string snapshot_json);
   RemoveBoardElement(string board_id,
                      string element_id) => (string snapshot_json);
+  UpsertLiveCollection(string collection_id,
+                       string name,
+                       string refresh_capability,
+                       string source_locator,
+                       int32 refresh_interval_minutes,
+                       bool enabled) => (string snapshot_json);
+  SetLiveCollectionEnabled(string collection_id, bool enabled)
+      => (string snapshot_json);
+  RefreshLiveCollection(string collection_id) => (string snapshot_json);
+  DeleteLiveCollection(string collection_id) => (string snapshot_json);
+  // Opens an actionable verified item through Seoul's typed browser routing
+  // capability. Raw URLs never navigate directly from the WebUI.
+  OpenLiveCollectionItem(string collection_id, string stable_key)
+      => (string task_id);
 
   // Boosts are the product UI for native Site Layers. The snapshot includes
   // the bound window's current page identity and the profile's validated
@@ -136,6 +214,12 @@ interface PageHandler {
   SetSiteLayerEnabled(string layer_id, bool enabled)
       => (string snapshot_json);
   DeleteSiteLayer(string layer_id) => (string snapshot_json);
+  // Enters a browser-owned page picker. The method replies only after the
+  // user clicks an element or cancels with Escape; a successful selection is
+  // appended as a validated Hide adjustment and applied immediately.
+  ZapSiteLayer(string layer_id)
+      => (string snapshot_json, bool changed);
+  CancelSiteLayerZap();
 
   // Studio owns provider configuration and an inspectable projection of the
   // profile runtime. Secrets are write-only: they go directly to the browser's
@@ -150,6 +234,27 @@ interface PageHandler {
                     string reasoning_secret,
                     string voice_secret) => (string snapshot_json);
   ClearCloudProvider() => (string snapshot_json);
+
+  // Studio catalog authoring. All successful mutations return a fresh
+  // authoritative snapshot. Workflow documents use the versioned native
+  // import/export schema and are size-bounded plus fully revalidated before
+  // replacing a saved workflow.
+  UpsertEssential(string essential_id,
+                  string name,
+                  string root_url) => (string snapshot_json);
+  DeleteEssential(string essential_id) => (string snapshot_json);
+  UpsertTheme(StudioThemeInput theme) => (string snapshot_json);
+  DeleteTheme(string theme_id) => (string snapshot_json);
+  ActivateTheme(string theme_id) => (string snapshot_json);
+  UpsertScene(StudioSceneInput scene) => (string snapshot_json);
+  DeleteScene(string scene_id) => (string snapshot_json);
+  ActivateScene(string scene_id) => (string snapshot_json);
+  UpsertRoutingRule(StudioRoutingRuleInput rule) => (string snapshot_json);
+  DeleteRoutingRule(string rule_id) => (string snapshot_json);
+  UpsertWorkflow(string workflow_json) => (string snapshot_json);
+  DeleteWorkflow(string workflow_id) => (string snapshot_json);
+  DuplicateWorkflow(string workflow_id) => (string snapshot_json);
+  RunWorkflow(string workflow_id) => (string task_id);
 };
 
 // Implemented in the renderer. The browser calls these to drive the Canvas.
@@ -168,10 +273,21 @@ interface Page {
   // switches or navigates tabs while Canvas remains open.
   SetPageContext(string context_json);
 
+  // A native entry point requested a fresh Boost for the current site.
+  OpenBoostEditor();
+
   // A task changed: the full canonical task-snapshot JSON document. Replaces
   // status-string task notifications; the Canvas renders plan, current step,
   // receipts, and approval state from this alone.
   PushTaskSnapshot(string snapshot_json);
+
+  // A persisted project chat changed. This is the bounded Context Thread
+  // document: notes and references, never an implicit page/history dump.
+  PushThreadSnapshot(string snapshot_json);
+
+  // The profile-owned Library changed in this or another Canvas. Revisions are
+  // monotonic, so the renderer can reject an older mutation reply.
+  PushLibrarySnapshot(string snapshot_json);
 };
 
 // Bootstraps the pair. The WebUIController implements this factory.

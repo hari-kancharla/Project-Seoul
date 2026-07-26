@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/values.h"
 #include "seoul/browser/product/task_service.h"
@@ -67,7 +68,8 @@ class WorkflowService {
   // invalid id when compilation/validation fails.
   TaskId RunWorkflow(const WorkflowId& id,
                      const LiveWindowKey& window,
-                     const ToolPermissionContext& context);
+                     const ToolPermissionContext& context,
+                     bool user_gesture = true);
 
   // Builds a workflow from a completed task's typed plan. The plan's steps
   // are already registered capability calls; nothing positional is saved.
@@ -80,6 +82,10 @@ class WorkflowService {
 
   base::DictValue TakePersistedState() const;
   void RestorePersistedState(const base::DictValue& state);
+  // Removes workflows whose Scene scope/activation trigger no longer resolves
+  // or whose two Scene references disagree.
+  size_t PruneInvalidSceneReferences(
+      base::RepeatingCallback<bool(const std::string&)> scene_exists);
 
   size_t size() const { return workflows_.size(); }
 

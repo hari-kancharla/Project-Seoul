@@ -17,8 +17,9 @@ More than RAM and disk are required. A host must have:
 
 - Apple silicon (arm64) for the current target.
 - Full Xcode (not just Command Line Tools) and a compatible macOS SDK.
-- Python 3.10 or newer. Set `SEOUL_PYTHON3` to its absolute executable path
-  when the system `python3` is older.
+- Python 3.10 or newer. The scripts automatically use depot_tools' pinned
+  bootstrap Python when the system interpreter is older; set `SEOUL_PYTHON3`
+  only to select another absolute executable path.
 - The correct active developer directory (`xcode-select -p`).
 - The pinned `depot_tools` at the locked revision (see `native/chromium.lock.json`).
 - A fast local filesystem with ample free space for a Chromium build.

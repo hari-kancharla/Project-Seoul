@@ -66,7 +66,7 @@ NormalizedEvent ActiveTab(int window, int tab) {
 }
 
 class LifecycleCoordinatorTest : public testing::Test {
- protected:
+protected:
   LifecycleCoordinatorTest()
       : model_(base::BindLambdaForTesting([this]() { return now_; })),
         coordinator_(&model_) {}
@@ -78,7 +78,7 @@ class LifecycleCoordinatorTest : public testing::Test {
   size_t ArchiveCount() const {
     return model_.ToSnapshot().archived_tabs.size();
   }
-  const TabMembershipRecord* MembershipForTab(int tab) {
+  const TabMembershipRecord *MembershipForTab(int tab) {
     const TabMembershipId id =
         model_.FindMembershipIdByTabKey(LiveTabKey::FromSessionId(tab).value());
     return id.is_valid() ? model_.FindMembership(id) : nullptr;
@@ -103,14 +103,14 @@ TEST_F(LifecycleCoordinatorTest, RepeatedWindowDiscoveryIsIdempotent) {
 }
 
 TEST_F(LifecycleCoordinatorTest, InvalidWindowIgnored) {
-  coordinator_.OnNormalizedEvent(WindowDiscovered(0));  // invalid session id
+  coordinator_.OnNormalizedEvent(WindowDiscovered(0)); // invalid session id
   EXPECT_EQ(0u, coordinator_.known_window_count());
 }
 
 TEST_F(LifecycleCoordinatorTest, NewTabAssignedToActiveWorkspace) {
   coordinator_.OnNormalizedEvent(WindowDiscovered(1));
   coordinator_.OnNormalizedEvent(TabInserted(1, 10));
-  const TabMembershipRecord* m = MembershipForTab(10);
+  const TabMembershipRecord *m = MembershipForTab(10);
   ASSERT_TRUE(m);
   EXPECT_EQ(model_.default_workspace().value(), m->workspace_id.value());
   EXPECT_EQ(TabRole::kTemporary, m->role);
@@ -169,12 +169,54 @@ TEST_F(LifecycleCoordinatorTest, DuplicateInsertionCreatesNoSecondMembership) {
 }
 
 TEST_F(LifecycleCoordinatorTest,
+       RestoredTabRebindsExistingDurableMembershipToNewSessionKey) {
+  coordinator_.OnNormalizedEvent(WindowDiscovered(1));
+  coordinator_.OnNormalizedEvent(TabInserted(1, 10, 4));
+  const TabMembershipId durable =
+      model_.FindMembershipIdByTabKey(LiveTabKey::FromSessionId(10).value());
+  ASSERT_TRUE(durable.is_valid());
+  ASSERT_TRUE(model_.RetainTab(durable).has_value());
+  const base::Time created_at = model_.FindMembership(durable)->created_at;
+
+  NormalizedEvent restored = TabInserted(1, 20, 2);
+  restored.insert_kind = TabInsertKind::kExisting;
+  restored.restored_membership = durable;
+  coordinator_.OnNormalizedEvent(restored);
+
+  EXPECT_EQ(MembershipCount(), 1u);
+  EXPECT_FALSE(
+      model_.FindMembershipIdByTabKey(LiveTabKey::FromSessionId(10).value())
+          .is_valid());
+  EXPECT_EQ(
+      model_.FindMembershipIdByTabKey(LiveTabKey::FromSessionId(20).value()),
+      durable);
+  const TabMembershipRecord *record = model_.FindMembership(durable);
+  ASSERT_TRUE(record);
+  EXPECT_EQ(record->role, TabRole::kRetained);
+  EXPECT_EQ(record->created_at, created_at);
+  EXPECT_EQ(record->order, 2);
+}
+
+TEST_F(LifecycleCoordinatorTest,
+       StaleRestoredMembershipFallsBackToSafeTemporaryMembership) {
+  coordinator_.OnNormalizedEvent(WindowDiscovered(1));
+  NormalizedEvent restored = TabInserted(1, 20, 0);
+  restored.insert_kind = TabInsertKind::kExisting;
+  restored.restored_membership = TabMembershipId::GenerateNew();
+  coordinator_.OnNormalizedEvent(restored);
+
+  ASSERT_EQ(MembershipCount(), 1u);
+  const TabMembershipRecord *record = MembershipForTab(20);
+  ASSERT_TRUE(record);
+  EXPECT_EQ(record->role, TabRole::kTemporary);
+}
+
+TEST_F(LifecycleCoordinatorTest,
        InsertionInUndiscoveredWindowFallsBackToDefault) {
   coordinator_.OnNormalizedEvent(
-      WindowDiscovered(1));  // ensures a default exists
-  coordinator_.OnNormalizedEvent(
-      TabInserted(2, 10));  // window 2 not discovered
-  const TabMembershipRecord* m = MembershipForTab(10);
+      WindowDiscovered(1)); // ensures a default exists
+  coordinator_.OnNormalizedEvent(TabInserted(2, 10)); // window 2 not discovered
+  const TabMembershipRecord *m = MembershipForTab(10);
   ASSERT_TRUE(m);
   EXPECT_EQ(model_.default_workspace().value(), m->workspace_id.value());
 }
@@ -184,7 +226,7 @@ TEST_F(LifecycleCoordinatorTest, ActivationUpdatesLastActive) {
   coordinator_.OnNormalizedEvent(TabInserted(1, 10));
   now_ += base::Seconds(60);
   coordinator_.OnNormalizedEvent(ActiveTab(1, 10));
-  const TabMembershipRecord* m = MembershipForTab(10);
+  const TabMembershipRecord *m = MembershipForTab(10);
   ASSERT_TRUE(m);
   EXPECT_EQ(now_, m->last_active_at);
 }
@@ -204,7 +246,7 @@ TEST_F(LifecycleCoordinatorTest, ActivationSwitchesWindowWorkspace) {
 
 TEST_F(LifecycleCoordinatorTest, ActivationOfUntrackedTabCreatesNoMembership) {
   coordinator_.OnNormalizedEvent(WindowDiscovered(1));
-  coordinator_.OnNormalizedEvent(ActiveTab(1, 99));  // never inserted
+  coordinator_.OnNormalizedEvent(ActiveTab(1, 99)); // never inserted
   EXPECT_EQ(0u, MembershipCount());
 }
 
@@ -216,7 +258,54 @@ TEST_F(LifecycleCoordinatorTest,
       TabRemoved(1, 10, TabRemovalKind::kGenuineClose));
   EXPECT_EQ(0u, MembershipCount());
   EXPECT_EQ(0u,
-            ArchiveCount());  // Chromium owns recently-closed; Seoul doesn't.
+            ArchiveCount()); // Chromium owns recently-closed; Seoul doesn't.
+}
+
+TEST_F(LifecycleCoordinatorTest,
+       ExpectedArchiveCommitsRecoveryMetadataOnExactClose) {
+  coordinator_.OnNormalizedEvent(WindowDiscovered(1));
+  coordinator_.OnNormalizedEvent(TabInserted(1, 10));
+  const TabMembershipId original =
+      model_.FindMembershipIdByTabKey(LiveTabKey::FromSessionId(10).value());
+  ASSERT_TRUE(original.is_valid());
+  ASSERT_TRUE(coordinator_.ExpectTabArchival(
+      LiveWindowKey::FromSessionId(1), LiveTabKey::FromSessionId(10),
+      "https://example.test/article", "Article"));
+  EXPECT_EQ(coordinator_.expected_archival_count(), 1u);
+
+  coordinator_.OnNormalizedEvent(
+      TabRemoved(1, 10, TabRemovalKind::kGenuineClose));
+  EXPECT_EQ(MembershipCount(), 0u);
+  EXPECT_EQ(ArchiveCount(), 1u);
+  EXPECT_EQ(coordinator_.expected_archival_count(), 0u);
+  const ArchivedTabRecord *archived = model_.FindArchivedTab(original);
+  ASSERT_TRUE(archived);
+  EXPECT_EQ(archived->saved_root_url, "https://example.test/article");
+  EXPECT_EQ(archived->title, "Article");
+}
+
+TEST_F(LifecycleCoordinatorTest,
+       ArchiveExpectationRejectsProtectedRoleAndCancelsOnCloseAbort) {
+  coordinator_.OnNormalizedEvent(WindowDiscovered(1));
+  coordinator_.OnNormalizedEvent(TabInserted(1, 10));
+  const TabMembershipId membership =
+      model_.FindMembershipIdByTabKey(LiveTabKey::FromSessionId(10).value());
+  ASSERT_TRUE(model_.RetainTab(membership).has_value());
+  EXPECT_FALSE(coordinator_.ExpectTabArchival(
+      LiveWindowKey::FromSessionId(1), LiveTabKey::FromSessionId(10),
+      "https://example.test", "Example"));
+
+  ASSERT_TRUE(model_.MarkTabTemporary(membership).has_value());
+  ASSERT_TRUE(coordinator_.ExpectTabArchival(
+      LiveWindowKey::FromSessionId(1), LiveTabKey::FromSessionId(10),
+      "https://example.test", "Example"));
+  NormalizedEvent cancel = Event(NormalizedEventType::kTabCloseCancelled);
+  cancel.window = LiveWindowKey::FromSessionId(1);
+  cancel.tab = LiveTabKey::FromSessionId(10);
+  coordinator_.OnNormalizedEvent(cancel);
+  EXPECT_EQ(coordinator_.expected_archival_count(), 0u);
+  EXPECT_EQ(MembershipCount(), 1u);
+  EXPECT_EQ(ArchiveCount(), 0u);
 }
 
 TEST_F(LifecycleCoordinatorTest, CloseCancellationPreservesMembership) {
@@ -234,7 +323,7 @@ TEST_F(LifecycleCoordinatorTest, DetachPreservesMembershipAndRecordsTransfer) {
   coordinator_.OnNormalizedEvent(TabInserted(1, 10));
   coordinator_.OnNormalizedEvent(
       TabRemoved(1, 10, TabRemovalKind::kTransferOut));
-  EXPECT_EQ(1u, MembershipCount());  // preserved
+  EXPECT_EQ(1u, MembershipCount()); // preserved
   EXPECT_EQ(1u, coordinator_.pending_transfer_count());
 }
 
@@ -245,10 +334,10 @@ TEST_F(LifecycleCoordinatorTest, TransferAcrossTwoWindowsKeepsOneMembership) {
   const std::string ws = MembershipForTab(10)->workspace_id.value();
   coordinator_.OnNormalizedEvent(
       TabRemoved(1, 10, TabRemovalKind::kTransferOut));
-  coordinator_.OnNormalizedEvent(TabInserted(2, 10));  // lands in window 2
+  coordinator_.OnNormalizedEvent(TabInserted(2, 10)); // lands in window 2
   EXPECT_EQ(0u, coordinator_.pending_transfer_count());
   EXPECT_EQ(1u, MembershipCount());
-  EXPECT_EQ(ws, MembershipForTab(10)->workspace_id.value());  // unchanged
+  EXPECT_EQ(ws, MembershipForTab(10)->workspace_id.value()); // unchanged
 }
 
 TEST_F(LifecycleCoordinatorTest,
@@ -258,7 +347,7 @@ TEST_F(LifecycleCoordinatorTest,
   coordinator_.OnNormalizedEvent(
       TabRemoved(1, 10, TabRemovalKind::kTransferOut));
   EXPECT_EQ(1u, coordinator_.pending_transfer_count());
-  EXPECT_EQ(1u, MembershipCount());  // no ghost removal
+  EXPECT_EQ(1u, MembershipCount()); // no ghost removal
 }
 
 TEST_F(LifecycleCoordinatorTest, PendingTransfersAreCappedOldestEvicted) {
@@ -303,7 +392,7 @@ TEST_F(LifecycleCoordinatorTest, TabStripDestructionForgetsWindowKeepsTabs) {
   destroyed.window = LiveWindowKey::FromSessionId(1);
   coordinator_.OnNormalizedEvent(destroyed);
   EXPECT_EQ(0u, coordinator_.known_window_count());
-  EXPECT_EQ(1u, MembershipCount());  // tabs preserved for restoration
+  EXPECT_EQ(1u, MembershipCount()); // tabs preserved for restoration
 }
 
 TEST_F(LifecycleCoordinatorTest, WindowDestroyedPreservesMemberships) {
@@ -319,7 +408,7 @@ TEST_F(LifecycleCoordinatorTest, ShutdownIgnoresLaterEvents) {
   coordinator_.OnNormalizedEvent(WindowDiscovered(1));
   coordinator_.OnNormalizedEvent(Event(NormalizedEventType::kShutdownBegan));
   EXPECT_TRUE(coordinator_.is_shutting_down());
-  coordinator_.OnNormalizedEvent(TabInserted(1, 10));  // ignored after shutdown
+  coordinator_.OnNormalizedEvent(TabInserted(1, 10)); // ignored after shutdown
   EXPECT_EQ(0u, MembershipCount());
 }
 
@@ -345,11 +434,11 @@ TEST_F(LifecycleCoordinatorTest, ReconciliationClearsPendingTransfers) {
 }
 
 class ReentrantObserver : public OrganizationModelObserver {
- public:
-  explicit ReentrantObserver(LifecycleCoordinator* coordinator)
+public:
+  explicit ReentrantObserver(LifecycleCoordinator *coordinator)
       : coordinator_(coordinator) {}
 
-  void OnOrganizationChanged(const OrganizationChange& change) override {
+  void OnOrganizationChanged(const OrganizationChange &change) override {
     if (change.type == OrganizationChangeType::kMembershipAdded &&
         !reentered_) {
       reentered_ = true;
@@ -357,7 +446,7 @@ class ReentrantObserver : public OrganizationModelObserver {
     }
   }
 
- private:
+private:
   raw_ptr<LifecycleCoordinator> coordinator_;
   bool reentered_ = false;
 };
@@ -374,9 +463,9 @@ TEST_F(LifecycleCoordinatorTest, ReentrantEventIsQueuedAndApplied) {
 TEST_F(LifecycleCoordinatorTest, QueueOverflowSurfacesFailure) {
   coordinator_.OnNormalizedEvent(WindowDiscovered(1));
   class OverflowObserver : public OrganizationModelObserver {
-   public:
-    explicit OverflowObserver(LifecycleCoordinator* c) : c_(c) {}
-    void OnOrganizationChanged(const OrganizationChange& change) override {
+  public:
+    explicit OverflowObserver(LifecycleCoordinator *c) : c_(c) {}
+    void OnOrganizationChanged(const OrganizationChange &change) override {
       if (fired_) {
         return;
       }
@@ -398,9 +487,9 @@ TEST_F(LifecycleCoordinatorTest, QueueOverflowSurfacesFailure) {
 TEST_F(LifecycleCoordinatorTest, QueueOverflowRequiresReconciliation) {
   coordinator_.OnNormalizedEvent(WindowDiscovered(1));
   class OverflowObserver : public OrganizationModelObserver {
-   public:
-    explicit OverflowObserver(LifecycleCoordinator* c) : c_(c) {}
-    void OnOrganizationChanged(const OrganizationChange& change) override {
+  public:
+    explicit OverflowObserver(LifecycleCoordinator *c) : c_(c) {}
+    void OnOrganizationChanged(const OrganizationChange &change) override {
       if (fired_) {
         return;
       }
@@ -447,5 +536,5 @@ TEST_F(LifecycleCoordinatorTest, ExistingTabInsertKindCreatesMembershipOnce) {
   EXPECT_EQ(1u, MembershipCount());
 }
 
-}  // namespace
-}  // namespace seoul
+} // namespace
+} // namespace seoul

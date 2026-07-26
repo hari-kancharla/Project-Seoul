@@ -26,6 +26,21 @@ class ChromiumMutationAdapterImpl : public ChromiumMutationAdapter {
                               CommandForegroundDisposition disposition,
                               LiveTabKey* out_tab) override;
 
+  CommandStatusResult NavigateTab(Profile* profile,
+                                  const ResolvedTabTarget& tab,
+                                  const GURL& url) override;
+
+  CommandStatusResult OpenTabInSplit(Profile* profile,
+                                     const ResolvedWindowTarget& window,
+                                     LiveTabKey existing_tab,
+                                     const GURL& url,
+                                     double ratio,
+                                     LiveTabKey* out_tab,
+                                     std::string* upstream_token) override;
+
+  CommandStatusResult OpenExternal(Profile* profile,
+                                   const GURL& url) override;
+
   CommandStatusResult ActivateTab(Profile* profile,
                                   const ResolvedTabTarget& tab) override;
 

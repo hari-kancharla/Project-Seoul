@@ -214,6 +214,8 @@ const char* LibraryErrorToString(LibraryError error) {
       return "unknown_artifact";
     case LibraryError::kUnknownCollection:
       return "unknown_collection";
+    case LibraryError::kBoardArchived:
+      return "board_archived";
     case LibraryError::kLimitExceeded:
       return "limit_exceeded";
     case LibraryError::kStaleRefresh:
@@ -233,9 +235,25 @@ base::Time LibraryService::Now() const {
 }
 
 void LibraryService::NotifyChanged() {
+  // Zero represents the initial restored state. Saturate instead of wrapping
+  // so snapshot ordering can never move backward, even at the type boundary.
+  if (revision_ < std::numeric_limits<uint64_t>::max()) {
+    revision_ = revision_ + 1;
+  }
   if (changed_) {
     changed_.Run();
   }
+  for (LibraryServiceObserver& observer : observers_) {
+    observer.OnLibraryChanged(revision_);
+  }
+}
+
+void LibraryService::AddObserver(LibraryServiceObserver* observer) {
+  observers_.AddObserver(observer);
+}
+
+void LibraryService::RemoveObserver(LibraryServiceObserver* observer) {
+  observers_.RemoveObserver(observer);
 }
 
 LibraryResult<BoardId> LibraryService::CreateBoard(const std::string& name) {
@@ -260,6 +278,9 @@ LibraryStatusResult LibraryService::RenameBoard(const BoardId& id,
   auto it = boards_.find(id);
   if (it == boards_.end()) {
     return base::unexpected(LibraryError::kUnknownBoard);
+  }
+  if (it->second.archived) {
+    return base::unexpected(LibraryError::kBoardArchived);
   }
   if (!ValidText(name, kMaxLibraryTitleLength, false)) {
     return base::unexpected(LibraryError::kInvalidName);
@@ -336,6 +357,9 @@ LibraryResult<BoardElementId> LibraryService::AddBoardElement(
   if (it == boards_.end()) {
     return base::unexpected(LibraryError::kUnknownBoard);
   }
+  if (it->second.archived) {
+    return base::unexpected(LibraryError::kBoardArchived);
+  }
   if (it->second.elements.size() >= kMaxBoardElements) {
     return base::unexpected(LibraryError::kLimitExceeded);
   }
@@ -363,6 +387,9 @@ LibraryStatusResult LibraryService::UpdateBoardElement(const BoardId& board_id,
   if (board == boards_.end()) {
     return base::unexpected(LibraryError::kUnknownBoard);
   }
+  if (board->second.archived) {
+    return base::unexpected(LibraryError::kBoardArchived);
+  }
   if (!ValidateBoardElement(element).has_value()) {
     return base::unexpected(LibraryError::kInvalidElement);
   }
@@ -386,6 +413,9 @@ LibraryStatusResult LibraryService::RemoveBoardElement(
   auto board = boards_.find(board_id);
   if (board == boards_.end()) {
     return base::unexpected(LibraryError::kUnknownBoard);
+  }
+  if (board->second.archived) {
+    return base::unexpected(LibraryError::kBoardArchived);
   }
   auto& elements = board->second.elements;
   const size_t old_size = elements.size();
@@ -447,8 +477,8 @@ LibraryStatusResult LibraryService::ValidateLiveCollection(
   if (!definition.id.is_valid() ||
       !ValidText(definition.name, kMaxLibraryTitleLength, false) ||
       !definition.refresh_capability.is_valid() ||
-      !ValidText(definition.source_locator, kMaxLibraryReferenceLength,
-                 false) ||
+      !ValidText(definition.source_locator, kMaxLibraryReferenceLength, true) ||
+      !ValidText(definition.scope_window, kMaxProviderIdLength, true) ||
       definition.refresh_interval_minutes < kMinRefreshIntervalMinutes ||
       definition.refresh_interval_minutes > kMaxRefreshIntervalMinutes) {
     return base::unexpected(LibraryError::kInvalidCollection);
@@ -489,6 +519,7 @@ LibraryStatusResult LibraryService::UpdateLiveCollection(
       it->second.definition.refresh_capability !=
           definition.refresh_capability ||
       it->second.definition.source_locator != definition.source_locator ||
+      it->second.definition.scope_window != definition.scope_window ||
       (it->second.definition.enabled && !definition.enabled);
   if (execution_changed &&
       it->second.refresh_state == LiveRefreshState::kRefreshing) {
@@ -599,10 +630,12 @@ bool LibraryService::IsRefreshDue(const LiveCollectionId& id,
       it->second.refresh_state == LiveRefreshState::kRefreshing) {
     return false;
   }
-  if (it->second.last_success_at.is_null()) {
+  const base::Time reference =
+      std::max(it->second.last_success_at, it->second.last_attempt_at);
+  if (reference.is_null()) {
     return true;
   }
-  return now - it->second.last_success_at >=
+  return now - reference >=
          base::Minutes(it->second.definition.refresh_interval_minutes);
 }
 
@@ -690,6 +723,7 @@ base::DictValue LibraryService::TakePersistedState() const {
     value.Set("refresh_capability",
               collection.definition.refresh_capability.value());
     value.Set("source_locator", collection.definition.source_locator);
+    value.Set("scope_window", collection.definition.scope_window);
     value.Set("refresh_interval_minutes",
               collection.definition.refresh_interval_minutes);
     value.Set("enabled", collection.definition.enabled);
@@ -811,6 +845,7 @@ void LibraryService::RestorePersistedState(const base::DictValue& state) {
       record.definition.refresh_capability = ToolId::FromString(*capability);
       record.definition.source_locator =
           StringOrEmpty(*value, "source_locator");
+      record.definition.scope_window = StringOrEmpty(*value, "scope_window");
       record.definition.refresh_interval_minutes =
           value->FindInt("refresh_interval_minutes").value_or(15);
       record.definition.enabled = value->FindBool("enabled").value_or(true);

@@ -18,6 +18,17 @@ ShellWorkspaceHeader& ShellWorkspaceHeader::operator=(const ShellWorkspaceHeader
 ShellWorkspaceHeader& ShellWorkspaceHeader::operator=(ShellWorkspaceHeader&&) = default;
 ShellWorkspaceHeader::~ShellWorkspaceHeader() = default;
 
+ShellProjectResources::ShellProjectResources() = default;
+ShellProjectResources::ShellProjectResources(const ShellProjectResources&) =
+    default;
+ShellProjectResources::ShellProjectResources(ShellProjectResources&&) =
+    default;
+ShellProjectResources& ShellProjectResources::operator=(
+    const ShellProjectResources&) = default;
+ShellProjectResources& ShellProjectResources::operator=(
+    ShellProjectResources&&) = default;
+ShellProjectResources::~ShellProjectResources() = default;
+
 ShellSnapshot::ShellSnapshot() = default;
 ShellSnapshot::ShellSnapshot(const ShellSnapshot&) = default;
 ShellSnapshot::ShellSnapshot(ShellSnapshot&&) = default;

@@ -88,7 +88,8 @@ class TaskService {
   using PermissionScopeResolver = base::RepeatingCallback<AgentPermissionRequest(
       const LiveWindowKey&,
       const ToolDescriptor&,
-      const base::DictValue&)>;
+      const base::DictValue&,
+      bool user_gesture)>;
 
   // All raw pointers must outlive this service (the runtime owns them all).
   TaskService(ToolRegistry* registry,
@@ -108,7 +109,9 @@ class TaskService {
                    const LiveWindowKey& window,
                    const ToolPermissionContext& context,
                    bool use_model,
-                   bool prefer_local);
+                   bool prefer_local,
+                   bool allow_cloud_models = true,
+                   bool user_gesture = true);
 
   // Starts a task from an already-validated plan (workflow runs). The caller
   // must have run ValidatePlan; this re-validates defensively.
@@ -116,7 +119,8 @@ class TaskService {
                            Plan plan,
                            PlanOrigin origin,
                            const LiveWindowKey& window,
-                           const ToolPermissionContext& context);
+                           const ToolPermissionContext& context,
+                           bool user_gesture = true);
 
   // Approval response for the step named in OnTaskNeedsApproval. A rejection
   // skips the gated step and continues the rest of the plan.
@@ -173,6 +177,8 @@ class TaskService {
     int active_dispatch_count = 0;
     bool use_model = false;
     bool prefer_local = false;
+    bool allow_cloud_models = true;
+    bool user_gesture = true;
     bool had_unknown_outcome_mutation = false;
     // Re-entrancy guard: a synchronous executor completes its step inside
     // DispatchStep, which would otherwise recurse back into the drive loop.

@@ -110,8 +110,27 @@ TEST_F(ProviderRegistryTest, PlanRequesterFallsBackToNulloptWithNoProvider) {
   ModelPlanRequester requester = registry.MakePlanRequester();
   base::test::TestFuture<std::optional<base::DictValue>, PlanOrigin> future;
   requester.Run("{\"goal\": \"x\"}", /*prefer_local=*/true,
+                /*allow_cloud_models=*/true,
                 future.GetCallback());
   EXPECT_FALSE(std::get<0>(future.Get()).has_value());
+}
+
+TEST_F(ProviderRegistryTest, CloudPolicyNeverFallsBackToCloud) {
+  ProviderRegistry registry(&local_transport_, &cloud_transport_,
+                            &credentials_);
+  ASSERT_TRUE(registry.ConfigureCloud("cloud-model", /*enabled=*/true));
+  ASSERT_TRUE(
+      credentials_.Set(kCloudReasoningCredentialAccount, "secret-value"));
+  ASSERT_TRUE(registry.cloud_available());
+  EXPECT_TRUE(registry.HasUsableProvider(/*allow_cloud_models=*/true));
+  EXPECT_FALSE(registry.HasUsableProvider(/*allow_cloud_models=*/false));
+
+  ModelPlanRequester requester = registry.MakePlanRequester();
+  base::test::TestFuture<std::optional<base::DictValue>, PlanOrigin> future;
+  requester.Run("{\"goal\": \"x\"}", /*prefer_local=*/true,
+                /*allow_cloud_models=*/false, future.GetCallback());
+  EXPECT_FALSE(std::get<0>(future.Get()).has_value());
+  EXPECT_EQ(cloud_transport_.start_count(), 0);
 }
 
 TEST_F(ProviderRegistryTest, SettingsPersistWithoutSecrets) {

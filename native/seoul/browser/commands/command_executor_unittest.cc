@@ -24,7 +24,10 @@ class FakeResolver : public TargetResolver {
   CommandResult<ResolvedTabTarget> ResolveTab(Profile* profile,
                                               LiveWindowKey window,
                                               LiveTabKey tab) override {
-    return base::unexpected(CommandError::kTabNotFound);
+    if (!tab_exists) {
+      return base::unexpected(CommandError::kTabNotFound);
+    }
+    return ResolvedTabTarget{window, tab, 0, false, false};
   }
   CommandResult<ResolvedSplitTarget> ResolveSplitPanes(
       Profile* profile,
@@ -33,6 +36,8 @@ class FakeResolver : public TargetResolver {
       LiveTabKey pane_b) override {
     return base::unexpected(CommandError::kSplitPreconditionFailure);
   }
+
+  bool tab_exists = false;
 };
 
 class FakeAdapter : public ChromiumMutationAdapter {
@@ -50,13 +55,34 @@ class FakeAdapter : public ChromiumMutationAdapter {
                               LiveTabKey* out_tab) override {
     return CommandOk();
   }
+  CommandStatusResult NavigateTab(Profile* profile,
+                                  const ResolvedTabTarget& tab,
+                                  const GURL& url) override {
+    return CommandOk();
+  }
+  CommandStatusResult OpenTabInSplit(
+      Profile* profile,
+      const ResolvedWindowTarget& window,
+      LiveTabKey existing_tab,
+      const GURL& url,
+      double ratio,
+      LiveTabKey* out_tab,
+      std::string* upstream_token) override {
+    return CommandOk();
+  }
+  CommandStatusResult OpenExternal(Profile* profile,
+                                   const GURL& url) override {
+    return CommandOk();
+  }
   CommandStatusResult ActivateTab(Profile* profile,
                                   const ResolvedTabTarget& tab) override {
     return CommandOk();
   }
   CommandStatusResult CloseTab(Profile* profile,
                                const ResolvedTabTarget& tab) override {
-    return CommandOk();
+    return close_succeeds
+               ? CommandOk()
+               : CommandErr(CommandError::kDispatchFailure);
   }
   CommandStatusResult SetPinned(Profile* profile,
                                 const ResolvedTabTarget& tab,
@@ -80,6 +106,8 @@ class FakeAdapter : public ChromiumMutationAdapter {
       const std::string& upstream_token) override {
     return CommandOk();
   }
+
+  bool close_succeeds = true;
 };
 
 class CommandExecutorTest : public testing::Test {
@@ -162,6 +190,131 @@ TEST_F(CommandExecutorTest, ModelOnlyCommandAppliedImmediately) {
   auto result = executor_.Submit(command);
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(result.value(), CommandStatus::kApplied);
+}
+
+TEST_F(CommandExecutorTest,
+       ArchiveCommitsOnlyWhenTheExactCloseIsObserved) {
+  const LiveWindowKey window = LiveWindowKey::FromSessionId(1);
+  const LiveTabKey tab = LiveTabKey::FromSessionId(10);
+  NormalizedEvent discovered;
+  discovered.type = NormalizedEventType::kWindowDiscovered;
+  discovered.window = window;
+  coordinator_.OnNormalizedEvent(discovered);
+  NormalizedEvent inserted;
+  inserted.type = NormalizedEventType::kTabInserted;
+  inserted.window = window;
+  inserted.tab = tab;
+  coordinator_.OnNormalizedEvent(inserted);
+  const TabMembershipId membership =
+      model_.FindMembershipIdByTabKey(tab.value());
+  ASSERT_TRUE(membership.is_valid());
+  resolver_.tab_exists = true;
+
+  BrowserCommand command;
+  command.id = CommandId::Next();
+  command.kind = CommandKind::kArchiveTab;
+  command.window = window;
+  command.tab = tab;
+  command.membership_id = membership;
+  command.url = GURL("https://example.test/article");
+  command.name = "Article";
+  const auto submitted = executor_.Submit(command);
+  ASSERT_TRUE(submitted.has_value());
+  EXPECT_EQ(submitted.value(), CommandStatus::kAwaitingObservation);
+  EXPECT_EQ(coordinator_.expected_archival_count(), 1u);
+  EXPECT_FALSE(model_.FindArchivedTab(membership));
+
+  NormalizedEvent removed;
+  removed.type = NormalizedEventType::kTabRemoved;
+  removed.window = window;
+  removed.tab = tab;
+  removed.removal_kind = TabRemovalKind::kGenuineClose;
+  coordinator_.OnNormalizedEvent(removed);
+  executor_.OnNormalizedLifecycleEvent(removed);
+
+  EXPECT_FALSE(model_.FindMembershipIdByTabKey(tab.value()).is_valid());
+  const ArchivedTabRecord* archived = model_.FindArchivedTab(membership);
+  ASSERT_TRUE(archived);
+  EXPECT_EQ(archived->saved_root_url, "https://example.test/article");
+  EXPECT_EQ(archived->title, "Article");
+  EXPECT_EQ(executor_.in_flight_count(), 0u);
+}
+
+TEST_F(CommandExecutorTest, FailedArchiveDispatchLeavesTabLive) {
+  const LiveWindowKey window = LiveWindowKey::FromSessionId(1);
+  const LiveTabKey tab = LiveTabKey::FromSessionId(10);
+  NormalizedEvent discovered;
+  discovered.type = NormalizedEventType::kWindowDiscovered;
+  discovered.window = window;
+  coordinator_.OnNormalizedEvent(discovered);
+  NormalizedEvent inserted;
+  inserted.type = NormalizedEventType::kTabInserted;
+  inserted.window = window;
+  inserted.tab = tab;
+  coordinator_.OnNormalizedEvent(inserted);
+  const TabMembershipId membership =
+      model_.FindMembershipIdByTabKey(tab.value());
+  ASSERT_TRUE(membership.is_valid());
+  resolver_.tab_exists = true;
+  adapter_.close_succeeds = false;
+
+  BrowserCommand command;
+  command.id = CommandId::Next();
+  command.kind = CommandKind::kArchiveTab;
+  command.window = window;
+  command.tab = tab;
+  command.membership_id = membership;
+  command.url = GURL("https://example.test/article");
+  command.name = "Article";
+  EXPECT_EQ(executor_.Submit(command).error(), CommandError::kDispatchFailure);
+  EXPECT_EQ(coordinator_.expected_archival_count(), 0u);
+  EXPECT_TRUE(model_.FindMembershipIdByTabKey(tab.value()).is_valid());
+  EXPECT_FALSE(model_.FindArchivedTab(membership));
+}
+
+TEST_F(CommandExecutorTest, RestoreAdoptsTheConfirmedInsertedTab) {
+  const LiveWindowKey window = LiveWindowKey::FromSessionId(1);
+  const LiveTabKey old_tab = LiveTabKey::FromSessionId(10);
+  const LiveTabKey new_tab = LiveTabKey::FromSessionId(11);
+  NormalizedEvent discovered;
+  discovered.type = NormalizedEventType::kWindowDiscovered;
+  discovered.window = window;
+  coordinator_.OnNormalizedEvent(discovered);
+  NormalizedEvent inserted;
+  inserted.type = NormalizedEventType::kTabInserted;
+  inserted.window = window;
+  inserted.tab = old_tab;
+  coordinator_.OnNormalizedEvent(inserted);
+  const TabMembershipId original =
+      model_.FindMembershipIdByTabKey(old_tab.value());
+  ASSERT_TRUE(original.is_valid());
+  ASSERT_TRUE(
+      model_.ArchiveTab(original, "https://example.test", "Example")
+          .has_value());
+
+  BrowserCommand command;
+  command.id = CommandId::Next();
+  command.kind = CommandKind::kRestoreArchivedTab;
+  command.window = window;
+  command.membership_id = original;
+  command.url = GURL("https://example.test");
+  const auto submitted = executor_.Submit(command);
+  ASSERT_TRUE(submitted.has_value());
+  EXPECT_EQ(submitted.value(), CommandStatus::kAwaitingObservation);
+
+  NormalizedEvent restored_insert;
+  restored_insert.type = NormalizedEventType::kTabInserted;
+  restored_insert.window = window;
+  restored_insert.tab = new_tab;
+  coordinator_.OnNormalizedEvent(restored_insert);
+  executor_.OnNormalizedLifecycleEvent(restored_insert);
+
+  EXPECT_FALSE(model_.FindArchivedTab(original));
+  const TabMembershipId live =
+      model_.FindMembershipIdByTabKey(new_tab.value());
+  ASSERT_TRUE(live.is_valid());
+  EXPECT_EQ(model_.FindMembership(live)->role, TabRole::kTemporary);
+  EXPECT_EQ(executor_.in_flight_count(), 0u);
 }
 
 }  // namespace

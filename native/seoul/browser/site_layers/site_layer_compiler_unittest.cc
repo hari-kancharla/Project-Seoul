@@ -35,6 +35,7 @@ TEST(SiteLayerSelectorTest, AcceptsSafeSelectors) {
   EXPECT_TRUE(IsSafeSelector("nav > ul li"));
   EXPECT_TRUE(IsSafeSelector("div.class1.class2"));
   EXPECT_TRUE(IsSafeSelector("[data-role]"));
+  EXPECT_TRUE(IsSafeSelector("main > section:nth-of-type(2) > article"));
 }
 
 TEST(SiteLayerSelectorTest, RejectsInjectionAttempts) {
@@ -44,6 +45,9 @@ TEST(SiteLayerSelectorTest, RejectsInjectionAttempts) {
   EXPECT_FALSE(IsSafeSelector("div/*comment*/"));     // comment
   EXPECT_FALSE(IsSafeSelector("@media screen"));      // at-rule
   EXPECT_FALSE(IsSafeSelector("a:hover(url(x))"));    // url()/parens
+  EXPECT_FALSE(IsSafeSelector("li:nth-child(2)"));    // Zap-only pseudo subset
+  EXPECT_FALSE(IsSafeSelector("li:nth-of-type(0)"));  // indices start at one
+  EXPECT_FALSE(IsSafeSelector("li:nth-of-type(2n)")); // expressions forbidden
   EXPECT_FALSE(IsSafeSelector("</style><script>"));   // markup break-out
   EXPECT_FALSE(IsSafeSelector("*"));                  // no identifier
   EXPECT_FALSE(IsSafeSelector(""));
@@ -56,12 +60,12 @@ TEST(SiteLayerOriginTest, ValidatesOriginPatterns) {
   EXPECT_TRUE(IsValidOriginPattern("http://[::1]:3000"));
   EXPECT_TRUE(IsValidOriginPattern("https://EXAMPLE.com:443"));
   EXPECT_TRUE(IsValidOriginPattern("*.example.com"));
-  EXPECT_FALSE(IsValidOriginPattern("ftp://example.com"));     // not web
-  EXPECT_FALSE(IsValidOriginPattern("example.com"));           // no scheme
-  EXPECT_FALSE(IsValidOriginPattern("https://exam ple.com"));  // space
-  EXPECT_FALSE(IsValidOriginPattern("https://"));              // empty host
-  EXPECT_FALSE(IsValidOriginPattern("https://a..b.com"));      // double dot
-  EXPECT_FALSE(IsValidOriginPattern("https://host:0"));        // bad port
+  EXPECT_FALSE(IsValidOriginPattern("ftp://example.com"));    // not web
+  EXPECT_FALSE(IsValidOriginPattern("example.com"));          // no scheme
+  EXPECT_FALSE(IsValidOriginPattern("https://exam ple.com")); // space
+  EXPECT_FALSE(IsValidOriginPattern("https://"));             // empty host
+  EXPECT_FALSE(IsValidOriginPattern("https://a..b.com"));     // double dot
+  EXPECT_FALSE(IsValidOriginPattern("https://host:0"));       // bad port
   EXPECT_FALSE(IsValidOriginPattern("https://example.com/path"));
   EXPECT_FALSE(IsValidOriginPattern("https://user@example.com"));
 }
@@ -117,7 +121,7 @@ TEST(SiteLayerCompilerTest, ValidatesColorFontAndNumericRanges) {
   SiteAdjustment font;
   font.kind = SiteAdjustmentKind::kFontFamily;
   font.selectors = {"body"};
-  font.font_family = "Comic Sans; }";  // injection attempt
+  font.font_family = "Comic Sans; }"; // injection attempt
   layer.adjustments = {font};
   EXPECT_EQ(CompileSiteLayer(layer).error(),
             SiteLayerError::kInvalidFontFamily);
@@ -125,10 +129,60 @@ TEST(SiteLayerCompilerTest, ValidatesColorFontAndNumericRanges) {
   SiteAdjustment scale;
   scale.kind = SiteAdjustmentKind::kFontSizeScale;
   scale.selectors = {"p"};
-  scale.numeric_value = 9.0;  // out of [0.5, 2.0]
+  scale.numeric_value = 9.0; // out of [0.5, 2.0]
   layer.adjustments = {scale};
   EXPECT_EQ(CompileSiteLayer(layer).error(),
             SiteLayerError::kInvalidNumericValue);
+}
+
+TEST(SiteLayerCompilerTest, CompilesTintAndDocumentFont) {
+  SiteLayer layer = ReadableLayer();
+  SiteAdjustment tint;
+  tint.kind = SiteAdjustmentKind::kTintColor;
+  tint.color_value = "#7a5cff";
+  tint.numeric_value = 0.3;
+  SiteAdjustment font;
+  font.kind = SiteAdjustmentKind::kFontFamily;
+  font.font_family = "Atkinson Hyperlegible";
+  layer.adjustments = {tint, font};
+
+  auto css = CompileSiteLayer(layer);
+  ASSERT_TRUE(css.has_value());
+  EXPECT_NE(css->find("background: #7a5cff !important"), std::string::npos);
+  EXPECT_NE(css->find("opacity: 0.3 !important"), std::string::npos);
+  EXPECT_NE(css->find("mix-blend-mode: color !important"), std::string::npos);
+  EXPECT_NE(css->find("html, body, body *, input, button, textarea, select"),
+            std::string::npos);
+  EXPECT_NE(css->find("font-family: Atkinson Hyperlegible"), std::string::npos);
+
+  tint.numeric_value = 0.049;
+  layer.adjustments = {tint};
+  EXPECT_EQ(CompileSiteLayer(layer).error(),
+            SiteLayerError::kInvalidNumericValue);
+  tint.numeric_value = 0.751;
+  layer.adjustments = {tint};
+  EXPECT_EQ(CompileSiteLayer(layer).error(),
+            SiteLayerError::kInvalidNumericValue);
+}
+
+TEST(SiteLayerCompilerTest, AllowsEmptyDraftAndPersistsAutomaticDarkMode) {
+  SiteLayer layer = ReadableLayer();
+  layer.adjustments.clear();
+  auto css = CompileSiteLayer(layer);
+  ASSERT_TRUE(css.has_value());
+  EXPECT_TRUE(css->empty());
+
+  SiteAdjustment automatic_dark;
+  automatic_dark.kind = SiteAdjustmentKind::kAutomaticDarkMode;
+  layer.adjustments.push_back(automatic_dark);
+  css = CompileSiteLayer(layer);
+  ASSERT_TRUE(css.has_value());
+  EXPECT_TRUE(css->empty());
+
+  base::DictValue serialized = SiteLayerToValue(layer);
+  auto parsed = SiteLayerFromValue(base::Value(serialized.Clone()));
+  ASSERT_TRUE(parsed.has_value());
+  EXPECT_EQ(parsed.value(), layer);
 }
 
 TEST(SiteLayerCompilerTest, RoundTripsThroughJson) {
@@ -142,6 +196,14 @@ TEST(SiteLayerCompilerTest, RoundTripsThroughJson) {
   recolor.selectors = {"p"};
   recolor.color_value = "#222222";
   layer.adjustments.push_back(recolor);
+  SiteAdjustment tint;
+  tint.kind = SiteAdjustmentKind::kTintColor;
+  tint.color_value = "#336699";
+  tint.numeric_value = 0.2;
+  layer.adjustments.push_back(tint);
+  SiteAdjustment automatic_dark;
+  automatic_dark.kind = SiteAdjustmentKind::kAutomaticDarkMode;
+  layer.adjustments.push_back(automatic_dark);
 
   base::DictValue serialized = SiteLayerToValue(layer);
   auto parsed = SiteLayerFromValue(base::Value(serialized.Clone()));
@@ -153,9 +215,9 @@ TEST(SiteLayerCompilerTest, ImportRejectsMaliciousLayer) {
   SiteLayer layer = ReadableLayer();
   base::DictValue serialized = SiteLayerToValue(layer);
   // Tamper with the serialized selector to inject a rule.
-  base::ListValue* adjustments = serialized.FindList("adjustments");
+  base::ListValue *adjustments = serialized.FindList("adjustments");
   ASSERT_NE(adjustments, nullptr);
-  base::ListValue* selectors =
+  base::ListValue *selectors =
       (*adjustments)[0].GetDict().FindList("selectors");
   ASSERT_NE(selectors, nullptr);
   selectors->clear();
@@ -164,5 +226,5 @@ TEST(SiteLayerCompilerTest, ImportRejectsMaliciousLayer) {
             SiteLayerError::kUnsafeSelector);
 }
 
-}  // namespace
-}  // namespace seoul
+} // namespace
+} // namespace seoul

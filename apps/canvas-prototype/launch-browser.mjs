@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
+import { assertBrowserLaunchPermitted } from '../../scripts/browser-launch-safety.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..', '..');
@@ -60,6 +61,7 @@ export function resolveChromeBinary({
 }
 
 export function launchBrowser(options = {}) {
+  assertBrowserLaunchPermitted();
   const {args = [], ...launchOptions} = options;
   return puppeteer.launch({
     headless: true,

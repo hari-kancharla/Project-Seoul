@@ -58,6 +58,15 @@ void SeoulShellRegionHost::Attach(VerticalTabStripRegionView* region,
   }
 }
 
+void SeoulShellRegionHost::SetPresentationCollapsed(bool collapsed) {
+  if (header_) {
+    header_->SetPresentationCollapsed(collapsed);
+  }
+  if (footer_) {
+    footer_->SetPresentationCollapsed(collapsed);
+  }
+}
+
 void SeoulShellRegionHost::Detach() {
   if (region_ && header_) {
     region_->RemoveChildViewT(header_.get());

@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Structured action fixture</title>
+<main>
+  <h1>Account settings</h1>
+  <label>
+    Display name
+    <input id="display-name" value="Seoul">
+  </label>
+  <form id="save-form">
+    <button type="submit">Save changes</button>
+  </form>
+  <p id="status" role="status">Not saved</p>
+</main>
+<script>
+  document.querySelector('#save-form').addEventListener('submit', event => {
+    event.preventDefault();
+    document.body.dataset.submitted = 'yes';
+    document.querySelector('#status').textContent = 'Saved';
+  });
+</script>

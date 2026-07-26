@@ -4,11 +4,10 @@
 // in the engine that depends on Chromium's PrefService/KeyedService; the model
 // itself stays Chromium-free.
 //
-// As of the lifecycle-bridge milestone it also owns the INBOUND lifecycle
-// bridge: a per-profile window watcher that attaches one TabStripBridge per
-// eligible normal window, a LifecycleCoordinator that applies normalized events
-// to the model, and a PersistenceScheduler that coalesces writes. No outbound
-// (Seoul -> Chromium) command path exists yet.
+// It also composes the profile's lifecycle bridge, confirmed outbound command
+// path, projection service, and native Shell. A per-profile WindowWatcher
+// attaches one TabStripBridge per eligible normal window; LifecycleCoordinator
+// reconciles observed changes; PersistenceScheduler coalesces durable writes.
 
 #ifndef SEOUL_BROWSER_ORGANIZATION_SEOUL_ORGANIZATION_SERVICE_H_
 #define SEOUL_BROWSER_ORGANIZATION_SEOUL_ORGANIZATION_SERVICE_H_

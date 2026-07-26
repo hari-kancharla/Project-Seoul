@@ -111,7 +111,7 @@ split id), `created_at`.
 - Multi-pane: only `kMaxSplitPanesV0` changes later; no four-pane assumption is
   hardcoded.
 
-## 8. Preview (source-connected; native compile/runtime evidence pending)
+## 8. Preview (source-connected and runtime-verified)
 
 Seoul's Peek/Glance equivalent. The organization model reserves the `kPreview`
 routing disposition, while `native/seoul/browser/preview/` owns the bounded
@@ -124,13 +124,17 @@ owns a separately created non-tab `WebContents` in a native bubble; the typed
 main-frame, source-origin, and destination-origin permission scope. Promotion
 is two-phase (`BeginPromotion`, same-`WebContents` Chromium transfer, then
 `CommitPromotion` or `AbortPromotion`) and the lifecycle bridge classifies the
-inserted tab as retained through an exact bounded handshake. A preview must
+inserted tab as retained through an exact bounded handshake. Promotion
+re-evaluates the active routing policy: it can land in a specific Workspace or
+native split, while approval/external routes reject before transfer and leave
+the Preview ready. A preview must
 NEVER silently become an ordinary retained tab, and previews do NOT persist
 across restart. The pinned integration patch adds a localized, DLP-gated
 **Preview link** command to Chromium's existing link context menu and passes
 the exact source `WebContents` into the same host. A faster modifier/hover
-gesture beyond that menu and capable-host compile/runtime evidence remain
-outstanding; this source state is not claimed as compiled or shipped.
+gesture beyond that menu remains outstanding. The host, routing rejection,
+Workspace promotion, retained membership, and native-split promotion are
+compiled and covered by isolated headless in-process browser tests.
 
 ## 9. Window projection
 

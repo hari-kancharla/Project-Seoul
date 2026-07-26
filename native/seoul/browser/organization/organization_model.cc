@@ -9,6 +9,8 @@
 #include "base/check.h"
 #include "base/functional/bind.h"
 #include "seoul/browser/organization/organization_limits.h"
+#include "url/gurl.h"
+#include "url/origin.h"
 
 namespace seoul {
 
@@ -47,7 +49,7 @@ bool GlobMatch(std::string_view pattern, std::string_view text) {
   return p == pattern.size();
 }
 
-}  // namespace
+} // namespace
 
 OrganizationModel::OrganizationModel()
     : OrganizationModel(base::BindRepeating(&base::Time::Now)) {}
@@ -56,9 +58,7 @@ OrganizationModel::OrganizationModel(Clock clock) : clock_(std::move(clock)) {}
 
 OrganizationModel::~OrganizationModel() = default;
 
-base::Time OrganizationModel::Now() const {
-  return clock_.Run();
-}
+base::Time OrganizationModel::Now() const { return clock_.Run(); }
 
 bool OrganizationModel::ValidName(std::string_view name) const {
   return !TrimView(name).empty() && name.size() <= kMaxNameLength;
@@ -66,16 +66,16 @@ bool OrganizationModel::ValidName(std::string_view name) const {
 
 int OrganizationModel::NextWorkspaceOrder() const {
   int max_order = -1;
-  for (const auto& [id, w] : workspaces_) {
+  for (const auto &[id, w] : workspaces_) {
     max_order = std::max(max_order, w.order);
   }
   return max_order + 1;
 }
 
 int OrganizationModel::NextOrderInWorkspace(
-    const WorkspaceId& workspace_id) const {
+    const WorkspaceId &workspace_id) const {
   int max_order = -1;
-  for (const auto& [id, m] : memberships_) {
+  for (const auto &[id, m] : memberships_) {
     if (m.workspace_id == workspace_id) {
       max_order = std::max(max_order, m.order);
     }
@@ -84,9 +84,9 @@ int OrganizationModel::NextOrderInWorkspace(
 }
 
 size_t OrganizationModel::MembershipsInWorkspace(
-    const WorkspaceId& workspace_id) const {
+    const WorkspaceId &workspace_id) const {
   size_t n = 0;
-  for (const auto& [id, m] : memberships_) {
+  for (const auto &[id, m] : memberships_) {
     if (m.workspace_id == workspace_id) {
       ++n;
     }
@@ -94,10 +94,10 @@ size_t OrganizationModel::MembershipsInWorkspace(
   return n;
 }
 
-size_t OrganizationModel::SplitsInWorkspace(
-    const WorkspaceId& workspace_id) const {
+size_t
+OrganizationModel::SplitsInWorkspace(const WorkspaceId &workspace_id) const {
   size_t n = 0;
-  for (const auto& [id, s] : splits_) {
+  for (const auto &[id, s] : splits_) {
     if (s.workspace_id == workspace_id) {
       ++n;
     }
@@ -105,32 +105,32 @@ size_t OrganizationModel::SplitsInWorkspace(
   return n;
 }
 
-const WorkspaceRecord* OrganizationModel::FindWorkspace(
-    const WorkspaceId& id) const {
+const WorkspaceRecord *
+OrganizationModel::FindWorkspace(const WorkspaceId &id) const {
   auto it = workspaces_.find(id);
   return it == workspaces_.end() ? nullptr : &it->second;
 }
 
-const TabMembershipRecord* OrganizationModel::FindMembership(
-    const TabMembershipId& id) const {
+const TabMembershipRecord *
+OrganizationModel::FindMembership(const TabMembershipId &id) const {
   auto it = memberships_.find(id);
   return it == memberships_.end() ? nullptr : &it->second;
 }
 
-TabMembershipId OrganizationModel::FindMembershipIdByTabKey(
-    std::string_view tab_key) const {
+TabMembershipId
+OrganizationModel::FindMembershipIdByTabKey(std::string_view tab_key) const {
   auto it = tab_index_.find(std::string(tab_key));
   return it == tab_index_.end() ? TabMembershipId() : it->second;
 }
 
-const EssentialRecord* OrganizationModel::FindEssential(
-    const EssentialId& id) const {
+const EssentialRecord *
+OrganizationModel::FindEssential(const EssentialId &id) const {
   auto it = essentials_.find(id);
   return it == essentials_.end() ? nullptr : &it->second;
 }
 
-const SplitGroupRecord* OrganizationModel::FindSplit(
-    const SplitGroupId& id) const {
+const SplitGroupRecord *
+OrganizationModel::FindSplit(const SplitGroupId &id) const {
   auto it = splits_.find(id);
   return it == splits_.end() ? nullptr : &it->second;
 }
@@ -141,7 +141,7 @@ SplitGroupId OrganizationModel::FindSplitIdByUpstreamToken(
     return SplitGroupId();
   }
   // Bounded scan: the number of splits is capped by organization_limits.h.
-  for (const auto& [id, s] : splits_) {
+  for (const auto &[id, s] : splits_) {
     if (s.upstream_split_token == upstream_token) {
       return id;
     }
@@ -149,18 +149,18 @@ SplitGroupId OrganizationModel::FindSplitIdByUpstreamToken(
   return SplitGroupId();
 }
 
-WorkspaceId OrganizationModel::ActiveWorkspaceForWindow(
-    std::string_view window_key) const {
+WorkspaceId
+OrganizationModel::ActiveWorkspaceForWindow(std::string_view window_key) const {
   auto it = window_active_.find(std::string(window_key));
   return it == window_active_.end() ? WorkspaceId() : it->second;
 }
 
-WorkspaceId OrganizationModel::PickFallbackWorkspace(
-    const WorkspaceId& excluded) const {
+WorkspaceId
+OrganizationModel::PickFallbackWorkspace(const WorkspaceId &excluded) const {
   // Deterministic: prefer the default (if eligible), otherwise the lowest-order
   // non-archived workspace, ties broken by id.
-  const WorkspaceRecord* best = nullptr;
-  for (const auto& [id, w] : workspaces_) {
+  const WorkspaceRecord *best = nullptr;
+  for (const auto &[id, w] : workspaces_) {
     if (id == excluded || w.archived) {
       continue;
     }
@@ -175,19 +175,19 @@ WorkspaceId OrganizationModel::PickFallbackWorkspace(
   return best ? best->id : WorkspaceId();
 }
 
-void OrganizationModel::Notify(const OrganizationChange& change) {
+void OrganizationModel::Notify(const OrganizationChange &change) {
   notifying_ = true;
-  for (auto& observer : observers_) {
+  for (auto &observer : observers_) {
     observer.OnOrganizationChanged(change);
   }
   notifying_ = false;
 }
 
-void OrganizationModel::AddObserver(OrganizationModelObserver* observer) {
+void OrganizationModel::AddObserver(OrganizationModelObserver *observer) {
   observers_.AddObserver(observer);
 }
 
-void OrganizationModel::RemoveObserver(OrganizationModelObserver* observer) {
+void OrganizationModel::RemoveObserver(OrganizationModelObserver *observer) {
   observers_.RemoveObserver(observer);
 }
 
@@ -197,9 +197,9 @@ MutationStatus OrganizationModel::EnsureDefaultWorkspace() {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
-  for (const auto& [id, w] : workspaces_) {
+  for (const auto &[id, w] : workspaces_) {
     if (w.is_default) {
-      return Ok();  // already initialized; idempotent
+      return Ok(); // already initialized; idempotent
     }
   }
   if (workspaces_.size() >= kMaxWorkspaces) {
@@ -222,8 +222,8 @@ MutationStatus OrganizationModel::EnsureDefaultWorkspace() {
 
 // --- Workspaces ---
 
-MutationResult<WorkspaceId> OrganizationModel::CreateWorkspace(
-    std::string_view name) {
+MutationResult<WorkspaceId>
+OrganizationModel::CreateWorkspace(std::string_view name) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -245,7 +245,7 @@ MutationResult<WorkspaceId> OrganizationModel::CreateWorkspace(
   return id;
 }
 
-MutationStatus OrganizationModel::RenameWorkspace(const WorkspaceId& id,
+MutationStatus OrganizationModel::RenameWorkspace(const WorkspaceId &id,
                                                   std::string_view name) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
@@ -265,7 +265,7 @@ MutationStatus OrganizationModel::RenameWorkspace(const WorkspaceId& id,
   return Ok();
 }
 
-MutationStatus OrganizationModel::ReorderWorkspace(const WorkspaceId& id,
+MutationStatus OrganizationModel::ReorderWorkspace(const WorkspaceId &id,
                                                    int new_order) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
@@ -282,7 +282,7 @@ MutationStatus OrganizationModel::ReorderWorkspace(const WorkspaceId& id,
   return Ok();
 }
 
-MutationStatus OrganizationModel::ArchiveWorkspace(const WorkspaceId& id) {
+MutationStatus OrganizationModel::ArchiveWorkspace(const WorkspaceId &id) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -300,7 +300,7 @@ MutationStatus OrganizationModel::ArchiveWorkspace(const WorkspaceId& id) {
   // An archived workspace cannot be active: reassign any windows showing it to
   // a deterministic fallback, atomically within this mutation.
   const WorkspaceId fallback = PickFallbackWorkspace(id);
-  for (auto& [window_key, active] : window_active_) {
+  for (auto &[window_key, active] : window_active_) {
     if (active == id) {
       active = fallback;
     }
@@ -309,7 +309,7 @@ MutationStatus OrganizationModel::ArchiveWorkspace(const WorkspaceId& id) {
   return Ok();
 }
 
-MutationStatus OrganizationModel::RestoreWorkspace(const WorkspaceId& id) {
+MutationStatus OrganizationModel::RestoreWorkspace(const WorkspaceId &id) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -325,7 +325,7 @@ MutationStatus OrganizationModel::RestoreWorkspace(const WorkspaceId& id) {
   return Ok();
 }
 
-MutationStatus OrganizationModel::DeleteWorkspace(const WorkspaceId& id) {
+MutationStatus OrganizationModel::DeleteWorkspace(const WorkspaceId &id) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -359,7 +359,7 @@ MutationStatus OrganizationModel::DeleteWorkspace(const WorkspaceId& id) {
                                                  : std::next(r);
   }
   const WorkspaceId fallback = PickFallbackWorkspace(id);
-  for (auto& [window_key, active] : window_active_) {
+  for (auto &[window_key, active] : window_active_) {
     if (active == id) {
       active = fallback;
     }
@@ -369,9 +369,9 @@ MutationStatus OrganizationModel::DeleteWorkspace(const WorkspaceId& id) {
   return Ok();
 }
 
-MutationStatus OrganizationModel::SetActiveWorkspaceForWindow(
-    std::string_view window_key,
-    const WorkspaceId& id) {
+MutationStatus
+OrganizationModel::SetActiveWorkspaceForWindow(std::string_view window_key,
+                                               const WorkspaceId &id) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -408,10 +408,9 @@ MutationStatus OrganizationModel::ForgetWindow(std::string_view window_key) {
 
 // --- Tab membership ---
 
-MutationResult<TabMembershipId> OrganizationModel::AddTabMembership(
-    const WorkspaceId& workspace_id,
-    std::string_view tab_key,
-    TabRole role) {
+MutationResult<TabMembershipId>
+OrganizationModel::AddTabMembership(const WorkspaceId &workspace_id,
+                                    std::string_view tab_key, TabRole role) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -421,7 +420,7 @@ MutationResult<TabMembershipId> OrganizationModel::AddTabMembership(
   if (!FindWorkspace(workspace_id)) {
     return Err(OrganizationError::kWorkspaceNotFound);
   }
-  const WorkspaceRecord* workspace = FindWorkspace(workspace_id);
+  const WorkspaceRecord *workspace = FindWorkspace(workspace_id);
   if (workspace->archived) {
     return Err(OrganizationError::kArchivedWorkspaceCannotActivate);
   }
@@ -446,8 +445,8 @@ MutationResult<TabMembershipId> OrganizationModel::AddTabMembership(
   return id;
 }
 
-MutationStatus OrganizationModel::RemoveTabMembership(
-    const TabMembershipId& id) {
+MutationStatus
+OrganizationModel::RemoveTabMembership(const TabMembershipId &id) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -460,7 +459,7 @@ MutationStatus OrganizationModel::RemoveTabMembership(
   // Remove from any split; dissolve the split if it falls below the minimum
   // arity.
   for (auto s = splits_.begin(); s != splits_.end();) {
-    auto& panes = s->second.pane_tab_keys;
+    auto &panes = s->second.pane_tab_keys;
     panes.erase(std::remove(panes.begin(), panes.end(), tab_key), panes.end());
     if (panes.size() < kMinSplitPanes) {
       s = splits_.erase(s);
@@ -477,9 +476,9 @@ MutationStatus OrganizationModel::RemoveTabMembership(
   return Ok();
 }
 
-MutationStatus OrganizationModel::MoveTabToWorkspace(
-    const TabMembershipId& id,
-    const WorkspaceId& target_workspace) {
+MutationStatus
+OrganizationModel::MoveTabToWorkspace(const TabMembershipId &id,
+                                      const WorkspaceId &target_workspace) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -490,7 +489,7 @@ MutationStatus OrganizationModel::MoveTabToWorkspace(
   if (!FindWorkspace(target_workspace)) {
     return Err(OrganizationError::kWorkspaceNotFound);
   }
-  const WorkspaceRecord* target = FindWorkspace(target_workspace);
+  const WorkspaceRecord *target = FindWorkspace(target_workspace);
   if (target->archived) {
     return Err(OrganizationError::kArchivedWorkspaceCannotActivate);
   }
@@ -505,7 +504,7 @@ MutationStatus OrganizationModel::MoveTabToWorkspace(
   // so remove the tab from its split(s) first (dissolving below-minimum
   // splits).
   for (auto s = splits_.begin(); s != splits_.end();) {
-    auto& panes = s->second.pane_tab_keys;
+    auto &panes = s->second.pane_tab_keys;
     panes.erase(std::remove(panes.begin(), panes.end(), tab_key), panes.end());
     if (panes.size() < kMinSplitPanes) {
       s = splits_.erase(s);
@@ -522,7 +521,49 @@ MutationStatus OrganizationModel::MoveTabToWorkspace(
   return Ok();
 }
 
-MutationStatus OrganizationModel::MarkTabTemporary(const TabMembershipId& id) {
+MutationStatus
+OrganizationModel::RebindTabMembership(const TabMembershipId &id,
+                                       std::string_view new_tab_key) {
+  if (notifying_) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  if (!id.is_valid() || new_tab_key.empty()) {
+    return Err(OrganizationError::kInvalidId);
+  }
+  if (new_tab_key.size() > kMaxTabKeyLength) {
+    return Err(OrganizationError::kLimitExceeded);
+  }
+  auto membership = memberships_.find(id);
+  if (membership == memberships_.end()) {
+    return Err(OrganizationError::kTabMembershipNotFound);
+  }
+  const std::string old_tab_key = membership->second.tab_key;
+  if (old_tab_key == new_tab_key) {
+    return Ok();
+  }
+  const auto collision = tab_index_.find(std::string(new_tab_key));
+  if (collision != tab_index_.end() && collision->second != id) {
+    return Err(OrganizationError::kDuplicateMembership);
+  }
+
+  // All validation is complete before the durable identity and every split
+  // reference are changed as one model mutation.
+  tab_index_.erase(old_tab_key);
+  membership->second.tab_key = std::string(new_tab_key);
+  tab_index_.emplace(membership->second.tab_key, id);
+  for (auto &[split_id, split] : splits_) {
+    for (std::string &pane : split.pane_tab_keys) {
+      if (pane == old_tab_key) {
+        pane = membership->second.tab_key;
+      }
+    }
+  }
+  Notify({OrganizationChangeType::kMembershipRebound,
+          membership->second.workspace_id, id});
+  return Ok();
+}
+
+MutationStatus OrganizationModel::MarkTabTemporary(const TabMembershipId &id) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -540,7 +581,7 @@ MutationStatus OrganizationModel::MarkTabTemporary(const TabMembershipId& id) {
   return Ok();
 }
 
-MutationStatus OrganizationModel::RetainTab(const TabMembershipId& id) {
+MutationStatus OrganizationModel::RetainTab(const TabMembershipId &id) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -558,7 +599,7 @@ MutationStatus OrganizationModel::RetainTab(const TabMembershipId& id) {
   return Ok();
 }
 
-MutationStatus OrganizationModel::PinTab(const TabMembershipId& id,
+MutationStatus OrganizationModel::PinTab(const TabMembershipId &id,
                                          std::string_view saved_root_url) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
@@ -577,7 +618,7 @@ MutationStatus OrganizationModel::PinTab(const TabMembershipId& id,
   return Ok();
 }
 
-MutationStatus OrganizationModel::UnpinTab(const TabMembershipId& id) {
+MutationStatus OrganizationModel::UnpinTab(const TabMembershipId &id) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -596,7 +637,7 @@ MutationStatus OrganizationModel::UnpinTab(const TabMembershipId& id) {
   return Ok();
 }
 
-MutationStatus OrganizationModel::TouchTabActivated(const TabMembershipId& id) {
+MutationStatus OrganizationModel::TouchTabActivated(const TabMembershipId &id) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -609,9 +650,8 @@ MutationStatus OrganizationModel::TouchTabActivated(const TabMembershipId& id) {
   return Ok();
 }
 
-MutationStatus OrganizationModel::ReorderTabMembership(
-    const TabMembershipId& id,
-    int order) {
+MutationStatus
+OrganizationModel::ReorderTabMembership(const TabMembershipId &id, int order) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -634,22 +674,39 @@ MutationStatus OrganizationModel::ReorderTabMembership(
 // --- Essentials ---
 
 MutationResult<EssentialId> OrganizationModel::CreateOrUpdateEssential(
-    const EssentialId& id,
-    std::string_view name,
-    std::string_view root_url) {
+    const EssentialId &id, std::string_view name, std::string_view root_url) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
-  if (!ValidName(name) || root_url.empty() || root_url.size() > kMaxUrlLength) {
+  if (!ValidName(name)) {
     return Err(OrganizationError::kInvalidName);
   }
+  const GURL parsed_url(root_url);
+  if (root_url.empty() || root_url.size() > kMaxUrlLength ||
+      !parsed_url.is_valid() || !parsed_url.SchemeIsHTTPOrHTTPS()) {
+    return Err(OrganizationError::kInvalidUrl);
+  }
+  auto existing = essentials_.end();
   if (id.is_valid()) {
-    auto it = essentials_.find(id);
-    if (it == essentials_.end()) {
+    existing = essentials_.find(id);
+    if (existing == essentials_.end()) {
       return Err(OrganizationError::kEssentialNotFound);
     }
-    it->second.name = std::string(name);
-    it->second.root_url = std::string(root_url);
+  }
+  const std::string origin = url::Origin::Create(parsed_url).Serialize();
+  for (const auto &[candidate_id, candidate] : essentials_) {
+    if (candidate_id == id) {
+      continue;
+    }
+    const GURL candidate_url(candidate.root_url);
+    if (candidate_url.is_valid() &&
+        url::Origin::Create(candidate_url).Serialize() == origin) {
+      return Err(OrganizationError::kDuplicateEssential);
+    }
+  }
+  if (id.is_valid()) {
+    existing->second.name = std::string(name);
+    existing->second.root_url = parsed_url.spec();
     Notify({OrganizationChangeType::kEssentialChanged, WorkspaceId(),
             TabMembershipId()});
     return id;
@@ -660,9 +717,9 @@ MutationResult<EssentialId> OrganizationModel::CreateOrUpdateEssential(
   EssentialRecord e;
   e.id = EssentialId::GenerateNew();
   e.name = std::string(name);
-  e.root_url = std::string(root_url);
+  e.root_url = parsed_url.spec();
   int max_order = -1;
-  for (const auto& [eid, rec] : essentials_) {
+  for (const auto &[eid, rec] : essentials_) {
     max_order = std::max(max_order, rec.order);
   }
   e.order = max_order + 1;
@@ -674,7 +731,7 @@ MutationResult<EssentialId> OrganizationModel::CreateOrUpdateEssential(
   return new_id;
 }
 
-MutationStatus OrganizationModel::RemoveEssential(const EssentialId& id) {
+MutationStatus OrganizationModel::RemoveEssential(const EssentialId &id) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -691,9 +748,8 @@ MutationStatus OrganizationModel::RemoveEssential(const EssentialId& id) {
 // --- Splits ---
 
 MutationResult<SplitGroupId> OrganizationModel::CreateSplitGroup(
-    const WorkspaceId& workspace_id,
-    const std::vector<std::string>& pane_tab_keys,
-    double divider_ratio,
+    const WorkspaceId &workspace_id,
+    const std::vector<std::string> &pane_tab_keys, double divider_ratio,
     std::string_view upstream_split_token) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
@@ -701,7 +757,7 @@ MutationResult<SplitGroupId> OrganizationModel::CreateSplitGroup(
   if (!FindWorkspace(workspace_id)) {
     return Err(OrganizationError::kWorkspaceNotFound);
   }
-  const WorkspaceRecord* workspace = FindWorkspace(workspace_id);
+  const WorkspaceRecord *workspace = FindWorkspace(workspace_id);
   if (workspace->archived) {
     return Err(OrganizationError::kArchivedWorkspaceCannotActivate);
   }
@@ -720,15 +776,15 @@ MutationResult<SplitGroupId> OrganizationModel::CreateSplitGroup(
     return Err(OrganizationError::kDuplicateSplitToken);
   }
   std::set<std::string> seen;
-  for (const std::string& key : pane_tab_keys) {
+  for (const std::string &key : pane_tab_keys) {
     if (!seen.insert(key).second) {
-      return Err(OrganizationError::kInvalidSplitArity);  // duplicate pane
+      return Err(OrganizationError::kInvalidSplitArity); // duplicate pane
     }
     auto ti = tab_index_.find(key);
     if (ti == tab_index_.end()) {
       return Err(OrganizationError::kTabMembershipNotFound);
     }
-    const TabMembershipRecord* m = FindMembership(ti->second);
+    const TabMembershipRecord *m = FindMembership(ti->second);
     if (!m || m->workspace_id != workspace_id) {
       return Err(OrganizationError::kCrossWorkspaceSplit);
     }
@@ -751,7 +807,7 @@ MutationResult<SplitGroupId> OrganizationModel::CreateSplitGroup(
   return id;
 }
 
-MutationStatus OrganizationModel::UpdateSplitLayout(const SplitGroupId& id,
+MutationStatus OrganizationModel::UpdateSplitLayout(const SplitGroupId &id,
                                                     double divider_ratio,
                                                     int active_pane_index) {
   if (notifying_) {
@@ -775,7 +831,7 @@ MutationStatus OrganizationModel::UpdateSplitLayout(const SplitGroupId& id,
   return Ok();
 }
 
-MutationStatus OrganizationModel::DissolveSplitGroup(const SplitGroupId& id) {
+MutationStatus OrganizationModel::DissolveSplitGroup(const SplitGroupId &id) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -792,8 +848,7 @@ MutationStatus OrganizationModel::DissolveSplitGroup(const SplitGroupId& id) {
 
 MutationStatus OrganizationModel::ReplaceSplitGroupContents(
     std::string_view upstream_split_token,
-    const std::vector<std::string>& pane_tab_keys,
-    double divider_ratio,
+    const std::vector<std::string> &pane_tab_keys, double divider_ratio,
     int active_pane_index) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
@@ -812,7 +867,7 @@ MutationStatus OrganizationModel::ReplaceSplitGroupContents(
     return Err(OrganizationError::kSplitGroupNotFound);
   }
   const WorkspaceId workspace_id = it->second.workspace_id;
-  const WorkspaceRecord* workspace = FindWorkspace(workspace_id);
+  const WorkspaceRecord *workspace = FindWorkspace(workspace_id);
   if (!workspace || workspace->archived) {
     return Err(OrganizationError::kArchivedWorkspaceCannotActivate);
   }
@@ -828,7 +883,7 @@ MutationStatus OrganizationModel::ReplaceSplitGroupContents(
     return Err(OrganizationError::kInvalidActivePane);
   }
   std::set<std::string> seen;
-  for (const std::string& key : pane_tab_keys) {
+  for (const std::string &key : pane_tab_keys) {
     if (!seen.insert(key).second) {
       return Err(OrganizationError::kInvalidSplitArity);
     }
@@ -836,7 +891,7 @@ MutationStatus OrganizationModel::ReplaceSplitGroupContents(
     if (ti == tab_index_.end()) {
       return Err(OrganizationError::kTabMembershipNotFound);
     }
-    const TabMembershipRecord* m = FindMembership(ti->second);
+    const TabMembershipRecord *m = FindMembership(ti->second);
     if (!m || m->workspace_id != workspace_id) {
       return Err(OrganizationError::kCrossWorkspaceSplit);
     }
@@ -852,33 +907,32 @@ MutationStatus OrganizationModel::ReplaceSplitGroupContents(
 // --- Temporary-tab protection / auto-archive ---
 
 std::vector<TabMembershipId> OrganizationModel::EligibleForAutoArchive(
-    const std::map<std::string, TabLiveActivity>& activity,
-    base::Time now,
+    const std::map<std::string, TabLiveActivity> &activity, base::Time now,
     base::TimeDelta inactivity_threshold) const {
   std::set<std::string> in_split;
-  for (const auto& [id, s] : splits_) {
-    for (const std::string& key : s.pane_tab_keys) {
+  for (const auto &[id, s] : splits_) {
+    for (const std::string &key : s.pane_tab_keys) {
       in_split.insert(key);
     }
   }
   std::vector<TabMembershipId> eligible;
-  for (const auto& [id, m] : memberships_) {
+  for (const auto &[id, m] : memberships_) {
     if (m.role != TabRole::kTemporary) {
-      continue;  // only temporary tabs are auto-archive candidates
+      continue; // only temporary tabs are auto-archive candidates
     }
     if (now - m.last_active_at < inactivity_threshold) {
-      continue;  // still active recently
+      continue; // still active recently
     }
     if (in_split.count(m.tab_key)) {
-      continue;  // participating in a split is protective
+      continue; // participating in a split is protective
     }
     auto a = activity.find(m.tab_key);
     if (a != activity.end()) {
-      const TabLiveActivity& t = a->second;
+      const TabLiveActivity &t = a->second;
       if (t.playing_media || t.has_active_download || t.has_active_task ||
           t.has_permission_prompt || t.in_split || t.has_devtools ||
           t.has_unsaved_form || t.loading) {
-        continue;  // protected by a live condition
+        continue; // protected by a live condition
       }
     }
     eligible.push_back(id);
@@ -888,9 +942,14 @@ std::vector<TabMembershipId> OrganizationModel::EligibleForAutoArchive(
 
 // --- Archive ---
 
-MutationStatus OrganizationModel::ArchiveTab(const TabMembershipId& id) {
+MutationStatus OrganizationModel::ArchiveTab(const TabMembershipId &id,
+                                             std::string recovery_url,
+                                             std::string title) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
+  }
+  if (recovery_url.size() > kMaxUrlLength || title.size() > kMaxNameLength) {
+    return Err(OrganizationError::kInvalidId);
   }
   auto it = memberships_.find(id);
   if (it == memberships_.end()) {
@@ -901,7 +960,7 @@ MutationStatus OrganizationModel::ArchiveTab(const TabMembershipId& id) {
   // Remove from any split (dissolving below-minimum splits): an archived tab is
   // not live and cannot participate in a split.
   for (auto s = splits_.begin(); s != splits_.end();) {
-    auto& panes = s->second.pane_tab_keys;
+    auto &panes = s->second.pane_tab_keys;
     panes.erase(std::remove(panes.begin(), panes.end(), tab_key), panes.end());
     if (panes.size() < kMinSplitPanes) {
       s = splits_.erase(s);
@@ -916,9 +975,9 @@ MutationStatus OrganizationModel::ArchiveTab(const TabMembershipId& id) {
   a.original_id = id;
   a.workspace_id = workspace_id;
   a.original_role = it->second.role;
-  if (it->second.role == TabRole::kPinned) {
-    a.saved_root_url = it->second.saved_root_url;
-  }
+  a.saved_root_url = recovery_url.empty() ? it->second.saved_root_url
+                                          : std::move(recovery_url);
+  a.title = std::move(title);
   a.archived_at = Now();
   // Bounded retention: evict the oldest archived record if at capacity.
   if (archived_.size() >= kMaxArchivedTabs) {
@@ -932,14 +991,62 @@ MutationStatus OrganizationModel::ArchiveTab(const TabMembershipId& id) {
   }
   tab_index_.erase(tab_key);
   memberships_.erase(it);
-  archived_.emplace(id, std::move(a));  // a tab is now archived, not live
+  archived_.emplace(id, std::move(a)); // a tab is now archived, not live
   Notify({OrganizationChangeType::kTabArchived, workspace_id, id});
   return Ok();
 }
 
-MutationResult<TabMembershipId> OrganizationModel::RestoreArchivedTab(
-    const TabMembershipId& original_id,
-    std::string_view tab_key) {
+const ArchivedTabRecord *
+OrganizationModel::FindArchivedTab(const TabMembershipId &original_id) const {
+  auto it = archived_.find(original_id);
+  return it == archived_.end() ? nullptr : &it->second;
+}
+
+MutationStatus
+OrganizationModel::AdoptRestoredTab(const TabMembershipId &original_id,
+                                    const TabMembershipId &live_membership_id) {
+  if (notifying_) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  auto archived = archived_.find(original_id);
+  auto live = memberships_.find(live_membership_id);
+  if (archived == archived_.end() || live == memberships_.end()) {
+    return Err(OrganizationError::kTabMembershipNotFound);
+  }
+  WorkspaceId workspace_id = archived->second.workspace_id;
+  const WorkspaceRecord *workspace = FindWorkspace(workspace_id);
+  if (!workspace) {
+    workspace_id = default_workspace_;
+    workspace = FindWorkspace(workspace_id);
+  }
+  if (!workspace) {
+    return Err(OrganizationError::kWorkspaceNotFound);
+  }
+  if (workspace->archived) {
+    return Err(OrganizationError::kArchivedWorkspaceCannotActivate);
+  }
+  if (live->second.workspace_id != workspace_id &&
+      MembershipsInWorkspace(workspace_id) >= kMaxMembershipsPerWorkspace) {
+    return Err(OrganizationError::kLimitExceeded);
+  }
+
+  TabMembershipRecord &membership = live->second;
+  membership.workspace_id = workspace_id;
+  membership.role = archived->second.original_role == TabRole::kPinned
+                        ? TabRole::kRetained
+                        : archived->second.original_role;
+  membership.saved_root_url.clear();
+  membership.order = NextOrderInWorkspace(workspace_id);
+  membership.last_active_at = Now();
+  archived_.erase(archived);
+  Notify({OrganizationChangeType::kArchivedTabRestored, workspace_id,
+          live_membership_id});
+  return Ok();
+}
+
+MutationResult<TabMembershipId>
+OrganizationModel::RestoreArchivedTab(const TabMembershipId &original_id,
+                                      std::string_view tab_key) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -962,7 +1069,7 @@ MutationResult<TabMembershipId> OrganizationModel::RestoreArchivedTab(
       return Err(OrganizationError::kWorkspaceNotFound);
     }
   }
-  const WorkspaceRecord* target_workspace = FindWorkspace(workspace_id);
+  const WorkspaceRecord *target_workspace = FindWorkspace(workspace_id);
   if (target_workspace->archived) {
     return Err(OrganizationError::kArchivedWorkspaceCannotActivate);
   }
@@ -993,8 +1100,8 @@ MutationResult<TabMembershipId> OrganizationModel::RestoreArchivedTab(
 
 // --- Routing ---
 
-MutationResult<RoutingRuleId> OrganizationModel::AddRoutingRule(
-    const RoutingRule& rule) {
+MutationResult<RoutingRuleId>
+OrganizationModel::AddRoutingRule(const RoutingRule &rule) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -1015,11 +1122,16 @@ MutationResult<RoutingRuleId> OrganizationModel::AddRoutingRule(
       !FindWorkspace(rule.result.target_workspace)) {
     return Err(OrganizationError::kInvalidRoutingRule);
   }
+  if ((rule.result.disposition == RoutingDisposition::kExternalApplication ||
+       rule.result.disposition == RoutingDisposition::kAskUser) &&
+      !rule.predicate.require_user_gesture) {
+    return Err(OrganizationError::kInvalidRoutingRule);
+  }
   RoutingRule stored = rule;
   if (!stored.id.is_valid()) {
     stored.id = RoutingRuleId::GenerateNew();
   } else if (routing_rules_.count(stored.id)) {
-    return Err(OrganizationError::kInvalidRoutingRule);  // duplicate id
+    return Err(OrganizationError::kInvalidRoutingRule); // duplicate id
   }
   const RoutingRuleId id = stored.id;
   routing_rules_.emplace(id, std::move(stored));
@@ -1028,7 +1140,42 @@ MutationResult<RoutingRuleId> OrganizationModel::AddRoutingRule(
   return id;
 }
 
-MutationStatus OrganizationModel::RemoveRoutingRule(const RoutingRuleId& id) {
+MutationStatus OrganizationModel::UpdateRoutingRule(const RoutingRule &rule) {
+  if (notifying_) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  if (!rule.id.is_valid()) {
+    return Err(OrganizationError::kInvalidRoutingRule);
+  }
+  auto existing = routing_rules_.find(rule.id);
+  if (existing == routing_rules_.end()) {
+    return Err(OrganizationError::kRoutingRuleNotFound);
+  }
+  if (rule.predicate.match_type != RoutingMatchType::kAnything &&
+      (rule.predicate.pattern.empty() ||
+       rule.predicate.pattern.size() > kMaxPatternLength)) {
+    return Err(OrganizationError::kInvalidRoutingRule);
+  }
+  if (rule.predicate.source_workspace.is_valid() &&
+      !FindWorkspace(rule.predicate.source_workspace)) {
+    return Err(OrganizationError::kInvalidRoutingRule);
+  }
+  if (rule.result.disposition == RoutingDisposition::kSpecificWorkspace &&
+      !FindWorkspace(rule.result.target_workspace)) {
+    return Err(OrganizationError::kInvalidRoutingRule);
+  }
+  if ((rule.result.disposition == RoutingDisposition::kExternalApplication ||
+       rule.result.disposition == RoutingDisposition::kAskUser) &&
+      !rule.predicate.require_user_gesture) {
+    return Err(OrganizationError::kInvalidRoutingRule);
+  }
+  existing->second = rule;
+  Notify({OrganizationChangeType::kRoutingRuleChanged, WorkspaceId(),
+          TabMembershipId()});
+  return Ok();
+}
+
+MutationStatus OrganizationModel::RemoveRoutingRule(const RoutingRuleId &id) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -1042,13 +1189,28 @@ MutationStatus OrganizationModel::RemoveRoutingRule(const RoutingRuleId& id) {
   return Ok();
 }
 
+RoutingResolution
+OrganizationModel::EvaluateRouting(const RoutingRequest &request) const {
+  return EvaluateRoutingInternal(request, nullptr);
+}
+
 RoutingResolution OrganizationModel::EvaluateRouting(
-    const RoutingRequest& request) const {
+    const RoutingRequest &request,
+    const std::set<RoutingRuleId> &eligible_rules) const {
+  return EvaluateRoutingInternal(request, &eligible_rules);
+}
+
+RoutingResolution OrganizationModel::EvaluateRoutingInternal(
+    const RoutingRequest &request,
+    const std::set<RoutingRuleId> *eligible_rules) const {
   // Gather matching, enabled, currently-valid rules. Single pass; bounded by
   // routing_rules_.size() (<= kMaxRoutingRules). No chaining
   // (kMaxRoutingHops==1), so evaluation cannot loop.
-  const RoutingRule* best = nullptr;
-  for (const auto& [id, rule] : routing_rules_) {
+  const RoutingRule *best = nullptr;
+  for (const auto &[id, rule] : routing_rules_) {
+    if (eligible_rules && !eligible_rules->contains(id)) {
+      continue;
+    }
     if (!rule.enabled) {
       continue;
     }
@@ -1061,27 +1223,27 @@ RoutingResolution OrganizationModel::EvaluateRouting(
     }
     bool matched = false;
     switch (rule.predicate.match_type) {
-      case RoutingMatchType::kAnything:
-        matched = true;
-        break;
-      case RoutingMatchType::kOriginExact:
-        matched = (request.origin == rule.predicate.pattern);
-        break;
-      case RoutingMatchType::kUrlPrefix:
-        matched = request.url.size() >= rule.predicate.pattern.size() &&
-                  request.url.compare(0, rule.predicate.pattern.size(),
-                                      rule.predicate.pattern) == 0;
-        break;
-      case RoutingMatchType::kUrlGlob:
-        matched = GlobMatch(rule.predicate.pattern, request.url);
-        break;
+    case RoutingMatchType::kAnything:
+      matched = true;
+      break;
+    case RoutingMatchType::kOriginExact:
+      matched = (request.origin == rule.predicate.pattern);
+      break;
+    case RoutingMatchType::kUrlPrefix:
+      matched = request.url.size() >= rule.predicate.pattern.size() &&
+                request.url.compare(0, rule.predicate.pattern.size(),
+                                    rule.predicate.pattern) == 0;
+      break;
+    case RoutingMatchType::kUrlGlob:
+      matched = GlobMatch(rule.predicate.pattern, request.url);
+      break;
     }
     if (!matched) {
       continue;
     }
     // A rule pointing at a now-invalid/archived workspace is skipped (safe).
     if (rule.result.disposition == RoutingDisposition::kSpecificWorkspace) {
-      const WorkspaceRecord* w = FindWorkspace(rule.result.target_workspace);
+      const WorkspaceRecord *w = FindWorkspace(rule.result.target_workspace);
       if (!w || w->archived) {
         continue;
       }
@@ -1098,8 +1260,7 @@ RoutingResolution OrganizationModel::EvaluateRouting(
     resolution.matched_rule = best->id;
     resolution.used_fallback = false;
   } else {
-    resolution.result.disposition =
-        RoutingDisposition::kCurrentTab;  // safe fallback
+    resolution.result.disposition = request.requested_disposition;
     resolution.used_fallback = true;
   }
   return resolution;
@@ -1111,53 +1272,53 @@ OrganizationSnapshot OrganizationModel::ToSnapshot() const {
   OrganizationSnapshot snap;
   snap.schema_version = kOrganizationSchemaVersion;
   snap.default_workspace_id = default_workspace_;
-  for (const auto& [id, w] : workspaces_) {
+  for (const auto &[id, w] : workspaces_) {
     snap.workspaces.push_back(w);
   }
   std::sort(snap.workspaces.begin(), snap.workspaces.end(),
-            [](const WorkspaceRecord& a, const WorkspaceRecord& b) {
+            [](const WorkspaceRecord &a, const WorkspaceRecord &b) {
               return a.order != b.order ? a.order < b.order : a.id < b.id;
             });
-  for (const auto& [id, e] : essentials_) {
+  for (const auto &[id, e] : essentials_) {
     snap.essentials.push_back(e);
   }
   std::sort(snap.essentials.begin(), snap.essentials.end(),
-            [](const EssentialRecord& a, const EssentialRecord& b) {
+            [](const EssentialRecord &a, const EssentialRecord &b) {
               return a.order != b.order ? a.order < b.order : a.id < b.id;
             });
-  for (const auto& [id, m] : memberships_) {
+  for (const auto &[id, m] : memberships_) {
     snap.memberships.push_back(m);
   }
   std::sort(snap.memberships.begin(), snap.memberships.end(),
-            [](const TabMembershipRecord& a, const TabMembershipRecord& b) {
+            [](const TabMembershipRecord &a, const TabMembershipRecord &b) {
               if (!(a.workspace_id == b.workspace_id)) {
                 return a.workspace_id < b.workspace_id;
               }
               return a.order != b.order ? a.order < b.order : a.id < b.id;
             });
-  for (const auto& [id, s] : splits_) {
+  for (const auto &[id, s] : splits_) {
     snap.splits.push_back(s);
   }
   std::sort(snap.splits.begin(), snap.splits.end(),
-            [](const SplitGroupRecord& a, const SplitGroupRecord& b) {
+            [](const SplitGroupRecord &a, const SplitGroupRecord &b) {
               return a.id < b.id;
             });
-  for (const auto& [key, ws] : window_active_) {
+  for (const auto &[key, ws] : window_active_) {
     snap.window_states.push_back({key, ws});
   }
-  for (const auto& [id, r] : routing_rules_) {
+  for (const auto &[id, r] : routing_rules_) {
     snap.routing_rules.push_back(r);
   }
   std::sort(snap.routing_rules.begin(), snap.routing_rules.end(),
-            [](const RoutingRule& a, const RoutingRule& b) {
+            [](const RoutingRule &a, const RoutingRule &b) {
               return a.priority != b.priority ? a.priority > b.priority
                                               : a.id < b.id;
             });
-  for (const auto& [id, a] : archived_) {
+  for (const auto &[id, a] : archived_) {
     snap.archived_tabs.push_back(a);
   }
   std::sort(snap.archived_tabs.begin(), snap.archived_tabs.end(),
-            [](const ArchivedTabRecord& a, const ArchivedTabRecord& b) {
+            [](const ArchivedTabRecord &a, const ArchivedTabRecord &b) {
               return a.archived_at != b.archived_at
                          ? a.archived_at < b.archived_at
                          : a.original_id < b.original_id;
@@ -1165,8 +1326,8 @@ OrganizationSnapshot OrganizationModel::ToSnapshot() const {
   return snap;
 }
 
-MutationStatus OrganizationModel::LoadSnapshot(
-    const OrganizationSnapshot& snapshot) {
+MutationStatus
+OrganizationModel::LoadSnapshot(const OrganizationSnapshot &snapshot) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -1189,7 +1350,7 @@ MutationStatus OrganizationModel::LoadSnapshot(
   // (atomic).
   std::map<WorkspaceId, WorkspaceRecord> workspaces;
   int default_count = 0;
-  for (const WorkspaceRecord& w : snapshot.workspaces) {
+  for (const WorkspaceRecord &w : snapshot.workspaces) {
     if (!w.id.is_valid() || !ValidName(w.name)) {
       return Err(OrganizationError::kCorruptState);
     }
@@ -1197,13 +1358,13 @@ MutationStatus OrganizationModel::LoadSnapshot(
       return Err(OrganizationError::kInvalidOrder);
     }
     if (!workspaces.emplace(w.id, w).second) {
-      return Err(OrganizationError::kCorruptState);  // duplicate id
+      return Err(OrganizationError::kCorruptState); // duplicate id
     }
     if (w.is_default) {
       ++default_count;
       if (w.archived) {
         return Err(
-            OrganizationError::kCorruptState);  // default cannot be archived
+            OrganizationError::kCorruptState); // default cannot be archived
       }
     }
   }
@@ -1216,9 +1377,17 @@ MutationStatus OrganizationModel::LoadSnapshot(
   }
 
   std::map<EssentialId, EssentialRecord> essentials;
-  for (const EssentialRecord& e : snapshot.essentials) {
-    if (!e.id.is_valid() || !ValidName(e.name) || e.root_url.empty() ||
-        e.root_url.size() > kMaxUrlLength) {
+  std::set<std::string> essential_origins;
+  for (const EssentialRecord &e : snapshot.essentials) {
+    const GURL parsed_url(e.root_url);
+    if (!e.id.is_valid() || !ValidName(e.name) ||
+        e.root_url.size() > kMaxUrlLength || !parsed_url.is_valid() ||
+        !parsed_url.SchemeIsHTTPOrHTTPS()) {
+      return Err(OrganizationError::kCorruptState);
+    }
+    if (!essential_origins
+             .insert(url::Origin::Create(parsed_url).Serialize())
+             .second) {
       return Err(OrganizationError::kCorruptState);
     }
     if (!essentials.emplace(e.id, e).second) {
@@ -1229,7 +1398,7 @@ MutationStatus OrganizationModel::LoadSnapshot(
   std::map<TabMembershipId, TabMembershipRecord> memberships;
   std::map<std::string, TabMembershipId> tab_index;
   std::map<WorkspaceId, size_t> per_workspace;
-  for (const TabMembershipRecord& m : snapshot.memberships) {
+  for (const TabMembershipRecord &m : snapshot.memberships) {
     if (!m.id.is_valid() || m.tab_key.empty() ||
         m.tab_key.size() > kMaxTabKeyLength) {
       return Err(OrganizationError::kCorruptState);
@@ -1238,10 +1407,10 @@ MutationStatus OrganizationModel::LoadSnapshot(
       return Err(OrganizationError::kInvalidOrder);
     }
     if (workspaces.find(m.workspace_id) == workspaces.end()) {
-      return Err(OrganizationError::kCorruptState);  // dangling workspace ref
+      return Err(OrganizationError::kCorruptState); // dangling workspace ref
     }
     if (!tab_index.emplace(m.tab_key, m.id).second) {
-      return Err(OrganizationError::kCorruptState);  // tab in two workspaces
+      return Err(OrganizationError::kCorruptState); // tab in two workspaces
     }
     if (!memberships.emplace(m.id, m).second) {
       return Err(OrganizationError::kCorruptState);
@@ -1254,7 +1423,7 @@ MutationStatus OrganizationModel::LoadSnapshot(
   std::map<SplitGroupId, SplitGroupRecord> splits;
   std::map<WorkspaceId, size_t> splits_per_workspace;
   std::set<std::string> upstream_tokens;
-  for (const SplitGroupRecord& s : snapshot.splits) {
+  for (const SplitGroupRecord &s : snapshot.splits) {
     if (!s.id.is_valid() ||
         workspaces.find(s.workspace_id) == workspaces.end()) {
       return Err(OrganizationError::kCorruptState);
@@ -1279,7 +1448,7 @@ MutationStatus OrganizationModel::LoadSnapshot(
       return Err(OrganizationError::kInvalidActivePane);
     }
     std::set<std::string> seen;
-    for (const std::string& key : s.pane_tab_keys) {
+    for (const std::string &key : s.pane_tab_keys) {
       if (!seen.insert(key).second) {
         return Err(OrganizationError::kInvalidSplitArity);
       }
@@ -1298,7 +1467,7 @@ MutationStatus OrganizationModel::LoadSnapshot(
   }
 
   std::map<RoutingRuleId, RoutingRule> routing;
-  for (const RoutingRule& r : snapshot.routing_rules) {
+  for (const RoutingRule &r : snapshot.routing_rules) {
     if (!r.id.is_valid()) {
       return Err(OrganizationError::kInvalidRoutingRule);
     }
@@ -1315,13 +1484,18 @@ MutationStatus OrganizationModel::LoadSnapshot(
         workspaces.find(r.result.target_workspace) == workspaces.end()) {
       return Err(OrganizationError::kInvalidRoutingRule);
     }
+    if ((r.result.disposition == RoutingDisposition::kExternalApplication ||
+         r.result.disposition == RoutingDisposition::kAskUser) &&
+        !r.predicate.require_user_gesture) {
+      return Err(OrganizationError::kInvalidRoutingRule);
+    }
     if (!routing.emplace(r.id, r).second) {
       return Err(OrganizationError::kInvalidRoutingRule);
     }
   }
 
   std::map<TabMembershipId, ArchivedTabRecord> archived;
-  for (const ArchivedTabRecord& a : snapshot.archived_tabs) {
+  for (const ArchivedTabRecord &a : snapshot.archived_tabs) {
     if (!a.original_id.is_valid()) {
       return Err(OrganizationError::kCorruptState);
     }
@@ -1338,17 +1512,17 @@ MutationStatus OrganizationModel::LoadSnapshot(
   }
 
   std::map<std::string, WorkspaceId> window_active;
-  for (const WindowWorkspaceState& ws : snapshot.window_states) {
+  for (const WindowWorkspaceState &ws : snapshot.window_states) {
     if (ws.window_key.empty() || ws.window_key.size() > kMaxTabKeyLength) {
       return Err(OrganizationError::kCorruptState);
     }
     if (!window_active.emplace(ws.window_key, ws.active_workspace_id).second) {
-      return Err(OrganizationError::kCorruptState);  // duplicate window key
+      return Err(OrganizationError::kCorruptState); // duplicate window key
     }
     auto w = workspaces.find(ws.active_workspace_id);
     if (w == workspaces.end() || w->second.archived) {
       return Err(
-          OrganizationError::kCorruptState);  // active must exist + be live
+          OrganizationError::kCorruptState); // active must exist + be live
     }
   }
 
@@ -1367,4 +1541,4 @@ MutationStatus OrganizationModel::LoadSnapshot(
   return Ok();
 }
 
-}  // namespace seoul
+} // namespace seoul

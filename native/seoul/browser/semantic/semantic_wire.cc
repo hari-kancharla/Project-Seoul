@@ -509,6 +509,20 @@ base::expected<SemanticProvenance, SemanticViolation> ParseProvenance(
 
 }  // namespace
 
+base::DictValue SemanticSchemaToValue(const SemanticSchema& schema) {
+  return SchemaToValue(schema);
+}
+
+base::expected<SemanticSchema, SemanticViolation> ParseSemanticSchema(
+    const base::Value& value) {
+  const base::DictValue* dict = value.GetIfDict();
+  if (!dict) {
+    return WireErr(SemanticFabricError::kInvalidShapeData,
+                   "schema must be an object");
+  }
+  return ParseSchema(*dict, 0);
+}
+
 const char* FieldPrimitiveToWire(FieldPrimitive primitive) {
   switch (primitive) {
     case FieldPrimitive::kString:

@@ -17,28 +17,29 @@ namespace seoul {
 
 // True when `selector` is in the safe subset: sequences of type, class, id,
 // attribute-presence, descendant, and child combinators over a restricted
-// charset. No pseudo-classes with arguments, no url()/expression(), no
-// escapes, no braces or at-signs.
-bool IsSafeSelector(const std::string& selector);
+// charset. The only pseudo-class with an argument is the generated
+// :nth-of-type(positive-integer) form used by the browser-owned Zap picker.
+// No url()/expression(), escapes, braces, or at-signs.
+bool IsSafeSelector(const std::string &selector);
 
 // True when `origin` is "http(s)://host[:port]" or "*.host" (host label
 // glob). Other schemes and origins containing paths/credentials are rejected.
-bool IsValidOriginPattern(const std::string& origin);
+bool IsValidOriginPattern(const std::string &origin);
 
 // Stable layer id used by registries and Scenes. Lowercase slug with digits,
 // '_' and '-' allowed after the first character.
-bool IsValidSiteLayerId(const std::string& id);
+bool IsValidSiteLayerId(const std::string &id);
 
-SiteLayerStatusResult ValidateSiteLayer(const SiteLayer& layer);
+SiteLayerStatusResult ValidateSiteLayer(const SiteLayer &layer);
 
 // Compiles the validated layer to a CSS string. Rules are emitted
 // deterministically in adjustment order. Returns an error if the layer does not
 // validate.
-SiteLayerResult<std::string> CompileSiteLayer(const SiteLayer& layer);
+SiteLayerResult<std::string> CompileSiteLayer(const SiteLayer &layer);
 
-base::DictValue SiteLayerToValue(const SiteLayer& layer);
-SiteLayerResult<SiteLayer> SiteLayerFromValue(const base::Value& value);
+base::DictValue SiteLayerToValue(const SiteLayer &layer);
+SiteLayerResult<SiteLayer> SiteLayerFromValue(const base::Value &value);
 
-}  // namespace seoul
+} // namespace seoul
 
-#endif  // SEOUL_BROWSER_SITE_LAYERS_SITE_LAYER_COMPILER_H_
+#endif // SEOUL_BROWSER_SITE_LAYERS_SITE_LAYER_COMPILER_H_

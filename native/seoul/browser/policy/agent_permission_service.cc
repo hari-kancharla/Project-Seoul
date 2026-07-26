@@ -83,8 +83,11 @@ bool AgentPermissionService::IsValidRequest(
     return false;
   }
   if (request.approval == ApprovalPolicy::kFirstUsePerScope &&
-      !request.tab.is_valid() && request.service_scope.empty()) {
+      !request.tab.is_valid() && request.service_scope.empty() &&
+      request.destination_origin.opaque()) {
     // Never turn a first-use policy into an implicit profile-wide grant.
+    // Browser-level navigation capabilities may instead use an exact
+    // destination origin, combined with the mandatory live-window scope.
     return false;
   }
   return true;

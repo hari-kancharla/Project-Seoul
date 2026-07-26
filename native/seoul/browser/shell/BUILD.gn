@@ -94,6 +94,23 @@ test("seoul_shell_core_unittests") {
   ]
 }
 
+test("seoul_shell_view_unittests") {
+  testonly = true
+  sources = [
+    "views/seoul_workspace_name_dialog.cc",
+    "views/seoul_workspace_name_dialog_unittest.cc",
+  ]
+  deps = [
+    "//base",
+    "//base/test:run_all_unittests",
+    "//base/test:test_support",
+    "//components/constrained_window",
+    "//testing/gtest",
+    "//ui/base",
+    "//ui/views",
+  ]
+}
+
 source_set("shell_browser_tests") {
   testonly = true
   defines = [ "HAS_OUT_OF_PROC_TEST_RUNNER" ]

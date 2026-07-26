@@ -52,21 +52,32 @@ class WorkspaceNameDelegate : public ui::DialogModelDelegate {
 
 }  // namespace
 
-void ShowWorkspaceNameDialog(gfx::NativeWindow parent,
-                             const std::u16string& title,
-                             const std::u16string& initial_name,
-                             base::OnceCallback<void(std::string)> on_accept) {
+std::unique_ptr<ui::DialogModel> BuildWorkspaceNameDialogModel(
+    const std::u16string& title,
+    const std::u16string& initial_name,
+    base::OnceCallback<void(std::string)> on_accept) {
   auto delegate = std::make_unique<WorkspaceNameDelegate>(std::move(on_accept));
   WorkspaceNameDelegate* delegate_ptr = delegate.get();
-  std::unique_ptr<ui::DialogModel> model =
-      ui::DialogModel::Builder(std::move(delegate))
-          .SetTitle(title)
-          .AddTextfield(kWorkspaceNameFieldId, std::u16string(), initial_name)
-          .AddOkButton(base::BindOnce(&WorkspaceNameDelegate::OnAccepted,
-                                      base::Unretained(delegate_ptr)))
-          .AddCancelButton(base::DoNothing())
-          .Build();
-  constrained_window::ShowBrowserModal(std::move(model), parent);
+  return ui::DialogModel::Builder(std::move(delegate))
+      .SetTitle(title)
+      // DialogModel requires every text field to have either a visible label
+      // or an accessible name. An empty label makes Chromium abort as soon as
+      // the create/rename dialog is constructed.
+      .AddTextfield(kWorkspaceNameFieldId, u"Project name", initial_name)
+      .AddOkButton(base::BindOnce(&WorkspaceNameDelegate::OnAccepted,
+                                  base::Unretained(delegate_ptr)))
+      .AddCancelButton(base::DoNothing())
+      .Build();
+}
+
+views::Widget* ShowWorkspaceNameDialog(
+    gfx::NativeWindow parent,
+    const std::u16string& title,
+    const std::u16string& initial_name,
+    base::OnceCallback<void(std::string)> on_accept) {
+  return constrained_window::ShowBrowserModal(
+      BuildWorkspaceNameDialogModel(title, initial_name, std::move(on_accept)),
+      parent);
 }
 
 }  // namespace seoul

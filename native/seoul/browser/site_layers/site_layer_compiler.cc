@@ -3,6 +3,7 @@
 #include "seoul/browser/site_layers/site_layer_compiler.h"
 
 #include <cmath>
+#include <string_view>
 #include <utility>
 
 #include "base/strings/string_number_conversions.h"
@@ -16,23 +17,28 @@ namespace {
 
 // Characters that can escape a CSS declaration or introduce script. Any of
 // these in a selector or value rejects the whole layer.
-bool ContainsUnsafeCssChar(const std::string& text) {
+bool ContainsUnsafeCssChar(const std::string &text,
+                           bool allow_parentheses = false) {
   for (char c : text) {
     switch (c) {
-      case '{':
-      case '}':
-      case ';':
-      case '<':
-      case '\\':
-      case '"':
-      case '\'':
-      case '@':
-      case '(':
-      case ')':
-      case '`':
-        return true;
-      default:
+    case '{':
+    case '}':
+    case ';':
+    case '<':
+    case '\\':
+    case '"':
+    case '\'':
+    case '@':
+    case '(':
+    case ')':
+      if (allow_parentheses) {
         break;
+      }
+      return true;
+    case '`':
+      return true;
+    default:
+      break;
     }
   }
   // Reject comment sequences and known dangerous tokens defensively.
@@ -47,7 +53,7 @@ bool ContainsUnsafeCssChar(const std::string& text) {
          lowered.find("import") != std::string::npos;
 }
 
-bool ValidColorValue(const std::string& hex) {
+bool ValidColorValue(const std::string &hex) {
   if (hex.empty() || hex[0] != '#') {
     return false;
   }
@@ -64,7 +70,7 @@ bool ValidColorValue(const std::string& hex) {
   return true;
 }
 
-bool ValidFontFamily(const std::string& family) {
+bool ValidFontFamily(const std::string &family) {
   if (family.empty() || family.size() > 64 || ContainsUnsafeCssChar(family)) {
     return false;
   }
@@ -77,32 +83,35 @@ bool ValidFontFamily(const std::string& family) {
   return true;
 }
 
-// Adjustments that apply to the whole document and take no selectors.
-bool IsDocumentScoped(SiteAdjustmentKind kind) {
+// Adjustments that apply to the whole document and reject selectors.
+bool SelectorsForbidden(SiteAdjustmentKind kind) {
   switch (kind) {
-    case SiteAdjustmentKind::kReadingMode:
-    case SiteAdjustmentKind::kIncreaseContrast:
-    case SiteAdjustmentKind::kReduceMotion:
-    case SiteAdjustmentKind::kContentWidth:
-    case SiteAdjustmentKind::kDensity:
-      return true;
-    default:
-      return false;
+  case SiteAdjustmentKind::kReadingMode:
+  case SiteAdjustmentKind::kIncreaseContrast:
+  case SiteAdjustmentKind::kReduceMotion:
+  case SiteAdjustmentKind::kContentWidth:
+  case SiteAdjustmentKind::kDensity:
+  case SiteAdjustmentKind::kTintColor:
+  case SiteAdjustmentKind::kAutomaticDarkMode:
+    return true;
+  default:
+    return false;
   }
 }
 
 bool NeedsColor(SiteAdjustmentKind kind) {
   return kind == SiteAdjustmentKind::kAccentColor ||
          kind == SiteAdjustmentKind::kBackgroundColor ||
-         kind == SiteAdjustmentKind::kTextColor;
+         kind == SiteAdjustmentKind::kTextColor ||
+         kind == SiteAdjustmentKind::kTintColor;
 }
 
-SiteLayerStatusResult ValidateAdjustment(const SiteAdjustment& adjustment) {
-  if (IsDocumentScoped(adjustment.kind)) {
+SiteLayerStatusResult ValidateAdjustment(const SiteAdjustment &adjustment) {
+  if (SelectorsForbidden(adjustment.kind)) {
     if (!adjustment.selectors.empty()) {
       return base::unexpected(SiteLayerError::kSelectorNotAllowed);
     }
-  } else {
+  } else if (adjustment.kind != SiteAdjustmentKind::kFontFamily) {
     if (adjustment.selectors.empty()) {
       return base::unexpected(SiteLayerError::kSelectorRequired);
     }
@@ -110,7 +119,7 @@ SiteLayerStatusResult ValidateAdjustment(const SiteAdjustment& adjustment) {
   if (adjustment.selectors.size() > kMaxSelectorsPerRule) {
     return base::unexpected(SiteLayerError::kTooManyRules);
   }
-  for (const std::string& selector : adjustment.selectors) {
+  for (const std::string &selector : adjustment.selectors) {
     if (selector.size() > kMaxSelectorLength) {
       return base::unexpected(SiteLayerError::kInvalidSelector);
     }
@@ -129,28 +138,33 @@ SiteLayerStatusResult ValidateAdjustment(const SiteAdjustment& adjustment) {
     return std::isfinite(v) && v >= lo && v <= hi;
   };
   switch (adjustment.kind) {
-    case SiteAdjustmentKind::kFontSizeScale:
-      if (!in_range(adjustment.numeric_value, 0.5, 2.0)) {
-        return base::unexpected(SiteLayerError::kInvalidNumericValue);
-      }
-      break;
-    case SiteAdjustmentKind::kContentWidth:
-      if (!in_range(adjustment.numeric_value, 320.0, 2000.0)) {
-        return base::unexpected(SiteLayerError::kInvalidNumericValue);
-      }
-      break;
-    case SiteAdjustmentKind::kLineSpacing:
-      if (!in_range(adjustment.numeric_value, 1.0, 3.0)) {
-        return base::unexpected(SiteLayerError::kInvalidNumericValue);
-      }
-      break;
-    default:
-      break;
+  case SiteAdjustmentKind::kFontSizeScale:
+    if (!in_range(adjustment.numeric_value, 0.5, 2.0)) {
+      return base::unexpected(SiteLayerError::kInvalidNumericValue);
+    }
+    break;
+  case SiteAdjustmentKind::kContentWidth:
+    if (!in_range(adjustment.numeric_value, 320.0, 2000.0)) {
+      return base::unexpected(SiteLayerError::kInvalidNumericValue);
+    }
+    break;
+  case SiteAdjustmentKind::kLineSpacing:
+    if (!in_range(adjustment.numeric_value, 1.0, 3.0)) {
+      return base::unexpected(SiteLayerError::kInvalidNumericValue);
+    }
+    break;
+  case SiteAdjustmentKind::kTintColor:
+    if (!in_range(adjustment.numeric_value, 0.05, 0.75)) {
+      return base::unexpected(SiteLayerError::kInvalidNumericValue);
+    }
+    break;
+  default:
+    break;
   }
   return base::ok();
 }
 
-std::string JoinSelectors(const std::vector<std::string>& selectors) {
+std::string JoinSelectors(const std::vector<std::string> &selectors) {
   std::string joined;
   for (size_t i = 0; i < selectors.size(); ++i) {
     if (i != 0) {
@@ -166,101 +180,122 @@ std::string FormatNumber(double value) {
   return formatted;
 }
 
-std::string CompileAdjustment(const SiteAdjustment& adjustment) {
+std::string CompileAdjustment(const SiteAdjustment &adjustment) {
   const std::string selector = JoinSelectors(adjustment.selectors);
   switch (adjustment.kind) {
-    case SiteAdjustmentKind::kAccentColor:
-      return selector + " { color: " + adjustment.color_value +
-             " !important; }\n";
-    case SiteAdjustmentKind::kBackgroundColor:
-      return selector + " { background-color: " + adjustment.color_value +
-             " !important; }\n";
-    case SiteAdjustmentKind::kTextColor:
-      return selector + " { color: " + adjustment.color_value +
-             " !important; }\n";
-    case SiteAdjustmentKind::kFontFamily:
-      return selector + " { font-family: " + adjustment.font_family +
-             ", sans-serif !important; }\n";
-    case SiteAdjustmentKind::kFontSizeScale:
-      return selector +
-             " { font-size: " + FormatNumber(adjustment.numeric_value) +
-             "em !important; }\n";
-    case SiteAdjustmentKind::kContentWidth:
-      return "html body { max-width: " +
-             FormatNumber(adjustment.numeric_value) +
-             "px !important; margin-left: auto !important; "
-             "margin-right: auto !important; }\n";
-    case SiteAdjustmentKind::kLineSpacing:
-      return selector +
-             " { line-height: " + FormatNumber(adjustment.numeric_value) +
-             " !important; }\n";
-    case SiteAdjustmentKind::kDensity: {
-      const char* padding = adjustment.density == DensityLevel::kCompact ? "4px"
-                            : adjustment.density == DensityLevel::kSpacious
-                                ? "16px"
-                                : "8px";
-      return std::string("html body * { padding: ") + padding +
-             " !important; }\n";
-    }
-    case SiteAdjustmentKind::kHide:
-      return selector + " { display: none !important; }\n";
-    case SiteAdjustmentKind::kEmphasize:
-      return selector +
-             " { outline: 2px solid currentColor !important; "
-             "font-weight: 600 !important; }\n";
-    case SiteAdjustmentKind::kStickyHeaderOff:
-      return selector + " { position: static !important; }\n";
-    case SiteAdjustmentKind::kReadingMode:
-      return "html body { max-width: 720px !important; margin: 0 auto "
-             "!important; line-height: 1.6 !important; }\n";
-    case SiteAdjustmentKind::kIncreaseContrast:
-      return "html { filter: contrast(1.2) !important; }\n";
-    case SiteAdjustmentKind::kReduceMotion:
-      return "*, *::before, *::after { animation-duration: 0s !important; "
-             "transition-duration: 0s !important; }\n";
+  case SiteAdjustmentKind::kAccentColor:
+    return selector + " { color: " + adjustment.color_value +
+           " !important; }\n";
+  case SiteAdjustmentKind::kBackgroundColor:
+    return selector + " { background-color: " + adjustment.color_value +
+           " !important; }\n";
+  case SiteAdjustmentKind::kTextColor:
+    return selector + " { color: " + adjustment.color_value +
+           " !important; }\n";
+  case SiteAdjustmentKind::kTintColor:
+    // A fixed, input-transparent blend layer tints the rendered document
+    // without intercepting page interaction or commandeering a site's own
+    // pseudo-elements. The applicator owns this inert custom element.
+    return "html > div[data-seoul-browser-boost-tint-v1] { display: block "
+           "!important; position: fixed !important; inset: 0 !important; "
+           "pointer-events: none !important; z-index: 2147483646 !important; "
+           "background: " +
+           adjustment.color_value +
+           " !important; opacity: " + FormatNumber(adjustment.numeric_value) +
+           " !important; mix-blend-mode: color !important; }\n";
+  case SiteAdjustmentKind::kFontFamily:
+    return (selector.empty() ? "html, body, body *, input, button, textarea, "
+                               "select"
+                             : selector) +
+           " { font-family: " + adjustment.font_family +
+           ", sans-serif !important; }\n";
+  case SiteAdjustmentKind::kFontSizeScale:
+    return selector +
+           " { font-size: " + FormatNumber(adjustment.numeric_value) +
+           "em !important; }\n";
+  case SiteAdjustmentKind::kContentWidth:
+    return "html body { max-width: " + FormatNumber(adjustment.numeric_value) +
+           "px !important; margin-left: auto !important; "
+           "margin-right: auto !important; }\n";
+  case SiteAdjustmentKind::kLineSpacing:
+    return selector +
+           " { line-height: " + FormatNumber(adjustment.numeric_value) +
+           " !important; }\n";
+  case SiteAdjustmentKind::kDensity: {
+    const char *padding = adjustment.density == DensityLevel::kCompact ? "4px"
+                          : adjustment.density == DensityLevel::kSpacious
+                              ? "16px"
+                              : "8px";
+    return std::string("html body * { padding: ") + padding +
+           " !important; }\n";
+  }
+  case SiteAdjustmentKind::kHide:
+    return selector + " { display: none !important; }\n";
+  case SiteAdjustmentKind::kEmphasize:
+    return selector + " { outline: 2px solid currentColor !important; "
+                      "font-weight: 600 !important; }\n";
+  case SiteAdjustmentKind::kStickyHeaderOff:
+    return selector + " { position: static !important; }\n";
+  case SiteAdjustmentKind::kReadingMode:
+    return "html body { max-width: 720px !important; margin: 0 auto "
+           "!important; line-height: 1.6 !important; }\n";
+  case SiteAdjustmentKind::kIncreaseContrast:
+    return "html { filter: contrast(1.2) !important; }\n";
+  case SiteAdjustmentKind::kReduceMotion:
+    return "*, *::before, *::after { animation-duration: 0s !important; "
+           "transition-duration: 0s !important; }\n";
+  case SiteAdjustmentKind::kAutomaticDarkMode:
+    // Applied through Blink WebPreferences by the live applicator. Keeping it
+    // in the typed layer makes persistence, matching, and toggling atomic.
+    return std::string();
   }
   return std::string();
 }
 
-const char* AdjustmentKindName(SiteAdjustmentKind kind) {
+const char *AdjustmentKindName(SiteAdjustmentKind kind) {
   switch (kind) {
-    case SiteAdjustmentKind::kAccentColor:
-      return "accent_color";
-    case SiteAdjustmentKind::kBackgroundColor:
-      return "background_color";
-    case SiteAdjustmentKind::kTextColor:
-      return "text_color";
-    case SiteAdjustmentKind::kFontFamily:
-      return "font_family";
-    case SiteAdjustmentKind::kFontSizeScale:
-      return "font_size_scale";
-    case SiteAdjustmentKind::kContentWidth:
-      return "content_width";
-    case SiteAdjustmentKind::kLineSpacing:
-      return "line_spacing";
-    case SiteAdjustmentKind::kDensity:
-      return "density";
-    case SiteAdjustmentKind::kHide:
-      return "hide";
-    case SiteAdjustmentKind::kEmphasize:
-      return "emphasize";
-    case SiteAdjustmentKind::kStickyHeaderOff:
-      return "sticky_header_off";
-    case SiteAdjustmentKind::kReadingMode:
-      return "reading_mode";
-    case SiteAdjustmentKind::kIncreaseContrast:
-      return "increase_contrast";
-    case SiteAdjustmentKind::kReduceMotion:
-      return "reduce_motion";
+  case SiteAdjustmentKind::kAccentColor:
+    return "accent_color";
+  case SiteAdjustmentKind::kBackgroundColor:
+    return "background_color";
+  case SiteAdjustmentKind::kTextColor:
+    return "text_color";
+  case SiteAdjustmentKind::kTintColor:
+    return "tint_color";
+  case SiteAdjustmentKind::kFontFamily:
+    return "font_family";
+  case SiteAdjustmentKind::kFontSizeScale:
+    return "font_size_scale";
+  case SiteAdjustmentKind::kContentWidth:
+    return "content_width";
+  case SiteAdjustmentKind::kLineSpacing:
+    return "line_spacing";
+  case SiteAdjustmentKind::kDensity:
+    return "density";
+  case SiteAdjustmentKind::kHide:
+    return "hide";
+  case SiteAdjustmentKind::kEmphasize:
+    return "emphasize";
+  case SiteAdjustmentKind::kStickyHeaderOff:
+    return "sticky_header_off";
+  case SiteAdjustmentKind::kReadingMode:
+    return "reading_mode";
+  case SiteAdjustmentKind::kIncreaseContrast:
+    return "increase_contrast";
+  case SiteAdjustmentKind::kReduceMotion:
+    return "reduce_motion";
+  case SiteAdjustmentKind::kAutomaticDarkMode:
+    return "automatic_dark_mode";
   }
   return "reading_mode";
 }
 
-bool AdjustmentKindFromName(const std::string& name, SiteAdjustmentKind* out) {
-  static constexpr std::pair<const char*, SiteAdjustmentKind> kKinds[] = {
+bool AdjustmentKindFromName(const std::string &name, SiteAdjustmentKind *out) {
+  static constexpr std::pair<const char *, SiteAdjustmentKind> kKinds[] = {
       {"accent_color", SiteAdjustmentKind::kAccentColor},
       {"background_color", SiteAdjustmentKind::kBackgroundColor},
       {"text_color", SiteAdjustmentKind::kTextColor},
+      {"tint_color", SiteAdjustmentKind::kTintColor},
       {"font_family", SiteAdjustmentKind::kFontFamily},
       {"font_size_scale", SiteAdjustmentKind::kFontSizeScale},
       {"content_width", SiteAdjustmentKind::kContentWidth},
@@ -272,8 +307,9 @@ bool AdjustmentKindFromName(const std::string& name, SiteAdjustmentKind* out) {
       {"reading_mode", SiteAdjustmentKind::kReadingMode},
       {"increase_contrast", SiteAdjustmentKind::kIncreaseContrast},
       {"reduce_motion", SiteAdjustmentKind::kReduceMotion},
+      {"automatic_dark_mode", SiteAdjustmentKind::kAutomaticDarkMode},
   };
-  for (const auto& [kind_name, kind] : kKinds) {
+  for (const auto &[kind_name, kind] : kKinds) {
     if (name == kind_name) {
       *out = kind;
       return true;
@@ -282,19 +318,19 @@ bool AdjustmentKindFromName(const std::string& name, SiteAdjustmentKind* out) {
   return false;
 }
 
-const char* DensityName(DensityLevel level) {
+const char *DensityName(DensityLevel level) {
   switch (level) {
-    case DensityLevel::kCompact:
-      return "compact";
-    case DensityLevel::kComfortable:
-      return "comfortable";
-    case DensityLevel::kSpacious:
-      return "spacious";
+  case DensityLevel::kCompact:
+    return "compact";
+  case DensityLevel::kComfortable:
+    return "comfortable";
+  case DensityLevel::kSpacious:
+    return "spacious";
   }
   return "comfortable";
 }
 
-bool DensityFromName(const std::string& name, DensityLevel* out) {
+bool DensityFromName(const std::string &name, DensityLevel *out) {
   if (name == "compact") {
     *out = DensityLevel::kCompact;
   } else if (name == "comfortable") {
@@ -307,24 +343,52 @@ bool DensityFromName(const std::string& name, DensityLevel* out) {
   return true;
 }
 
-}  // namespace
+} // namespace
 
-bool IsSafeSelector(const std::string& selector) {
+bool IsSafeSelector(const std::string &selector) {
   if (selector.empty() || selector.size() > kMaxSelectorLength ||
-      ContainsUnsafeCssChar(selector)) {
+      ContainsUnsafeCssChar(selector, /*allow_parentheses=*/true)) {
     return false;
+  }
+  // Parentheses are accepted only as part of :nth-of-type(N), where N is a
+  // non-zero decimal integer. This is the exact fallback emitted by Zap when
+  // an element has no stable id/class path.
+  for (size_t i = 0; i < selector.size(); ++i) {
+    if (selector[i] != '(' && selector[i] != ')') {
+      continue;
+    }
+    constexpr std::string_view kPrefix = ":nth-of-type(";
+    const size_t prefix_start =
+        i >= kPrefix.size() - 1 ? i - (kPrefix.size() - 1) : std::string::npos;
+    if (selector[i] != '(' || prefix_start == std::string::npos ||
+        selector.compare(prefix_start, kPrefix.size(), kPrefix) != 0) {
+      return false;
+    }
+    size_t digit = i + 1;
+    if (digit >= selector.size() || selector[digit] < '1' ||
+        selector[digit] > '9') {
+      return false;
+    }
+    while (digit < selector.size() && selector[digit] >= '0' &&
+           selector[digit] <= '9') {
+      ++digit;
+    }
+    if (digit >= selector.size() || selector[digit] != ')') {
+      return false;
+    }
+    i = digit;
   }
   // Allowed: letters, digits, '.', '#', '-', '_', '[', ']', '=', '*', '~',
   // '^', '$', '|', ':', space, '>', '+'. Attribute values are quoted normally
   // but quotes are rejected above, so only presence/prefix attribute forms
   // survive; that is acceptable for the safe subset.
   for (char c : selector) {
-    const bool allowed =
-        (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-        (c >= '0' && c <= '9') || c == '.' || c == '#' || c == '-' ||
-        c == '_' || c == '[' || c == ']' || c == '=' || c == '*' || c == '~' ||
-        c == '^' || c == '$' || c == '|' || c == ':' || c == ' ' || c == '>' ||
-        c == '+';
+    const bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                         (c >= '0' && c <= '9') || c == '.' || c == '#' ||
+                         c == '-' || c == '_' || c == '[' || c == ']' ||
+                         c == '=' || c == '*' || c == '~' || c == '^' ||
+                         c == '$' || c == '|' || c == ':' || c == ' ' ||
+                         c == '>' || c == '+' || c == '(' || c == ')';
     if (!allowed) {
       return false;
     }
@@ -342,7 +406,7 @@ bool IsSafeSelector(const std::string& selector) {
   return has_identifier;
 }
 
-bool IsValidOriginPattern(const std::string& origin) {
+bool IsValidOriginPattern(const std::string &origin) {
   if (origin.empty() || origin.size() > kMaxOriginPatternLength) {
     return false;
   }
@@ -375,8 +439,7 @@ bool IsValidOriginPattern(const std::string& origin) {
       const size_t colon = authority.rfind(':');
       const std::string raw_host = authority.substr(0, colon);
       if (raw_host.empty() || raw_host.front() == '.' ||
-          raw_host.back() == '.' ||
-          raw_host.find("..") != std::string::npos) {
+          raw_host.back() == '.' || raw_host.find("..") != std::string::npos) {
         return false;
       }
     }
@@ -411,7 +474,7 @@ bool IsValidOriginPattern(const std::string& origin) {
   return host.front() != '.' && host.back() != '.';
 }
 
-bool IsValidSiteLayerId(const std::string& id) {
+bool IsValidSiteLayerId(const std::string &id) {
   if (id.empty() || id.size() > kMaxLayerNameLength) {
     return false;
   }
@@ -419,15 +482,15 @@ bool IsValidSiteLayerId(const std::string& id) {
     return false;
   }
   for (char c : id) {
-    if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-          c == '_' || c == '-')) {
+    if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' ||
+          c == '-')) {
       return false;
     }
   }
   return true;
 }
 
-SiteLayerStatusResult ValidateSiteLayer(const SiteLayer& layer) {
+SiteLayerStatusResult ValidateSiteLayer(const SiteLayer &layer) {
   if (layer.schema_version != kSiteLayerSchemaVersion) {
     return base::unexpected(SiteLayerError::kUnsupportedSchema);
   }
@@ -440,13 +503,10 @@ SiteLayerStatusResult ValidateSiteLayer(const SiteLayer& layer) {
   if (!IsValidOriginPattern(layer.origin_pattern)) {
     return base::unexpected(SiteLayerError::kInvalidOrigin);
   }
-  if (layer.adjustments.empty()) {
-    return base::unexpected(SiteLayerError::kEmptyLayer);
-  }
   if (layer.adjustments.size() > kMaxLayerRules) {
     return base::unexpected(SiteLayerError::kTooManyRules);
   }
-  for (const SiteAdjustment& adjustment : layer.adjustments) {
+  for (const SiteAdjustment &adjustment : layer.adjustments) {
     if (auto result = ValidateAdjustment(adjustment); !result.has_value()) {
       return result;
     }
@@ -454,18 +514,18 @@ SiteLayerStatusResult ValidateSiteLayer(const SiteLayer& layer) {
   return base::ok();
 }
 
-SiteLayerResult<std::string> CompileSiteLayer(const SiteLayer& layer) {
+SiteLayerResult<std::string> CompileSiteLayer(const SiteLayer &layer) {
   if (auto valid = ValidateSiteLayer(layer); !valid.has_value()) {
     return base::unexpected(valid.error());
   }
   std::string css;
-  for (const SiteAdjustment& adjustment : layer.adjustments) {
+  for (const SiteAdjustment &adjustment : layer.adjustments) {
     css += CompileAdjustment(adjustment);
   }
   return css;
 }
 
-base::DictValue SiteLayerToValue(const SiteLayer& layer) {
+base::DictValue SiteLayerToValue(const SiteLayer &layer) {
   base::DictValue dict;
   dict.Set("schema_version", layer.schema_version);
   dict.Set("id", layer.id);
@@ -476,12 +536,12 @@ base::DictValue SiteLayerToValue(const SiteLayer& layer) {
   }
   dict.Set("enabled", layer.enabled);
   base::ListValue adjustments;
-  for (const SiteAdjustment& adjustment : layer.adjustments) {
+  for (const SiteAdjustment &adjustment : layer.adjustments) {
     base::DictValue adjustment_dict;
     adjustment_dict.Set("kind", AdjustmentKindName(adjustment.kind));
     if (!adjustment.selectors.empty()) {
       base::ListValue selectors;
-      for (const std::string& selector : adjustment.selectors) {
+      for (const std::string &selector : adjustment.selectors) {
         selectors.Append(selector);
       }
       adjustment_dict.Set("selectors", std::move(selectors));
@@ -504,8 +564,8 @@ base::DictValue SiteLayerToValue(const SiteLayer& layer) {
   return dict;
 }
 
-SiteLayerResult<SiteLayer> SiteLayerFromValue(const base::Value& value) {
-  const base::DictValue* dict = value.GetIfDict();
+SiteLayerResult<SiteLayer> SiteLayerFromValue(const base::Value &value) {
+  const base::DictValue *dict = value.GetIfDict();
   if (!dict) {
     return base::unexpected(SiteLayerError::kUnsupportedSchema);
   }
@@ -513,52 +573,52 @@ SiteLayerResult<SiteLayer> SiteLayerFromValue(const base::Value& value) {
     return base::unexpected(SiteLayerError::kUnsupportedSchema);
   }
   SiteLayer layer;
-  if (const std::string* id = dict->FindString("id")) {
+  if (const std::string *id = dict->FindString("id")) {
     layer.id = *id;
   }
-  const std::string* name = dict->FindString("name");
-  const std::string* origin = dict->FindString("origin_pattern");
+  const std::string *name = dict->FindString("name");
+  const std::string *origin = dict->FindString("origin_pattern");
   if (!name || !origin) {
     return base::unexpected(SiteLayerError::kInvalidName);
   }
   layer.name = *name;
   layer.origin_pattern = *origin;
-  if (const std::string* scene = dict->FindString("scene_scope")) {
+  if (const std::string *scene = dict->FindString("scene_scope")) {
     layer.scene_scope = *scene;
   }
   layer.enabled = dict->FindBool("enabled").value_or(true);
-  const base::ListValue* adjustments = dict->FindList("adjustments");
+  const base::ListValue *adjustments = dict->FindList("adjustments");
   if (!adjustments) {
     return base::unexpected(SiteLayerError::kEmptyLayer);
   }
-  for (const base::Value& adjustment_value : *adjustments) {
-    const base::DictValue* adjustment_dict = adjustment_value.GetIfDict();
+  for (const base::Value &adjustment_value : *adjustments) {
+    const base::DictValue *adjustment_dict = adjustment_value.GetIfDict();
     if (!adjustment_dict) {
       return base::unexpected(SiteLayerError::kInvalidSelector);
     }
     SiteAdjustment adjustment;
-    const std::string* kind = adjustment_dict->FindString("kind");
+    const std::string *kind = adjustment_dict->FindString("kind");
     if (!kind || !AdjustmentKindFromName(*kind, &adjustment.kind)) {
       return base::unexpected(SiteLayerError::kInvalidSelector);
     }
-    if (const base::ListValue* selectors =
+    if (const base::ListValue *selectors =
             adjustment_dict->FindList("selectors")) {
-      for (const base::Value& selector : *selectors) {
+      for (const base::Value &selector : *selectors) {
         if (!selector.is_string()) {
           return base::unexpected(SiteLayerError::kInvalidSelector);
         }
         adjustment.selectors.push_back(selector.GetString());
       }
     }
-    if (const std::string* color = adjustment_dict->FindString("color_value")) {
+    if (const std::string *color = adjustment_dict->FindString("color_value")) {
       adjustment.color_value = *color;
     }
-    if (const std::string* font = adjustment_dict->FindString("font_family")) {
+    if (const std::string *font = adjustment_dict->FindString("font_family")) {
       adjustment.font_family = *font;
     }
     adjustment.numeric_value =
         adjustment_dict->FindDouble("numeric_value").value_or(0.0);
-    if (const std::string* density = adjustment_dict->FindString("density")) {
+    if (const std::string *density = adjustment_dict->FindString("density")) {
       if (!DensityFromName(*density, &adjustment.density)) {
         return base::unexpected(SiteLayerError::kInvalidSelector);
       }
@@ -571,40 +631,42 @@ SiteLayerResult<SiteLayer> SiteLayerFromValue(const base::Value& value) {
   return layer;
 }
 
-const char* SiteLayerErrorToString(SiteLayerError error) {
+const char *SiteLayerErrorToString(SiteLayerError error) {
   switch (error) {
-    case SiteLayerError::kInvalidId:
-      return "invalid_id";
-    case SiteLayerError::kInvalidName:
-      return "invalid_name";
-    case SiteLayerError::kInvalidOrigin:
-      return "invalid_origin";
-    case SiteLayerError::kEmptyLayer:
-      return "empty_layer";
-    case SiteLayerError::kTooManyRules:
-      return "too_many_rules";
-    case SiteLayerError::kInvalidSelector:
-      return "invalid_selector";
-    case SiteLayerError::kUnsafeSelector:
-      return "unsafe_selector";
-    case SiteLayerError::kInvalidColor:
-      return "invalid_color";
-    case SiteLayerError::kInvalidFontFamily:
-      return "invalid_font_family";
-    case SiteLayerError::kInvalidNumericValue:
-      return "invalid_numeric_value";
-    case SiteLayerError::kSelectorRequired:
-      return "selector_required";
-    case SiteLayerError::kSelectorNotAllowed:
-      return "selector_not_allowed";
-    case SiteLayerError::kUnsupportedSchema:
-      return "unsupported_schema";
-    case SiteLayerError::kUnknownLayer:
-      return "unknown_layer";
-    case SiteLayerError::kLimitExceeded:
-      return "limit_exceeded";
+  case SiteLayerError::kInvalidId:
+    return "invalid_id";
+  case SiteLayerError::kInvalidName:
+    return "invalid_name";
+  case SiteLayerError::kInvalidOrigin:
+    return "invalid_origin";
+  case SiteLayerError::kEmptyLayer:
+    return "empty_layer";
+  case SiteLayerError::kTooManyRules:
+    return "too_many_rules";
+  case SiteLayerError::kInvalidSelector:
+    return "invalid_selector";
+  case SiteLayerError::kUnsafeSelector:
+    return "unsafe_selector";
+  case SiteLayerError::kInvalidColor:
+    return "invalid_color";
+  case SiteLayerError::kInvalidFontFamily:
+    return "invalid_font_family";
+  case SiteLayerError::kInvalidNumericValue:
+    return "invalid_numeric_value";
+  case SiteLayerError::kSelectorRequired:
+    return "selector_required";
+  case SiteLayerError::kSelectorNotAllowed:
+    return "selector_not_allowed";
+  case SiteLayerError::kUnsupportedSchema:
+    return "unsupported_schema";
+  case SiteLayerError::kUnknownLayer:
+    return "unknown_layer";
+  case SiteLayerError::kLimitExceeded:
+    return "limit_exceeded";
+  case SiteLayerError::kInUse:
+    return "in_use";
   }
   return "invalid_selector";
 }
 
-}  // namespace seoul
+} // namespace seoul

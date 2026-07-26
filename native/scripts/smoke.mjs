@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
+import { assertBrowserLaunchPermitted } from '../../scripts/browser-launch-safety.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..', '..');
@@ -25,6 +26,9 @@ const binary = (process.env.SEOUL_CHROMIUM_BINARY || '').trim()
   : path.join(root, 'src', 'out', 'SeoulBaseline', 'Chromium.app', 'Contents', 'MacOS', 'Chromium');
 const maxLaunchMs = 15000;
 const maxLocalNavigationMs = 5000;
+const maxCanvasReadyMs = 5000;
+const maxCanvasViewSwitchMs = 1500;
+const maxCanvasSwitchSoakMs = 5000;
 
 function fail(msg) {
   console.error(`SMOKE FAIL: ${msg}`);
@@ -33,6 +37,12 @@ function fail(msg) {
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
   console.log(`  ok: ${msg}`);
+}
+
+try {
+  assertBrowserLaunchPermitted();
+} catch (error) {
+  fail(error instanceof Error ? error.message : String(error));
 }
 
 if (!existsSync(binary)) {
@@ -69,6 +79,25 @@ try {
 
   const version = await browser.version();
   console.log(`browser version: ${version}`);
+
+  // A real chrome://newtab navigation must resolve to Seoul's first-party
+  // Canvas document. Checking the rendered custom element catches regressions
+  // where Browser::GetNewTabURL changes but the canonical NTP rewrite still
+  // sends startup/omnibox new tabs to Chromium's stock page.
+  const newTab = await browser.newPage();
+  await newTab.goto('chrome://newtab/', {waitUntil: 'domcontentloaded'});
+  await newTab.waitForFunction(async () => {
+    await customElements.whenDefined('seoul-canvas-app');
+    const root = document.querySelector('seoul-canvas-app')?.shadowRoot;
+    return root?.querySelector('.canvas-header h1')?.textContent?.trim() ===
+        'Ask, act, understand.';
+  });
+  assert(
+    await newTab.evaluate(() =>
+      Boolean(document.querySelector('seoul-canvas-app')?.shadowRoot)),
+    'chrome://newtab renders Seoul Canvas instead of the stock Chromium NTP',
+  );
+  await newTab.close();
 
   const page = await browser.newPage();
   page.on('error', (e) => {
@@ -107,6 +136,7 @@ try {
     if (message.type() === 'error') canvasErrors.push(message.text());
   });
   canvas.on('pageerror', (error) => canvasErrors.push(String(error)));
+  const canvasStarted = performance.now();
   await canvas.goto('chrome://seoul-canvas', { waitUntil: 'domcontentloaded' });
   await canvas.waitForFunction(async () => {
     await customElements.whenDefined('seoul-canvas-app');
@@ -122,20 +152,93 @@ try {
       sendDisabled: root?.querySelector('.send-button')?.disabled,
     };
   });
+  const canvasReadyMs = performance.now() - canvasStarted;
+  assert(
+    canvasReadyMs < maxCanvasReadyMs,
+    `Seoul Canvas becomes interactive below the ${maxCanvasReadyMs} ms smoke ceiling (${canvasReadyMs.toFixed(0)} ms)`,
+  );
   assert(canvasState.heading === 'Ask, act, understand.', 'Seoul Canvas renders its product heading');
   assert(canvasState.views === 5, 'Seoul Canvas exposes all five product views');
   assert(canvasState.voiceOff === 'false', 'voice remains explicit and default-off');
   assert(canvasState.sendDisabled === true, 'empty Canvas input cannot dispatch');
   assert(canvasErrors.length === 0, `Seoul Canvas reports no console errors (${canvasErrors.join('; ')})`);
 
-  // (7) the browser stayed alive throughout.
+  // (7) Every product surface is reachable, then repeated switching proves
+  // the single Lit app does not accumulate stale selected states or crash.
+  const viewSwitches = await canvas.evaluate(async (maxSwitchMs) => {
+    const app = document.querySelector('seoul-canvas-app');
+    const root = app?.shadowRoot;
+    if (!app || !root) return { error: 'missing Canvas app' };
+    const selectors = new Map([
+      ['Canvas', '#canvas-root'],
+      ['Boosts', '.boosts-view'],
+      ['Library', '.library-view[aria-label="Library"]'],
+      ['Boards', '.library-view[aria-label="Boards"]'],
+      ['Studio', '.studio-view'],
+    ]);
+    const buttons = [...root.querySelectorAll('.view-switcher button')];
+    const timings = [];
+    const activate = async (name) => {
+      const button = buttons.find(
+          candidate => candidate.textContent.trim() === name);
+      if (!button) throw new Error(`missing ${name} view button`);
+      const started = performance.now();
+      button.click();
+      await app.updateComplete;
+      const elapsed = performance.now() - started;
+      const renderedView = root.querySelector(selectors.get(name));
+      if (!renderedView) {
+        throw new Error(`${name} view did not render`);
+      }
+      // Lit's updateComplete is the authoritative DOM commit boundary.
+      // Forcing layout verifies the rendered view is usable without relying
+      // on requestAnimationFrame, which Chromium may suspend for background
+      // headless pages and thereby hang the smoke driver.
+      renderedView.getBoundingClientRect();
+      const selected = buttons.filter(
+          candidate => candidate.getAttribute('aria-current') === 'page');
+      if (selected.length !== 1 || selected[0] !== button) {
+        throw new Error(`${name} selection state is inconsistent`);
+      }
+      if (elapsed >= maxSwitchMs) {
+        throw new Error(
+            `${name} switch exceeded ${maxSwitchMs} ms (${elapsed.toFixed(0)} ms)`);
+      }
+      timings.push({ name, elapsed });
+    };
+    try {
+      for (const name of selectors.keys()) await activate(name);
+      const soakStarted = performance.now();
+      const names = [...selectors.keys()];
+      for (let cycle = 0; cycle < 5; ++cycle) {
+        for (const name of names) await activate(name);
+      }
+      return {
+        timings,
+        soakMs: performance.now() - soakStarted,
+        composerPresent: Boolean(
+          root.querySelector('.composer input[aria-label="Message Seoul"]')),
+      };
+    } catch (error) {
+      return { error: String(error) };
+    }
+  }, maxCanvasViewSwitchMs);
+  assert(!viewSwitches.error, `all Canvas views switch correctly (${viewSwitches.error || 'ok'})`);
+  assert(
+    viewSwitches.soakMs < maxCanvasSwitchSoakMs,
+    `25 rapid Canvas view switches stay below the ${maxCanvasSwitchSoakMs} ms smoke ceiling (${viewSwitches.soakMs.toFixed(0)} ms)`,
+  );
+  assert(viewSwitches.composerPresent, 'Canvas composer survives repeated view switching');
+  assert(canvasErrors.length === 0, `rapid Canvas switching reports no console errors (${canvasErrors.join('; ')})`);
+
+  // (8) the browser stayed alive throughout.
   assert(browser.connected === true, 'browser remained connected for the test duration');
   assert(crashed === null, 'no disconnect or page crash occurred');
 
-  // (8) version already collected above.
+  // (9) version already collected above.
   assert(/Chrom(e|ium)\/\d+/.test(version), `browser reports a Chromium version string (${version})`);
 
-  // (9) clean close.
+  // (10) clean close.
   closingBrowser = true;
   await browser.close();
   browser = undefined;
@@ -149,7 +252,7 @@ try {
   }
   fail(failure);
 } finally {
-  // (10) remove the temporary profile.
+  // (11) remove the temporary profile.
   try {
     rmSync(profile, { recursive: true, force: true });
   } catch {}

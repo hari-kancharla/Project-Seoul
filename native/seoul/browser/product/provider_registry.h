@@ -82,8 +82,11 @@ class ProviderRegistry {
 
   ProviderStateSnapshot Snapshot() const;
 
-  // True when any reasoning provider is usable right now.
-  bool HasUsableProvider() const;
+  // True when an allowed reasoning provider is usable right now. A
+  // cloud-disabled Scene can still use a healthy local provider, but this
+  // method never treats the cloud route as eligible when
+  // `allow_cloud_models` is false.
+  bool HasUsableProvider(bool allow_cloud_models = true) const;
   bool local_available() const { return local_provider_ && local_healthy_; }
   bool cloud_available() const;
 
@@ -103,9 +106,11 @@ class ProviderRegistry {
   void Shutdown();
 
  private:
-  ModelProvider* PickProvider(bool prefer_local) const;
+  ModelProvider* PickProvider(bool prefer_local,
+                              bool allow_cloud_models) const;
   void RequestPlan(const std::string& prompt,
                    bool prefer_local,
+                   bool allow_cloud_models,
                    base::OnceCallback<void(std::optional<base::DictValue>,
                                            PlanOrigin)> callback);
   void OnPlanGenerated(base::OnceCallback<void(std::optional<base::DictValue>,

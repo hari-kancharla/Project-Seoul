@@ -33,29 +33,29 @@
 namespace seoul {
 
 class SeoulRuntime {
- public:
+public:
   // `scene_resolvers` bridge the scene registry to the organization/theme/
   // site-layer stores by id (the runtime does not own those stores).
   explicit SeoulRuntime(SceneResolvers scene_resolvers);
-  SeoulRuntime(const SeoulRuntime&) = delete;
-  SeoulRuntime& operator=(const SeoulRuntime&) = delete;
+  SeoulRuntime(const SeoulRuntime &) = delete;
+  SeoulRuntime &operator=(const SeoulRuntime &) = delete;
   ~SeoulRuntime();
 
-  ToolRegistry& capabilities() { return capabilities_; }
-  ConnectorRegistry& connectors() { return connectors_; }
-  const ConnectorRegistry& connectors() const { return connectors_; }
-  SceneRegistry& scenes() { return scenes_; }
+  ToolRegistry &capabilities() { return capabilities_; }
+  ConnectorRegistry &connectors() { return connectors_; }
+  const ConnectorRegistry &connectors() const { return connectors_; }
+  SceneRegistry &scenes() { return scenes_; }
+  const SceneRegistry &scenes() const { return scenes_; }
 
   // The reasoning policy for a task, derived from the runtime's provider
   // availability and the caller's budget input.
-  RoutingPolicy MakeRoutingPolicy(bool cloud_enabled,
-                                  bool local_available,
+  RoutingPolicy MakeRoutingPolicy(bool cloud_enabled, bool local_available,
                                   int64_t remaining_budget_microdollars) const;
 
   // Disconnects connectors and clears live registrations in a defined order.
   void Shutdown();
 
- private:
+private:
   // Construction-only: callers cannot accidentally perform a second,
   // partially ignored registration pass.
   void RegisterBuiltinCapabilities();
@@ -66,6 +66,6 @@ class SeoulRuntime {
   bool shutting_down_ = false;
 };
 
-}  // namespace seoul
+} // namespace seoul
 
-#endif  // SEOUL_BROWSER_RUNTIME_SEOUL_RUNTIME_H_
+#endif // SEOUL_BROWSER_RUNTIME_SEOUL_RUNTIME_H_

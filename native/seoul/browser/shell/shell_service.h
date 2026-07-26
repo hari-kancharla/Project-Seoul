@@ -27,35 +27,57 @@ class ShellController;
 class SeoulShellRegionHost;
 
 class ShellService : public OrganizationModelObserver {
- public:
+public:
   using AcknowledgeRecoveryCallback = base::RepeatingCallback<MutationStatus()>;
+  using CompactModeStateCallback =
+      base::RepeatingCallback<ShellCompactModeState(LiveWindowKey)>;
+  using SetCompactModeCallback =
+      base::RepeatingCallback<bool(LiveWindowKey, bool)>;
+  using OpenBoostCallback = base::RepeatingCallback<bool(LiveWindowKey)>;
+  using ProjectResourcesCallback =
+      base::RepeatingCallback<ShellProjectResources(WorkspaceId)>;
+  using CreateProjectChatCallback =
+      base::RepeatingCallback<bool(LiveWindowKey, WorkspaceId)>;
+  using OpenProjectChatCallback =
+      base::RepeatingCallback<bool(LiveWindowKey, const std::string&)>;
+  using OpenProjectFilesCallback =
+      base::RepeatingCallback<bool(LiveWindowKey, WorkspaceId)>;
 
-  ShellService(Profile* profile,
-               OrganizationModel* model,
-               ProjectionService* projection_service,
-               LiveWindowStateProvider* live_state,
-               CommandExecutor* executor,
-               LifecycleCoordinator* lifecycle,
-               bool recovery_required,
+  ShellService(Profile *profile, OrganizationModel *model,
+               ProjectionService *projection_service,
+               LiveWindowStateProvider *live_state, CommandExecutor *executor,
+               LifecycleCoordinator *lifecycle, bool recovery_required,
                AcknowledgeRecoveryCallback acknowledge_recovery);
-  ShellService(const ShellService&) = delete;
-  ShellService& operator=(const ShellService&) = delete;
+  ShellService(const ShellService &) = delete;
+  ShellService &operator=(const ShellService &) = delete;
   ~ShellService() override;
 
-  ShellController* GetController(ShellWindowKey window);
+  ShellController *GetController(ShellWindowKey window);
   void RegisterVerticalRegion(ShellWindowKey window,
-                              VerticalTabStripRegionView* region,
-                              BrowserWindowInterface* browser_window);
+                              VerticalTabStripRegionView *region,
+                              BrowserWindowInterface *browser_window);
   void UnregisterVerticalRegion(ShellWindowKey window);
   void OnCollapseStateChanged(ShellWindowKey window, bool collapsed);
+  // Ephemeral presentation used by compact-mode hover/focus. This must not
+  // mutate the durable collapsed preference.
+  void OnSidebarPresentationChanged(ShellWindowKey window, bool collapsed);
+  void RefreshCompactModeState(ShellWindowKey window);
+  void RefreshProjectResources();
+  void SetCompactModeCallbacks(CompactModeStateCallback state,
+                               SetCompactModeCallback set);
+  void SetOpenBoostCallback(OpenBoostCallback callback);
+  void SetProjectCallbacks(ProjectResourcesCallback resources,
+                           CreateProjectChatCallback create_chat,
+                           OpenProjectChatCallback open_chat,
+                           OpenProjectFilesCallback open_files);
   void UpdateTaskSummary(ShellWindowKey window, ShellTaskSummary summary);
   void ClearTaskSummaries();
   void Shutdown();
 
-  void OnOrganizationChanged(const OrganizationChange& change) override;
+  void OnOrganizationChanged(const OrganizationChange &change) override;
 
- private:
-  ShellController& EnsureController(ShellWindowKey window);
+private:
+  ShellController &EnsureController(ShellWindowKey window);
 
   raw_ptr<Profile> profile_;
   raw_ptr<OrganizationModel> model_;
@@ -66,6 +88,13 @@ class ShellService : public OrganizationModelObserver {
   bool recovery_required_ = false;
   bool shutting_down_ = false;
   AcknowledgeRecoveryCallback acknowledge_recovery_;
+  CompactModeStateCallback compact_mode_state_callback_;
+  SetCompactModeCallback set_compact_mode_callback_;
+  OpenBoostCallback open_boost_callback_;
+  ProjectResourcesCallback project_resources_callback_;
+  CreateProjectChatCallback create_project_chat_callback_;
+  OpenProjectChatCallback open_project_chat_callback_;
+  OpenProjectFilesCallback open_project_files_callback_;
   std::map<ShellWindowKey, std::unique_ptr<ShellController>> controllers_;
   std::map<ShellWindowKey, ShellTaskSummary> task_summaries_;
   // One owned host per initialized vertical region (scoped to this service's
@@ -74,6 +103,6 @@ class ShellService : public OrganizationModelObserver {
   std::map<ShellWindowKey, std::unique_ptr<SeoulShellRegionHost>> hosts_;
 };
 
-}  // namespace seoul
+} // namespace seoul
 
-#endif  // SEOUL_BROWSER_SHELL_SHELL_SERVICE_H_
+#endif // SEOUL_BROWSER_SHELL_SHELL_SERVICE_H_

@@ -77,6 +77,9 @@ struct NormalizedEvent {
 
   LiveTabKey tab;
   PersistedTabRef persisted_tab;
+  // Durable Seoul membership carried through Chromium's tab-session metadata.
+  // Present only for a restored/existing tab that was previously organized.
+  TabMembershipId restored_membership;
 
   TabInsertKind insert_kind = TabInsertKind::kUnknown;
   TabRemovalKind removal_kind = TabRemovalKind::kUnknown;

@@ -50,7 +50,7 @@ SeoulOrganizationService::SeoulOrganizationService(Profile* profile,
                           weak_factory_.GetWeakPtr()));
 
   window_watcher_ =
-      std::make_unique<WindowWatcher>(profile_, coordinator_.get());
+      std::make_unique<WindowWatcher>(profile_, coordinator_.get(), &model_);
   window_watcher_->StartObserving();
 
   session_restore_watcher_ = std::make_unique<SessionRestoreWatcher>(

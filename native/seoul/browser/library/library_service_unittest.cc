@@ -2,12 +2,23 @@
 
 #include "seoul/browser/library/library_service.h"
 
+#include <vector>
+
 #include "base/functional/bind.h"
 #include "base/time/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace seoul {
 namespace {
+
+class RecordingLibraryObserver : public LibraryServiceObserver {
+ public:
+  void OnLibraryChanged(uint64_t revision) override {
+    revisions.push_back(revision);
+  }
+
+  std::vector<uint64_t> revisions;
+};
 
 class LibraryServiceTest : public testing::Test {
  protected:
@@ -56,6 +67,50 @@ TEST_F(LibraryServiceTest, BoardEditsValidateAndRemainAtomic) {
   EXPECT_EQ(service_.AddBoardElement(*board, link).error(),
             LibraryError::kInvalidElement);
   EXPECT_EQ(service_.FindBoard(*board)->elements.size(), 1u);
+}
+
+TEST_F(LibraryServiceTest, ArchivedBoardIsReadOnlyUntilRestored) {
+  auto board = service_.CreateBoard("Finished board");
+  ASSERT_TRUE(board.has_value());
+
+  BoardElement text;
+  text.kind = BoardElementKind::kText;
+  text.text = "Keep this exact state";
+  auto element_id = service_.AddBoardElement(*board, text);
+  ASSERT_TRUE(element_id.has_value());
+  const uint64_t before_archive_revision = service_.revision();
+
+  ASSERT_TRUE(service_.SetBoardArchived(*board, true).has_value());
+  EXPECT_GT(service_.revision(), before_archive_revision);
+  const uint64_t archived_revision = service_.revision();
+  const BoardElement original = service_.FindBoard(*board)->elements.front();
+
+  EXPECT_EQ(service_.RenameBoard(*board, "Should not change").error(),
+            LibraryError::kBoardArchived);
+  BoardElement second;
+  second.kind = BoardElementKind::kText;
+  second.text = "Should not be added";
+  EXPECT_EQ(service_.AddBoardElement(*board, second).error(),
+            LibraryError::kBoardArchived);
+  BoardElement changed = original;
+  changed.text = "Should not replace the original";
+  EXPECT_EQ(service_.UpdateBoardElement(*board, changed).error(),
+            LibraryError::kBoardArchived);
+  EXPECT_EQ(service_.RemoveBoardElement(*board, *element_id).error(),
+            LibraryError::kBoardArchived);
+
+  const BoardRecord* archived = service_.FindBoard(*board);
+  ASSERT_TRUE(archived);
+  EXPECT_EQ(archived->name, "Finished board");
+  ASSERT_EQ(archived->elements.size(), 1u);
+  EXPECT_EQ(archived->elements.front(), original);
+  EXPECT_EQ(service_.revision(), archived_revision);
+
+  ASSERT_TRUE(service_.SetBoardArchived(*board, false).has_value());
+  changed.text = "Editing is available again";
+  ASSERT_TRUE(service_.UpdateBoardElement(*board, changed).has_value());
+  EXPECT_EQ(service_.FindBoard(*board)->elements.front().text,
+            "Editing is available again");
 }
 
 TEST_F(LibraryServiceTest, LiveRefreshRejectsLateResponses) {
@@ -161,6 +216,38 @@ TEST_F(LibraryServiceTest, RefreshDueUsesLastSuccessfulRefresh) {
   EXPECT_FALSE(service_.IsRefreshDue(*id, now_));
   Advance(base::Minutes(15));
   EXPECT_TRUE(service_.IsRefreshDue(*id, now_));
+}
+
+TEST_F(LibraryServiceTest, FailedRefreshBacksOffFromLastAttempt) {
+  auto id = service_.CreateLiveCollection(FixtureDefinition());
+  ASSERT_TRUE(id.has_value());
+  auto generation = service_.BeginLiveRefresh(*id);
+  ASSERT_TRUE(generation.has_value());
+  ASSERT_TRUE(service_
+                  .CompleteLiveRefresh(*id, *generation, {},
+                                       std::string("source unavailable"))
+                  .has_value());
+
+  EXPECT_FALSE(service_.IsRefreshDue(*id, now_));
+  Advance(base::Minutes(15) - base::Seconds(1));
+  EXPECT_FALSE(service_.IsRefreshDue(*id, now_));
+  Advance(base::Seconds(1));
+  EXPECT_TRUE(service_.IsRefreshDue(*id, now_));
+}
+
+TEST_F(LibraryServiceTest, ObserversReceiveOnlyCommittedMonotonicRevisions) {
+  RecordingLibraryObserver observer;
+  service_.AddObserver(&observer);
+
+  auto board = service_.CreateBoard("Observed board");
+  ASSERT_TRUE(board.has_value());
+  EXPECT_EQ(service_.RenameBoard(BoardId::GenerateNew(), "Missing").error(),
+            LibraryError::kUnknownBoard);
+  ASSERT_TRUE(service_.RenameBoard(*board, "Renamed board").has_value());
+
+  service_.RemoveObserver(&observer);
+  EXPECT_EQ(observer.revisions, (std::vector<uint64_t>{1, 2}));
+  EXPECT_EQ(service_.revision(), 2u);
 }
 
 TEST_F(LibraryServiceTest, PersistenceRoundTripsAndSkipsCorruption) {

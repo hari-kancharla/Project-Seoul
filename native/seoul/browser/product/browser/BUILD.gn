@@ -11,6 +11,10 @@ source_set("product_chromium") {
   sources = [
     "browser_capabilities.cc",
     "browser_capabilities.h",
+    "boost_entry_points.cc",
+    "boost_entry_points.h",
+    "boost_web_preferences.cc",
+    "boost_web_preferences.h",
     "network_http_transport.cc",
     "network_http_transport.h",
     "page_agent.cc",
@@ -48,7 +52,10 @@ source_set("product_chromium") {
     "//chrome/browser/ui/browser_window",
     "//chrome/browser/ui/tabs",
     "//chrome/browser/ui/tabs:tab_strip",
+    "//chrome/common",
+    "//components/download/public/common:public",
     "//components/keyed_service/core",
+    "//components/permissions",
     "//components/pref_registry",
     "//components/prefs",
     "//components/sessions",
@@ -99,6 +106,7 @@ source_set("product_browser_tests") {
     "//seoul/browser/product:product_core",
     "//seoul/browser/tools:tools_core",
     "//testing/gtest",
+    "//ui/native_theme",
     "//url",
   ]
 }

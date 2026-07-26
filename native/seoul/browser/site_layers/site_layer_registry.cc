@@ -2,6 +2,7 @@
 
 #include "seoul/browser/site_layers/site_layer_registry.h"
 
+#include <algorithm>
 #include <optional>
 #include <tuple>
 #include <utility>
@@ -23,9 +24,8 @@ struct OriginPatternParts {
   std::string port;
 };
 
-std::optional<OriginPatternParts> ParseOriginPattern(
-    const std::string& origin,
-    bool allow_wildcard) {
+std::optional<OriginPatternParts> ParseOriginPattern(const std::string &origin,
+                                                     bool allow_wildcard) {
   if (!IsValidOriginPattern(origin)) {
     return std::nullopt;
   }
@@ -56,15 +56,15 @@ std::optional<OriginPatternParts> ParseOriginPattern(
   return parts;
 }
 
-bool HostMatchesWildcard(const std::string& host,
-                         const std::string& wildcard_host) {
+bool HostMatchesWildcard(const std::string &host,
+                         const std::string &wildcard_host) {
   return host == wildcard_host ||
          (host.size() > wildcard_host.size() &&
           base::EndsWith(host, "." + wildcard_host,
                          base::CompareCase::SENSITIVE));
 }
 
-}  // namespace
+} // namespace
 
 SiteLayerRegistry::SiteLayerRegistry() = default;
 
@@ -83,25 +83,25 @@ SiteLayerStatusResult SiteLayerRegistry::Upsert(SiteLayer layer) {
   return base::ok();
 }
 
-SiteLayerStatusResult SiteLayerRegistry::Remove(const std::string& layer_id) {
+SiteLayerStatusResult SiteLayerRegistry::Remove(const std::string &layer_id) {
   if (layers_.erase(layer_id) == 0) {
     return base::unexpected(SiteLayerError::kUnknownLayer);
   }
   return base::ok();
 }
 
-const SiteLayer* SiteLayerRegistry::Find(const std::string& layer_id) const {
+const SiteLayer *SiteLayerRegistry::Find(const std::string &layer_id) const {
   auto it = layers_.find(layer_id);
   return it == layers_.end() ? nullptr : &it->second;
 }
 
-bool SiteLayerRegistry::Exists(const std::string& layer_id) const {
+bool SiteLayerRegistry::Exists(const std::string &layer_id) const {
   return Find(layer_id) != nullptr;
 }
 
-std::vector<const SiteLayer*> SiteLayerRegistry::List() const {
-  std::vector<const SiteLayer*> result;
-  for (const auto& [id, layer] : layers_) {
+std::vector<const SiteLayer *> SiteLayerRegistry::List() const {
+  std::vector<const SiteLayer *> result;
+  for (const auto &[id, layer] : layers_) {
     result.push_back(&layer);
   }
   return result;
@@ -111,24 +111,24 @@ base::DictValue SiteLayerRegistry::TakePersistedState() const {
   base::DictValue state;
   state.Set("schema_version", kSiteLayerRegistrySchemaVersion);
   base::ListValue layers;
-  for (const auto& [id, layer] : layers_) {
+  for (const auto &[id, layer] : layers_) {
     layers.Append(SiteLayerToValue(layer));
   }
   state.Set("site_layers", std::move(layers));
   return state;
 }
 
-void SiteLayerRegistry::RestorePersistedState(const base::DictValue& state) {
+void SiteLayerRegistry::RestorePersistedState(const base::DictValue &state) {
   if (state.FindInt("schema_version").value_or(0) !=
       kSiteLayerRegistrySchemaVersion) {
     return;
   }
-  const base::ListValue* layers = state.FindList("site_layers");
+  const base::ListValue *layers = state.FindList("site_layers");
   if (!layers) {
     return;
   }
   SiteLayerRegistry restored;
-  for (const base::Value& entry : *layers) {
+  for (const base::Value &entry : *layers) {
     if (restored.size() >= kMaxSiteLayers) {
       break;
     }
@@ -140,14 +140,14 @@ void SiteLayerRegistry::RestorePersistedState(const base::DictValue& state) {
   layers_ = std::move(restored.layers_);
 }
 
-SiteLayerResult<std::string> SiteLayerRegistry::CompileForOrigin(
-    const std::string& origin,
-    const std::string& scene_id) const {
+SiteLayerResult<std::string>
+SiteLayerRegistry::CompileForOrigin(const std::string &origin,
+                                    const std::string &scene_id) const {
   if (!ParseOriginPattern(origin, /*allow_wildcard=*/false).has_value()) {
     return base::unexpected(SiteLayerError::kInvalidOrigin);
   }
   std::string css;
-  for (const auto& [id, layer] : layers_) {
+  for (const auto &[id, layer] : layers_) {
     if (!layer.enabled || !SiteLayerMatchesOrigin(layer, origin)) {
       continue;
     }
@@ -163,7 +163,28 @@ SiteLayerResult<std::string> SiteLayerRegistry::CompileForOrigin(
   return css;
 }
 
-bool SiteLayerMatchesOrigin(const SiteLayer& layer, const std::string& origin) {
+bool SiteLayerRegistry::HasEnabledAdjustmentForOrigin(
+    const std::string &origin, const std::string &scene_id,
+    SiteAdjustmentKind kind) const {
+  if (!ParseOriginPattern(origin, /*allow_wildcard=*/false).has_value()) {
+    return false;
+  }
+  for (const auto &[id, layer] : layers_) {
+    if (!layer.enabled || !SiteLayerMatchesOrigin(layer, origin) ||
+        (!layer.scene_scope.empty() && layer.scene_scope != scene_id)) {
+      continue;
+    }
+    if (std::ranges::any_of(layer.adjustments,
+                            [kind](const SiteAdjustment &adjustment) {
+                              return adjustment.kind == kind;
+                            })) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool SiteLayerMatchesOrigin(const SiteLayer &layer, const std::string &origin) {
   std::optional<OriginPatternParts> pattern =
       ParseOriginPattern(layer.origin_pattern, /*allow_wildcard=*/true);
   std::optional<OriginPatternParts> page =
@@ -178,4 +199,4 @@ bool SiteLayerMatchesOrigin(const SiteLayer& layer, const std::string& origin) {
          page->port == pattern->port;
 }
 
-}  // namespace seoul
+} // namespace seoul

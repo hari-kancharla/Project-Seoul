@@ -1,10 +1,16 @@
-# Browser Command Layer Contract (FUTURE / NOT IMPLEMENTED)
+# Browser Command Layer Research Record
 
-Status: DESIGN ONLY. Nothing described in this document is implemented.
-Milestone scope: the current milestone is INBOUND ONLY. This document defines
-the FUTURE outbound (reverse direction) command layer so that the inbound
-bridge can be designed without painting the outbound flow into a corner. Do
-not read any section below as a description of shipped behavior.
+Status: historical pre-implementation research. The outbound command executor,
+typed validation, live target resolver, observation confirmation, Shell
+dispatch, and browser tests are now implemented under
+`native/seoul/browser/commands/`, `projection/`, and `shell/`. This document
+preserves the API research and original command-by-command reasoning; it is not
+the current readiness authority. See
+`docs/release/seoul-product-readiness.md` for compiled behavior and evidence.
+
+Historical status at authoring: this began as an inbound-only design record.
+The prose below is intentionally preserved as the original contract, including
+then-open research notes. Do not read it as a current implementation inventory.
 
 Pinned Chromium revision: 6a7b3dbec3b2ca25877c2553b5473b2f277ef644
 
@@ -27,7 +33,7 @@ signatures are invented.
   +------------------+                     +---------------------+      +----------------------+
 ```
 
-### 1.2 Future milestone: outbound command layer (DEFINED HERE, NOT IMPLEMENTED)
+### 1.2 Original outbound command-layer design
 
 ```
   +----------------------+    command     +----------------------+   validated    +------------------+
@@ -62,7 +68,7 @@ The contract avoids this by TAGGING every mutation at the source:
   re-apply the organization mutation; it only RECONCILES (confirms the command
   landed, clears the pending tag, resolves the command promise).
 
-Correlation mechanism (design intent, not yet built): the command layer mints a
+Original correlation design: the command layer mints a
 monotonic command id and records an expectation record (target tab/window
 handle, expected change Type, expected resulting index/state). When the matching
 observer event arrives the inbound bridge matches it against the outstanding
@@ -160,7 +166,7 @@ Seoul-domain concepts, not Chromium concepts):
 
 ---
 
-## 3. Command definitions (FUTURE / NOT IMPLEMENTED)
+## 3. Original command definitions
 
 Every command below specifies the same eight fields:
 preconditions; Chromium API candidate; organization mutation timing; rollback;
@@ -551,7 +557,7 @@ exactly what 3.10 consumes.
 
 ---
 
-## 4. Cross-cutting deferred requirements (NOT IMPLEMENTED)
+## 4. Requirements that were deferred when this record was written
 
 - Expectation/correlation store: a handle-keyed outstanding-command registry
   shared between the command layer and the inbound bridge. Required by every
@@ -572,5 +578,6 @@ exactly what 3.10 consumes.
 - Preview mechanism: source-confirmed; Chromium host/policy/runtime tests remain.
 - Profile plumbing: a Profile handle must reach the command layer for 3.2.
 
-End of contract. Reminder: none of the above is implemented. The current
-milestone remains inbound only.
+End of historical contract. The pre-implementation notes above are retained to
+explain the design constraints; current implementation and runtime evidence are
+tracked in `docs/release/seoul-product-readiness.md`.

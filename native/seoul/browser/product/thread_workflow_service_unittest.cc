@@ -21,7 +21,7 @@ base::RepeatingCallback<base::Time()> FixedClock() {
 }
 
 class SuccessfulWorkflowExecutor : public CapabilityExecutor {
- public:
+public:
   ToolId capability_id() const override {
     return ToolId::FromString("info.read.inventory");
   }
@@ -87,14 +87,42 @@ TEST(ThreadServiceTest, PersistsAndRestores) {
 
   ThreadService restored(FixedClock());
   restored.RestorePersistedState(service.TakePersistedState());
-  const ContextThread* thread = restored.FindThread(id);
+  const ContextThread *thread = restored.FindThread(id);
   ASSERT_TRUE(thread);
   EXPECT_TRUE(thread->archived());
   EXPECT_EQ(thread->items().size(), 1u);
 }
 
+TEST(ThreadServiceTest, ProjectScopeAndChangeNotificationsPersist) {
+  int changes = 0;
+  ThreadService service(
+      FixedClock(),
+      base::BindRepeating([](int* changes) { ++*changes; }, &changes));
+  const std::string id =
+      service.CreateThread("Project chat", "workspace-project");
+  ASSERT_FALSE(id.empty());
+  ASSERT_EQ(changes, 1);
+  const std::vector<ThreadSummary> summaries = service.Summaries();
+  ASSERT_EQ(summaries.size(), 1u);
+  EXPECT_EQ(summaries.front().workspace_id, "workspace-project");
+
+  ContextItem note;
+  note.kind = ContextItemKind::kNote;
+  note.title = "You";
+  note.text = "Keep this with the project.";
+  ASSERT_TRUE(service.AttachItem(id, std::move(note)).has_value());
+  EXPECT_EQ(changes, 2);
+
+  ThreadService restored(FixedClock());
+  restored.RestorePersistedState(service.TakePersistedState());
+  const std::vector<ThreadSummary> restored_summaries = restored.Summaries();
+  ASSERT_EQ(restored_summaries.size(), 1u);
+  EXPECT_EQ(restored_summaries.front().workspace_id, "workspace-project");
+  EXPECT_EQ(restored_summaries.front().item_count, 1u);
+}
+
 class WorkflowServiceTest : public testing::Test {
- protected:
+protected:
   WorkflowServiceTest()
       : planner_(registry_, ModelPlanRequester()),
         tasks_(&registry_, &executors_, &planner_, FixedClock()),
@@ -144,7 +172,7 @@ TEST_F(WorkflowServiceTest, SaveEditExportImportRoundTrip) {
   second.args.Set("query", "all");
   ASSERT_TRUE(
       workflows_.AddNode(id, std::move(second), std::string()).has_value());
-  const WorkflowDefinition* edited = workflows_.Find(id);
+  const WorkflowDefinition *edited = workflows_.Find(id);
   ASSERT_TRUE(edited);
   ASSERT_EQ(edited->edges.size(), 1u);
   EXPECT_EQ(edited->edges[0].from, "read_1");
@@ -179,7 +207,7 @@ TEST_F(WorkflowServiceTest, SaveTaskAsWorkflowUsesTypedPlanOnly) {
   const std::optional<WorkflowId> workflow_id =
       workflows_.SaveTaskAsWorkflow(task_id, "Inventory check");
   ASSERT_TRUE(workflow_id.has_value());
-  const WorkflowDefinition* definition = workflows_.Find(workflow_id.value());
+  const WorkflowDefinition *definition = workflows_.Find(workflow_id.value());
   ASSERT_TRUE(definition);
   ASSERT_EQ(definition->nodes.size(), 1u);
   // The node is a typed capability call: no coordinates, no indices.
@@ -224,5 +252,84 @@ TEST_F(WorkflowServiceTest, PersistsAndRestores) {
   EXPECT_EQ(restored.size(), 1u);
 }
 
-}  // namespace
-}  // namespace seoul
+TEST_F(WorkflowServiceTest, PrunesDanglingAndMismatchedSceneReferences) {
+  auto make_workflow = [](const std::string& name) {
+    WorkflowDefinition definition;
+    definition.name = name;
+    WorkflowNode node;
+    node.id = "read";
+    node.kind = WorkflowNodeKind::kToolStep;
+    node.label = "Read";
+    node.tool = ToolId::FromString("info.read.inventory");
+    node.args.Set("query", "all");
+    definition.nodes.push_back(std::move(node));
+    return definition;
+  };
+
+  WorkflowDefinition global = make_workflow("Global");
+  const WorkflowId global_id = workflows_.SaveWorkflow(std::move(global));
+  ASSERT_TRUE(global_id.is_valid());
+
+  WorkflowDefinition valid = make_workflow("Valid scene");
+  valid.scene_scope = "focus";
+  valid.trigger.kind = WorkflowTriggerKind::kSceneActivation;
+  valid.trigger.scene_id = "focus";
+  const WorkflowId valid_id = workflows_.SaveWorkflow(std::move(valid));
+  ASSERT_TRUE(valid_id.is_valid());
+
+  WorkflowDefinition missing = make_workflow("Missing scene");
+  missing.scene_scope = "gone";
+  const WorkflowId missing_id = workflows_.SaveWorkflow(std::move(missing));
+  ASSERT_TRUE(missing_id.is_valid());
+
+  WorkflowDefinition mismatch = make_workflow("Mismatched scene");
+  mismatch.scene_scope = "focus";
+  mismatch.trigger.kind = WorkflowTriggerKind::kSceneActivation;
+  mismatch.trigger.scene_id = "other";
+  const WorkflowId mismatch_id =
+      workflows_.SaveWorkflow(std::move(mismatch));
+  ASSERT_TRUE(mismatch_id.is_valid());
+
+  const size_t removed = workflows_.PruneInvalidSceneReferences(
+      base::BindRepeating(
+          [](const std::string& scene_id) { return scene_id == "focus"; }));
+  EXPECT_EQ(removed, 2u);
+  EXPECT_TRUE(workflows_.Find(global_id));
+  EXPECT_TRUE(workflows_.Find(valid_id));
+  EXPECT_FALSE(workflows_.Find(missing_id));
+  EXPECT_FALSE(workflows_.Find(mismatch_id));
+  EXPECT_EQ(workflows_.PruneInvalidSceneReferences(base::BindRepeating(
+                [](const std::string& scene_id) {
+                  return scene_id == "focus";
+                })),
+            0u);
+}
+
+TEST_F(WorkflowServiceTest, FullCatalogStillAllowsAtomicReplacement) {
+  WorkflowId first;
+  for (size_t i = 0; i < kMaxWorkflows; ++i) {
+    WorkflowDefinition definition;
+    definition.name = "Workflow " + std::to_string(i);
+    WorkflowNode node;
+    node.id = "read";
+    node.kind = WorkflowNodeKind::kToolStep;
+    node.label = "Read";
+    node.tool = ToolId::FromString("info.read.inventory");
+    node.args.Set("query", "all");
+    definition.nodes.push_back(std::move(node));
+    const WorkflowId id = workflows_.SaveWorkflow(std::move(definition));
+    ASSERT_TRUE(id.is_valid());
+    if (i == 0) {
+      first = id;
+    }
+  }
+  ASSERT_EQ(workflows_.size(), kMaxWorkflows);
+  WorkflowDefinition replacement = *workflows_.Find(first);
+  replacement.name = "Revised workflow";
+  EXPECT_EQ(workflows_.SaveWorkflow(std::move(replacement)), first);
+  EXPECT_EQ(workflows_.Find(first)->name, "Revised workflow");
+  EXPECT_EQ(workflows_.size(), kMaxWorkflows);
+}
+
+} // namespace
+} // namespace seoul

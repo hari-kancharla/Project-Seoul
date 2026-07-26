@@ -33,26 +33,25 @@ namespace {
 constexpr size_t kMaxLauncherQueryLength = 160;
 constexpr int kLauncherWidth = 360;
 
-}  // namespace
+} // namespace
 
 // Named in the seoul namespace (not anonymous) so it can be added to
 // BubbleDialogDelegateView's friend list, which this Chromium revision
 // requires of every subclass.
 class CommandLauncherBubble final : public views::BubbleDialogDelegateView,
                                     public views::TextfieldController {
- public:
-  CommandLauncherBubble(views::View* anchor, ShellController* controller)
-      : views::BubbleDialogDelegateView(anchor,
-                                        views::BubbleBorder::TOP_RIGHT),
+public:
+  CommandLauncherBubble(views::View *anchor, ShellController *controller)
+      : views::BubbleDialogDelegateView(anchor, views::BubbleBorder::TOP_RIGHT),
         controller_(controller),
-        entries_(CommandLauncherCatalog::BuildEntries(controller->snapshot())) {
+        entries_(controller->CommandLauncherEntries()) {
     SetButtons(static_cast<int>(ui::mojom::DialogButton::kNone));
     SetShowCloseButton(true);
     SetTitle(u"Commands");
     SetAccessibleWindowRole(ax::mojom::Role::kDialog);
     SetEnableArrowKeyTraversal(true);
     set_fixed_width(kLauncherWidth);
-    auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
+    auto *layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
         views::BoxLayout::Orientation::kVertical, gfx::Insets(), 8));
     layout->set_cross_axis_alignment(
         views::BoxLayout::CrossAxisAlignment::kStretch);
@@ -73,8 +72,8 @@ class CommandLauncherBubble final : public views::BubbleDialogDelegateView,
     RebuildResults(std::string_view());
   }
 
-  CommandLauncherBubble(const CommandLauncherBubble&) = delete;
-  CommandLauncherBubble& operator=(const CommandLauncherBubble&) = delete;
+  CommandLauncherBubble(const CommandLauncherBubble &) = delete;
+  CommandLauncherBubble &operator=(const CommandLauncherBubble &) = delete;
 
   ~CommandLauncherBubble() override {
     if (query_) {
@@ -84,27 +83,28 @@ class CommandLauncherBubble final : public views::BubbleDialogDelegateView,
 
   void FocusQuery() { query_->RequestFocus(); }
 
-  void ContentsChanged(views::Textfield* sender,
-                       const std::u16string& new_contents) override {
+  void ContentsChanged(views::Textfield *sender,
+                       const std::u16string &new_contents) override {
     if (sender != query_) {
       return;
     }
     std::u16string bounded = new_contents.substr(0, kMaxLauncherQueryLength);
     if (bounded.size() != new_contents.size()) {
       sender->SetText(bounded);
+      RebuildResults(base::UTF16ToUTF8(bounded));
       return;
     }
     RebuildResults(base::UTF16ToUTF8(bounded));
   }
 
-  bool HandleKeyEvent(views::Textfield* sender,
-                      const ui::KeyEvent& event) override {
+  bool HandleKeyEvent(views::Textfield *sender,
+                      const ui::KeyEvent &event) override {
     if (sender != query_ || event.type() != ui::EventType::kKeyPressed) {
       return false;
     }
     if (event.key_code() == ui::VKEY_RETURN) {
-      auto first_enabled = std::ranges::find_if(
-          visible_entries_, &CommandLauncherEntry::enabled);
+      auto first_enabled = std::ranges::find_if(visible_entries_,
+                                                &CommandLauncherEntry::enabled);
       if (first_enabled != visible_entries_.end()) {
         Execute(*first_enabled);
       }
@@ -117,25 +117,25 @@ class CommandLauncherBubble final : public views::BubbleDialogDelegateView,
     return false;
   }
 
- private:
+private:
   void RebuildResults(std::string_view query) {
     results_->RemoveAllChildViews();
     first_result_ = nullptr;
     visible_entries_ = CommandLauncherCatalog::Filter(entries_, query);
     if (visible_entries_.empty()) {
       result_status_->SetText(u"No matching commands");
-      auto* empty = results_->AddChildView(
+      auto *empty = results_->AddChildView(
           std::make_unique<views::Label>(u"No matching commands"));
       empty->GetViewAccessibility().SetName(u"No matching commands");
       results_->InvalidateLayout();
       return;
     }
-    result_status_->SetText(base::NumberToString16(visible_entries_.size()) +
-                            (visible_entries_.size() == 1u ? u" command"
-                                                           : u" commands"));
-    for (const CommandLauncherEntry& entry : visible_entries_) {
-      auto* button = results_->AddChildView(
-          std::make_unique<views::LabelButton>(
+    result_status_->SetText(
+        base::NumberToString16(visible_entries_.size()) +
+        (visible_entries_.size() == 1u ? u" command" : u" commands"));
+    for (const CommandLauncherEntry &entry : visible_entries_) {
+      auto *button =
+          results_->AddChildView(std::make_unique<views::LabelButton>(
               base::BindRepeating(&CommandLauncherBubble::Execute,
                                   base::Unretained(this), entry),
               base::UTF8ToUTF16(entry.label)));
@@ -161,17 +161,42 @@ class CommandLauncherBubble final : public views::BubbleDialogDelegateView,
       return;
     }
     if (entry.action == ShellUtilityAction::kCreateSplit) {
-      views::View* anchor = GetAnchorView();
+      views::View *anchor = GetAnchorView();
       if (GetWidget()) {
         GetWidget()->Close();
       }
       if (anchor && anchor->GetWidget()) {
-        SeoulSplitChooserView::Show(anchor->GetWidget()->GetNativeWindow(), anchor, controller_);
+        SeoulSplitChooserView::Show(anchor->GetWidget()->GetNativeWindow(),
+                                    anchor, controller_);
       }
       return;
     }
-    if (controller_->RunUtilityAction(entry.action).has_value() && GetWidget()) {
+    ShellStatusResult result = ShellErr(ShellError::kCommandRejected);
+    switch (entry.kind) {
+    case CommandLauncherEntryKind::kUtility:
+      result = controller_->RunUtilityAction(entry.action);
+      break;
+    case CommandLauncherEntryKind::kWorkspace: {
+      const ShellResult<WorkspaceId> switched =
+          controller_->SwitchWorkspace(entry.workspace_id);
+      if (switched.has_value()) {
+        result = ShellOk();
+      } else {
+        result = ShellErr(switched.error());
+      }
+      break;
+    }
+    case CommandLauncherEntryKind::kEssential:
+      result = controller_->OpenEssential(entry.essential_id);
+      break;
+    case CommandLauncherEntryKind::kTab:
+      result = controller_->ActivateLiveTab(entry.live_window, entry.live_tab);
+      break;
+    }
+    if (result.has_value() && GetWidget()) {
       GetWidget()->Close();
+    } else {
+      result_status_->SetText(u"Command is no longer available. Search again.");
     }
   }
 
@@ -185,15 +210,14 @@ class CommandLauncherBubble final : public views::BubbleDialogDelegateView,
 };
 
 void SeoulCommandLauncherView::Show(gfx::NativeWindow parent,
-                                    views::View* anchor,
-                                    ShellController* controller) {
+                                    views::View *anchor,
+                                    ShellController *controller) {
   (void)parent;
   if (!anchor || !controller || !anchor->GetWidget()) {
     return;
   }
-  auto* bubble = new CommandLauncherBubble(anchor, controller);
-  views::Widget* widget =
-      views::BubbleDialogDelegateView::CreateBubble(bubble);
+  auto *bubble = new CommandLauncherBubble(anchor, controller);
+  views::Widget *widget = views::BubbleDialogDelegateView::CreateBubble(bubble);
   if (gfx::Animation::PrefersReducedMotion()) {
     widget->SetVisibilityChangedAnimationsEnabled(false);
   }
@@ -201,4 +225,4 @@ void SeoulCommandLauncherView::Show(gfx::NativeWindow parent,
   bubble->FocusQuery();
 }
 
-}  // namespace seoul
+} // namespace seoul

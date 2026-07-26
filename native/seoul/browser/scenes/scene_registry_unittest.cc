@@ -13,21 +13,27 @@ namespace seoul {
 namespace {
 
 class SceneRegistryTest : public testing::Test {
- protected:
+protected:
   SceneRegistryTest() {
     workspaces_ = {"ws-research", "ws-shopping"};
     themes_ = {"theme-focus"};
     layers_ = {"layer-docs", "layer-news"};
+    routing_rules_ = {"rule-1"};
+    workflows_ = {"workflow-1"};
   }
 
   SceneResolvers Resolvers() {
     SceneResolvers resolvers;
     resolvers.workspace_exists = base::BindLambdaForTesting(
-        [this](const std::string& id) { return workspaces_.count(id) > 0; });
+        [this](const std::string &id) { return workspaces_.count(id) > 0; });
     resolvers.theme_exists = base::BindLambdaForTesting(
-        [this](const std::string& id) { return themes_.count(id) > 0; });
+        [this](const std::string &id) { return themes_.count(id) > 0; });
     resolvers.site_layer_exists = base::BindLambdaForTesting(
-        [this](const std::string& id) { return layers_.count(id) > 0; });
+        [this](const std::string &id) { return layers_.count(id) > 0; });
+    resolvers.routing_rule_exists = base::BindLambdaForTesting(
+        [this](const std::string &id) { return routing_rules_.count(id) > 0; });
+    resolvers.workflow_exists = base::BindLambdaForTesting(
+        [this](const std::string &id) { return workflows_.count(id) > 0; });
     return resolvers;
   }
 
@@ -45,15 +51,30 @@ class SceneRegistryTest : public testing::Test {
   std::set<std::string> workspaces_;
   std::set<std::string> themes_;
   std::set<std::string> layers_;
+  std::set<std::string> routing_rules_;
+  std::set<std::string> workflows_;
 };
 
 TEST_F(SceneRegistryTest, UpsertAndFind) {
   SceneRegistry registry(Resolvers());
   ASSERT_TRUE(registry.Upsert(ResearchScene()).has_value());
-  const SceneDefinition* found = registry.Find("research");
+  const SceneDefinition *found = registry.Find("research");
   ASSERT_NE(found, nullptr);
   EXPECT_EQ(found->name, "Research");
   EXPECT_EQ(registry.size(), 1u);
+}
+
+TEST_F(SceneRegistryTest, PrunesEntriesWhoseReferencesDisappear) {
+  SceneRegistry registry(Resolvers());
+  SceneDefinition scene = ResearchScene();
+  scene.workflow_shortcut_ids = {"workflow-1"};
+  ASSERT_TRUE(registry.Upsert(std::move(scene)).has_value());
+  ASSERT_EQ(registry.size(), 1u);
+
+  workflows_.clear();
+  EXPECT_EQ(registry.PruneInvalidEntries(), 1u);
+  EXPECT_EQ(registry.size(), 0u);
+  EXPECT_EQ(registry.PruneInvalidEntries(), 0u);
 }
 
 TEST_F(SceneRegistryTest, RejectsUnknownReferences) {
@@ -70,6 +91,15 @@ TEST_F(SceneRegistryTest, RejectsUnknownReferences) {
   SceneDefinition bad_layer = ResearchScene();
   bad_layer.site_layer_ids = {"layer-docs", "layer-missing"};
   EXPECT_EQ(registry.Upsert(bad_layer).error(), SceneError::kUnknownSiteLayer);
+
+  SceneDefinition bad_rule = ResearchScene();
+  bad_rule.routing_rule_ids = {"rule-missing"};
+  EXPECT_EQ(registry.Upsert(bad_rule).error(), SceneError::kUnknownRoutingRule);
+
+  SceneDefinition bad_workflow = ResearchScene();
+  bad_workflow.workflow_shortcut_ids = {"workflow-missing"};
+  EXPECT_EQ(registry.Upsert(bad_workflow).error(),
+            SceneError::kUnknownWorkflow);
 }
 
 TEST_F(SceneRegistryTest, RejectsIdentityAndDuplicateDefects) {
@@ -113,7 +143,7 @@ TEST_F(SceneRegistryTest, ActivationPlanIsDeterministicAndOrdered) {
   bool has_lifecycle = false;
   bool has_assistant = false;
   bool has_compact = false;
-  for (const SceneActivationStep& step : plan.value()) {
+  for (const SceneActivationStep &step : plan.value()) {
     if (step.kind == SceneActivationStep::Kind::kApplyLifecyclePolicy) {
       has_lifecycle = true;
     }
@@ -147,7 +177,7 @@ TEST_F(SceneRegistryTest, ThemelessSceneOmitsThemeStep) {
   ASSERT_TRUE(registry.Upsert(scene).has_value());
   auto plan = registry.BuildActivationPlan("research");
   ASSERT_TRUE(plan.has_value());
-  for (const SceneActivationStep& step : plan.value()) {
+  for (const SceneActivationStep &step : plan.value()) {
     EXPECT_NE(step.kind, SceneActivationStep::Kind::kApplyTheme);
     EXPECT_NE(step.kind, SceneActivationStep::Kind::kEnableSiteLayer);
   }
@@ -157,14 +187,11 @@ TEST_F(SceneRegistryTest, RejectsUnboundedReferences) {
   SceneRegistry registry(Resolvers());
   SceneDefinition scene = ResearchScene();
   scene.routing_rule_ids.assign(kMaxSceneRoutingRules + 1, "rule");
-  EXPECT_EQ(registry.Upsert(scene).error(),
-            SceneError::kTooManySceneItems);
+  EXPECT_EQ(registry.Upsert(scene).error(), SceneError::kTooManySceneItems);
 
   scene = ResearchScene();
-  scene.routing_rule_ids = {
-      std::string(kMaxSceneReferenceLength + 1, 'x')};
-  EXPECT_EQ(registry.Upsert(scene).error(),
-            SceneError::kTooManySceneItems);
+  scene.routing_rule_ids = {std::string(kMaxSceneReferenceLength + 1, 'x')};
+  EXPECT_EQ(registry.Upsert(scene).error(), SceneError::kTooManySceneItems);
 }
 
 TEST_F(SceneRegistryTest, PersistenceRoundTripsAndSkipsInvalidEntries) {
@@ -182,14 +209,14 @@ TEST_F(SceneRegistryTest, PersistenceRoundTripsAndSkipsInvalidEntries) {
   ASSERT_TRUE(registry.Upsert(scene).has_value());
 
   base::DictValue state = registry.TakePersistedState();
-  base::ListValue* scenes = state.FindList("scenes");
+  base::ListValue *scenes = state.FindList("scenes");
   ASSERT_NE(scenes, nullptr);
   scenes->Append(base::DictValue().Set("schema_version", 1));
 
   SceneRegistry restored(Resolvers());
   restored.RestorePersistedState(state);
   ASSERT_EQ(restored.size(), 1u);
-  const SceneDefinition* found = restored.Find("research");
+  const SceneDefinition *found = restored.Find("research");
   ASSERT_NE(found, nullptr);
   EXPECT_EQ(*found, scene);
 
@@ -211,5 +238,5 @@ TEST_F(SceneRegistryTest, RestoreRejectsReferencesRemovedSinceSave) {
   EXPECT_EQ(restored.size(), 0u);
 }
 
-}  // namespace
-}  // namespace seoul
+} // namespace
+} // namespace seoul

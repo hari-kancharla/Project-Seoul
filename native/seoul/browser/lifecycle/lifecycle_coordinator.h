@@ -1,8 +1,8 @@
 // Project Seoul native lifecycle bridge.
 // The coordinator consumes NormalizedEvents and updates the OrganizationModel.
-// This milestone is INBOUND ONLY: the coordinator never asks Chromium to open,
-// close, move, pin, split, or switch a tab. It is pure logic over normalized
-// events (no Chromium types), so it is unit-testable without a browser.
+// Outbound mutations remain owned by CommandExecutor; the coordinator is the
+// Chromium-free inbound authority that reconciles their observer events and
+// ordinary user/browser lifecycle changes into the organization model.
 
 #ifndef SEOUL_BROWSER_LIFECYCLE_LIFECYCLE_COORDINATOR_H_
 #define SEOUL_BROWSER_LIFECYCLE_LIFECYCLE_COORDINATOR_H_
@@ -52,11 +52,20 @@ class LifecycleCoordinator : public LifecycleEventSink {
                           LiveTabKey tab,
                           TabRole role);
   void CancelExpectedTabInsertion(LiveTabKey tab);
+  // Marks one imminent close as a recoverable Seoul archive instead of a
+  // normal close. The normalized removal event performs the model mutation,
+  // so Chromium and organization state commit on the same observed event.
+  bool ExpectTabArchival(LiveWindowKey window,
+                         LiveTabKey tab,
+                         std::string recovery_url,
+                         std::string title);
+  void CancelExpectedTabArchival(LiveTabKey tab);
 
   static constexpr TabRole kNewTabRole = TabRole::kTemporary;
   static constexpr size_t kMaxPendingTransfers = 256;
   static constexpr size_t kMaxQueuedEvents = 128;
   static constexpr size_t kMaxExpectedInsertions = 64;
+  static constexpr size_t kMaxExpectedArchivals = 64;
 
   MutationOrigin current_origin() const { return current_origin_; }
   bool is_reconciling() const { return reconciling_; }
@@ -72,6 +81,9 @@ class LifecycleCoordinator : public LifecycleEventSink {
   size_t expected_insertion_count() const {
     return expected_insertions_.size();
   }
+  size_t expected_archival_count() const {
+    return expected_archivals_.size();
+  }
 
  private:
   struct PendingTransfer {
@@ -81,6 +93,11 @@ class LifecycleCoordinator : public LifecycleEventSink {
   struct ExpectedInsertion {
     LiveWindowKey window;
     TabRole role = TabRole::kTemporary;
+  };
+  struct ExpectedArchival {
+    LiveWindowKey window;
+    std::string recovery_url;
+    std::string title;
   };
 
   void ProcessEvent(const NormalizedEvent& event);
@@ -106,6 +123,7 @@ class LifecycleCoordinator : public LifecycleEventSink {
   void EvictOldestTransferIfNeeded();
   void ExpireTransfersForWindow(const LiveWindowKey& window);
   void ExpireExpectedInsertionsForWindow(const LiveWindowKey& window);
+  void ExpireExpectedArchivalsForWindow(const LiveWindowKey& window);
   void HandleQueueOverflow();
   bool ShouldAcceptEvent(const NormalizedEvent& event) const;
 
@@ -128,6 +146,7 @@ class LifecycleCoordinator : public LifecycleEventSink {
   std::set<LiveWindowKey> known_windows_;
   std::map<LiveTabKey, PendingTransfer> pending_transfers_;
   std::map<LiveTabKey, ExpectedInsertion> expected_insertions_;
+  std::map<LiveTabKey, ExpectedArchival> expected_archivals_;
 };
 
 }  // namespace seoul

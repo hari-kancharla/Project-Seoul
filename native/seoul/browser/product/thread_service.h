@@ -41,19 +41,22 @@ struct ThreadSummary {
 
   std::string id;
   std::string name;
+  std::string workspace_id;
   bool archived = false;
   size_t item_count = 0;
 };
 
 class ThreadService {
  public:
-  explicit ThreadService(base::RepeatingCallback<base::Time()> clock);
+  explicit ThreadService(base::RepeatingCallback<base::Time()> clock,
+                         base::RepeatingClosure changed = {});
   ThreadService(const ThreadService&) = delete;
   ThreadService& operator=(const ThreadService&) = delete;
   ~ThreadService();
 
   // Returns the new thread id, or empty at the bound / invalid name.
-  std::string CreateThread(const std::string& name);
+  std::string CreateThread(const std::string& name,
+                           const std::string& workspace_id = std::string());
   bool RenameThread(const std::string& thread_id, const std::string& name);
   bool ArchiveThread(const std::string& thread_id);
   bool ReopenThread(const std::string& thread_id);
@@ -75,7 +78,9 @@ class ThreadService {
 
  private:
   base::RepeatingCallback<base::Time()> clock_;
+  base::RepeatingClosure changed_;
   std::map<std::string, std::unique_ptr<ContextThread>> threads_;
+  std::map<std::string, std::string> thread_workspaces_;
   uint64_t next_id_ = 1;
 };
 

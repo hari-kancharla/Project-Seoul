@@ -71,6 +71,19 @@ TEST(SemanticWireConformanceTest, EveryFixtureParsesValidatesAndRoundTrips) {
   }
 }
 
+TEST(SemanticWireConformanceTest, SchemaOnlyCodecUsesCanonicalValidation) {
+  const base::Value fixture = ReadFixture("semantic/collection.json");
+  const base::DictValue* schema_value = fixture.GetDict().FindDict("schema");
+  ASSERT_TRUE(schema_value);
+  auto schema = ParseSemanticSchema(base::Value(schema_value->Clone()));
+  ASSERT_TRUE(schema.has_value());
+  ASSERT_TRUE(ValidateSemanticSchema(schema.value()).has_value());
+  auto round_trip = ParseSemanticSchema(
+      base::Value(SemanticSchemaToValue(schema.value())));
+  ASSERT_TRUE(round_trip.has_value());
+  EXPECT_EQ(round_trip.value(), schema.value());
+}
+
 TEST(SemanticWireConformanceTest, SemanticCorpusIsFullyCovered) {
   base::FileEnumerator files(FixtureDir().AppendASCII("semantic"),
                              /*recursive=*/false,

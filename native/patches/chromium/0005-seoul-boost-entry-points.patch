@@ -1,0 +1,161 @@
+diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
+index 30c653e9ca5ce705beb8d59f9b635e84c1322aff..0502f46458ba33f8ae55ab796f873f4737ac36db 100644
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -583,6 +583,7 @@
+ #include "components/soda/soda_util.h"
+ #include "components/webapps/isolated_web_apps/url_loading/url_loader_factory.h"
+ #include "services/network/public/mojom/permissions_policy/permissions_policy_feature.mojom.h"
++#include "seoul/browser/product/browser/boost_web_preferences.h"  // nogncheck
+ #include "third_party/blink/public/mojom/installedapp/related_application.mojom.h"
+ #endif  // !BUILDFLAG(IS_ANDROID)
+ 
+@@ -4987,6 +4988,9 @@ void ChromeContentBrowserClient::OverrideWebPreferences(
+   for (auto& parts : extra_parts_) {
+     parts->OverrideWebPreferences(web_contents, main_frame_site, web_prefs);
+   }
++#if !BUILDFLAG(IS_ANDROID)
++  seoul::OverrideBoostWebPreferences(web_contents, web_prefs);
++#endif
+ 
+   web_prefs->prefers_default_scrollbar_styles =
+       prefs->GetBoolean(prefs::kPrefersDefaultScrollbarStyles);
+@@ -5048,6 +5052,15 @@ bool ChromeContentBrowserClient::OverrideWebPreferencesAfterNavigation(
+         web_contents, main_frame_site, web_prefs);
+   }
+ 
++#if !BUILDFLAG(IS_ANDROID)
++  const bool old_boost_force_dark = web_prefs->force_dark_mode_enabled;
++  const auto old_boost_color_scheme = web_prefs->preferred_color_scheme;
++  seoul::OverrideBoostWebPreferences(web_contents, web_prefs);
++  prefs_changed |=
++      web_prefs->force_dark_mode_enabled != old_boost_force_dark ||
++      web_prefs->preferred_color_scheme != old_boost_color_scheme;
++#endif
++
+   const auto old_in_forced_colors = web_prefs->in_forced_colors;
+   const auto old_is_forced_colors_disabled =
+       web_prefs->is_forced_colors_disabled;
+diff --git a/chrome/browser/ui/omnibox/chrome_omnibox_client.cc b/chrome/browser/ui/omnibox/chrome_omnibox_client.cc
+index 7c9ba836b5c5c7a126d166acdb3a58be1030b989..71477f7bfb1deeb0e73dc3acaee06593da4d2699 100644
+--- a/chrome/browser/ui/omnibox/chrome_omnibox_client.cc
++++ b/chrome/browser/ui/omnibox/chrome_omnibox_client.cc
+@@ -88,6 +88,7 @@
+ #include "components/omnibox/browser/search_provider.h"
+ #include "components/omnibox/browser/shortcuts_backend.h"
+ #include "components/omnibox/browser/zero_suggest_provider.h"
++#include "seoul/browser/product/browser/boost_entry_points.h"  // nogncheck
+ #include "components/omnibox/common/omnibox_feature_configs.h"
+ #include "components/omnibox/common/omnibox_features.h"
+ #include "components/profile_metrics/browser_profile_type.h"
+@@ -869,6 +870,17 @@ void ChromeOmniboxClient::OnAutocompleteAccept(
+               text, "match", match, "alternative_nav_match",
+               alternative_nav_match);
+ 
++  if (base::EqualsCaseInsensitiveASCII(
++          base::TrimWhitespace(text, base::TRIM_ALL), u"New Boost") &&
++      seoul::OpenBoostEditorForWebContents(
++          location_bar_->GetWebContents())) {
++    // This is an action for the current page, not a search/navigation. Restore
++    // the committed URL immediately so accepting it cannot leave action text
++    // behind in the omnibox.
++    location_bar_->Revert();
++    return;
++  }
++
+   std::string extra_headers;
+   for (const auto& header : match.extra_headers) {
+     base::StrAppend(&extra_headers,
+diff --git a/chrome/browser/ui/views/page_info/page_info_main_view.cc b/chrome/browser/ui/views/page_info/page_info_main_view.cc
+index bd3c60f898716e3392bd5058b09b89e73398bfbb..100417a842f2a0b0744dee6eb5379810a0536313 100644
+--- a/chrome/browser/ui/views/page_info/page_info_main_view.cc
++++ b/chrome/browser/ui/views/page_info/page_info_main_view.cc
+@@ -41,6 +41,7 @@
+ #include "components/vector_icons/vector_icons.h"
+ #include "content/public/browser/browser_task_traits.h"
+ #include "content/public/browser/browser_thread.h"
++#include "seoul/browser/product/browser/boost_entry_points.h"  // nogncheck
+ #include "ui/base/l10n/l10n_util.h"
+ #include "ui/base/metadata/metadata_impl_macros.h"
+ #include "ui/base/models/image_model.h"
+@@ -78,6 +79,7 @@ int GetSeparatorPadding() {
+ }  // namespace
+ 
+ DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(PageInfoMainView, kCookieButtonElementId);
++DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(PageInfoMainView, kBoostButtonElementId);
+ DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(PageInfoMainView,
+                                       kPrivacyAndSiteDataButtonElementId);
+ DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(PageInfoMainView, kMainLayoutElementId);
+@@ -140,6 +142,20 @@ PageInfoMainView::PageInfoMainView(
+   SetProperty(views::kElementIdentifierKey, kMainLayoutElementId);
+ 
+   site_settings_view_ = AddChildView(CreateContainerView());
++  if (seoul::CanBoostWebContents(ui_delegate_->GetWebContents())) {
++    RichHoverButton* boost_button =
++        site_settings_view_->AddChildView(std::make_unique<RichHoverButton>(
++            base::BindRepeating(&PageInfoMainView::OpenBoostEditor,
++                                weak_factory_.GetWeakPtr()),
++            PageInfoViewFactory::GetImageModel(vector_icons::kEditIcon),
++            l10n_util::GetStringUTF16(IDS_PAGE_INFO_SEOUL_BOOST_TITLE),
++            l10n_util::GetStringUTF16(IDS_PAGE_INFO_SEOUL_BOOST_SUBTITLE),
++            PageInfoViewFactory::GetLaunchIcon()));
++    boost_button->SetProperty(views::kElementIdentifierKey,
++                              kBoostButtonElementId);
++    boost_button->SetTooltipText(
++        l10n_util::GetStringUTF16(IDS_PAGE_INFO_SEOUL_BOOST_TOOLTIP));
++  }
+ 
+   int link_text_id = 0;
+   int tooltip_text_id = 0;
+@@ -771,5 +787,9 @@ void PageInfoMainView::OpenMerchantTrustSidePanel(const GURL& url) {
+   ui_delegate_->RecordMerchantTrustSidePanelOpened();
+ }
+ 
++void PageInfoMainView::OpenBoostEditor() {
++  seoul::OpenBoostEditorForWebContents(ui_delegate_->GetWebContents());
++}
++
+ BEGIN_METADATA(PageInfoMainView)
+ END_METADATA
+diff --git a/chrome/browser/ui/views/page_info/page_info_main_view.h b/chrome/browser/ui/views/page_info/page_info_main_view.h
+index 4cbf8021bcb79ef94caee0b2be52992d8c245fcb..c22216bf24520174b18b0b88637dd04f925d03a9 100644
+--- a/chrome/browser/ui/views/page_info/page_info_main_view.h
++++ b/chrome/browser/ui/views/page_info/page_info_main_view.h
+@@ -47,6 +47,7 @@ class PageInfoMainView : public views::View,
+ 
+  public:
+   DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kCookieButtonElementId);
++  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kBoostButtonElementId);
+   DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kPrivacyAndSiteDataButtonElementId);
+   DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kMainLayoutElementId);
+   DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kPermissionsElementId);
+@@ -153,6 +154,7 @@ class PageInfoMainView : public views::View,
+   CreateMerchantTrustLaunchButton(GURL url);
+ 
+   void OpenMerchantTrustSidePanel(const GURL& url);
++  void OpenBoostEditor();
+ 
+   raw_ptr<PageInfo, AcrossTasksDanglingUntriaged> presenter_;
+ 
+diff --git a/components/page_info_strings.grdp b/components/page_info_strings.grdp
+index 9b8e2795a2d7aa290a5e7cdf566193c9087f2bf6..f75c9dcd5f45f55d3350a93c1db3a2349ac9ae38 100644
+--- a/components/page_info_strings.grdp
++++ b/components/page_info_strings.grdp
+@@ -973,6 +973,17 @@
+     Decipher Only
+   </message>
+ 
++  <!-- Project Seoul per-site Boost entry in the desktop Page Info bubble. -->
++  <message name="IDS_PAGE_INFO_SEOUL_BOOST_TITLE" desc="Title of the button that opens per-site visual customization from the Page Info bubble.">
++    Boost
++  </message>
++  <message name="IDS_PAGE_INFO_SEOUL_BOOST_SUBTITLE" desc="Description of the per-site visual customization available from the Page Info bubble.">
++    Tint colors, choose fonts, zap elements, and use automatic dark mode
++  </message>
++  <message name="IDS_PAGE_INFO_SEOUL_BOOST_TOOLTIP" desc="Tooltip for the button that opens per-site visual customization from the Page Info bubble.">
++    Customize this site with a Boost
++  </message>
++
+   <!-- Certificate Policy Qualifier strings shared across platforms -->
+   <message name="IDS_CERT_PKIX_CPS_POINTER_QUALIFIER" desc="description of pointer (URI) to Certification Practice Statement published by Certification Authority">
+     Certification Practice Statement Pointer

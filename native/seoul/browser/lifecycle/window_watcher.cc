@@ -15,16 +15,16 @@
 
 namespace seoul {
 
-WindowWatcher::WindowWatcher(Profile* profile,
-                             LifecycleCoordinator* coordinator)
-    : profile_(profile),
-      coordinator_(coordinator),
+WindowWatcher::WindowWatcher(Profile *profile,
+                             LifecycleCoordinator *coordinator,
+                             OrganizationModel *organization)
+    : profile_(profile), coordinator_(coordinator), organization_(organization),
       live_state_provider_(std::make_unique<LiveWindowStateProvider>()) {}
 
 WindowWatcher::~WindowWatcher() = default;
 
 void WindowWatcher::StartObserving() {
-  ProfileBrowserCollection* collection =
+  ProfileBrowserCollection *collection =
       ProfileBrowserCollection::GetForProfile(profile_);
   if (!collection) {
     return;
@@ -32,7 +32,7 @@ void WindowWatcher::StartObserving() {
   if (!observation_.IsObserving()) {
     observation_.Observe(collection);
   }
-  collection->ForEach([this](BrowserWindowInterface* browser) {
+  collection->ForEach([this](BrowserWindowInterface *browser) {
     if (IsEligible(browser)) {
       Track(browser);
     }
@@ -41,7 +41,7 @@ void WindowWatcher::StartObserving() {
 }
 
 void WindowWatcher::RescanExistingWindows() {
-  for (auto& [key, bridge] : bridges_) {
+  for (auto &[key, bridge] : bridges_) {
     if (bridge) {
       bridge->RescanExistingState();
     }
@@ -49,23 +49,23 @@ void WindowWatcher::RescanExistingWindows() {
 }
 
 // static
-bool WindowWatcher::IsEligible(BrowserWindowInterface* browser) {
+bool WindowWatcher::IsEligible(BrowserWindowInterface *browser) {
   return browser && browser->GetType() == BrowserWindowInterface::TYPE_NORMAL &&
          !browser->IsDeleteScheduled();
 }
 
-void WindowWatcher::OnBrowserCreated(BrowserWindowInterface* browser) {
+void WindowWatcher::OnBrowserCreated(BrowserWindowInterface *browser) {
   if (IsEligible(browser)) {
     Track(browser);
   }
 }
 
-void WindowWatcher::OnBrowserClosed(BrowserWindowInterface* browser) {
+void WindowWatcher::OnBrowserClosed(BrowserWindowInterface *browser) {
   Untrack(browser);
 }
 
-void WindowWatcher::Track(BrowserWindowInterface* browser) {
-  const SessionID& sid = browser->GetSessionID();
+void WindowWatcher::Track(BrowserWindowInterface *browser) {
+  const SessionID &sid = browser->GetSessionID();
   if (!sid.is_valid()) {
     return;
   }
@@ -73,12 +73,13 @@ void WindowWatcher::Track(BrowserWindowInterface* browser) {
   if (bridges_.count(key)) {
     return;
   }
-  TabStripModel* model = browser->GetTabStripModel();
+  TabStripModel *model = browser->GetTabStripModel();
   if (!model) {
     return;
   }
   auto bridge = std::make_unique<TabStripBridge>(
-      key, browser, model, coordinator_, live_state_provider_.get());
+      key, browser, model, coordinator_, live_state_provider_.get(),
+      organization_);
 
   NormalizedEvent event;
   event.type = NormalizedEventType::kWindowDiscovered;
@@ -90,8 +91,8 @@ void WindowWatcher::Track(BrowserWindowInterface* browser) {
   bridges_[key] = std::move(bridge);
 }
 
-void WindowWatcher::Untrack(BrowserWindowInterface* browser) {
-  const SessionID& sid = browser->GetSessionID();
+void WindowWatcher::Untrack(BrowserWindowInterface *browser) {
+  const SessionID &sid = browser->GetSessionID();
   if (!sid.is_valid()) {
     return;
   }
@@ -108,4 +109,4 @@ void WindowWatcher::Untrack(BrowserWindowInterface* browser) {
   bridges_.erase(it);
 }
 
-}  // namespace seoul
+} // namespace seoul

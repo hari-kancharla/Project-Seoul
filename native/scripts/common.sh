@@ -20,8 +20,10 @@ need_cmd() { command -v "$1" >/dev/null 2>&1 || die "required command not found:
 
 # Chromium's current Python tooling uses syntax introduced in Python 3.10.
 # Resolve one executable once, then put its directory first so Ninja actions
-# that invoke the literal `python3` use the same interpreter. SEOUL_PYTHON3 is
-# the deterministic escape hatch for hosts whose system Python is older.
+# that invoke the literal `python3` use the same interpreter. Prefer an
+# explicit override, then a compatible host interpreter, then depot_tools'
+# pinned bootstrap interpreter. SEOUL_PYTHON3 remains the deterministic escape
+# hatch for custom checkouts.
 python_is_build_compatible() {
   local executable="${1:-}"
   [ -x "$executable" ] &&
@@ -47,7 +49,8 @@ resolve_build_python() {
   for candidate in \
     "$(command -v python3 2>/dev/null || true)" \
     /opt/homebrew/bin/python3 \
-    /usr/local/bin/python3; do
+    /usr/local/bin/python3 \
+    "$DEPOT_TOOLS_DIR/python-bin/python3"; do
     if python_is_build_compatible "$candidate"; then
       printf '%s\n' "$candidate"
       return 0

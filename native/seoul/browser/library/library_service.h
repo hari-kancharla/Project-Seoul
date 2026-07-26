@@ -9,10 +9,18 @@
 #include <vector>
 
 #include "base/functional/callback.h"
+#include "base/observer_list.h"
+#include "base/observer_list_types.h"
 #include "base/values.h"
 #include "seoul/browser/library/library_types.h"
 
 namespace seoul {
+
+class LibraryServiceObserver : public base::CheckedObserver {
+ public:
+  ~LibraryServiceObserver() override = default;
+  virtual void OnLibraryChanged(uint64_t revision) = 0;
+};
 
 class LibraryService {
  public:
@@ -67,9 +75,15 @@ class LibraryService {
   base::DictValue TakePersistedState() const;
   void RestorePersistedState(const base::DictValue& state);
 
+  void AddObserver(LibraryServiceObserver* observer);
+  void RemoveObserver(LibraryServiceObserver* observer);
+
   size_t board_count() const { return boards_.size(); }
   size_t artifact_count() const { return artifacts_.size(); }
   size_t live_collection_count() const { return live_collections_.size(); }
+  // Monotonic within this profile runtime. Canvas includes it in snapshots so
+  // an older Mojo reply can never replace state from a newer mutation.
+  uint64_t revision() const { return revision_; }
 
  private:
   base::Time Now() const;
@@ -85,6 +99,8 @@ class LibraryService {
   std::map<BoardId, BoardRecord> boards_;
   std::map<LibraryArtifactId, LibraryArtifact> artifacts_;
   std::map<LiveCollectionId, LiveCollectionRecord> live_collections_;
+  base::ObserverList<LibraryServiceObserver> observers_;
+  uint64_t revision_ = 0;
 };
 
 }  // namespace seoul

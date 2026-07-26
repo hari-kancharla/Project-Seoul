@@ -229,9 +229,17 @@ index ac0e2c2d6a..7a32d68825 100644
    /* Extensions (nothing more should be added below here) */                  \
    V(kExtension, std::nullopt, "Extension")
 diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
-index 25ffbdf18e..046ffd0eac 100644
+index 25ffbdf18e..5384cd9a86 100644
 --- a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
 +++ b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
+@@ -40,6 +40,7 @@
+ #include "chrome/browser/ui/views/frame/custom_corners_background.h"
+ #include "chrome/browser/ui/views/frame/shadow_frame_view.h"
+ #include "chrome/browser/ui/views/frame/tab_strip_region_view.h"
++#include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+ #include "chrome/browser/ui/views/tabs/shared/drop_arrow.h"
+ #include "chrome/browser/ui/views/tabs/vertical/root_tab_collection_node.h"
+ #include "chrome/browser/ui/views/tabs/vertical/tab_collection_node.h"
 @@ -49,6 +49,12 @@
  #include "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_controller.h"
  #include "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_top_container.h"
@@ -354,9 +362,14 @@ index 25ffbdf18e..046ffd0eac 100644
    on_children_added_subscription_.reset();
    on_children_removed_subscription_.reset();
    on_child_moved_subscription_.reset();
-@@ -1110,6 +1197,20 @@ void VerticalTabStripRegionView::OnCollapseStateChanged(
-     tab_strip_view_->SetCollapsedState(collapsed);
-   }
+@@ -1106,10 +1194,22 @@ void VerticalTabStripRegionView::OnCollapseStateChanged(
+ 
+   resize_area_width_ = collapsed ? kCollapsedResizeAreaWidth : kResizeAreaWidth;
+ 
+-  if (tab_strip_view_) {
+-    tab_strip_view_->SetCollapsedState(collapsed);
+-  }
++  UpdateSeoulSidebarPresentation(collapsed && !is_expanded_on_hover_);
  
 +  if (browser_view_ && browser_view_->browser()) {
 +    Profile* profile = browser_view_->browser()->profile();
@@ -375,7 +388,46 @@ index 25ffbdf18e..046ffd0eac 100644
    if (state == tabs::VerticalTabStripCollapseState::kExpanded ||
        state == tabs::VerticalTabStripCollapseState::kCollapsed) {
      UpdateExpandOnHoverState();
-@@ -1608,5 +1709,15 @@ gfx::Rect VerticalTabStripRegionView::GetLinkDropBoundsFromPosition(
+@@ -1354,6 +1454,7 @@ void VerticalTabStripRegionView::ResetExpandOnHoverTimers() {
+ 
+ void VerticalTabStripRegionView::AnimateExpandOnHover(bool expand) {
+   is_expanded_on_hover_ = expand;
++  UpdateSeoulSidebarPresentation(!expand);
+   ResetExpandOnHoverTimers();
+ 
+   if (expand) {
+@@ -1377,6 +1478,30 @@ void VerticalTabStripRegionView::AnimateExpandOnHover(bool expand) {
+                      : TabStripAnimations::kCollapseOnHover);
+ }
+ 
++void VerticalTabStripRegionView::UpdateSeoulSidebarPresentation(
++    bool collapsed) {
++  if (tab_strip_view_) {
++    tab_strip_view_->SetCollapsedState(collapsed);
++  }
++  if (!browser_view_ || !browser_view_->browser()) {
++    return;
++  }
++  if (ToolbarView* toolbar = browser_view_->toolbar()) {
++    toolbar->SetSeoulSidebarPresentation(collapsed);
++  }
++  Profile* profile = browser_view_->browser()->profile();
++  if (seoul::SeoulOrganizationService* service =
++          seoul::SeoulOrganizationServiceFactory::GetForProfile(profile)) {
++    if (seoul::ShellService* shell = service->shell_service()) {
++      const SessionID sid = browser_view_->browser()->session_id();
++      if (sid.is_valid()) {
++        shell->OnSidebarPresentationChanged(
++            seoul::LiveWindowKey::FromSessionId(sid.id()), collapsed);
++      }
++    }
++  }
++}
++
+ void VerticalTabStripRegionView::RegisterExpandOnHoverLock(
+     VerticalTabStripExpandOnHoverLock* lock) {
+   hover_locks_.insert(lock);
+@@ -1608,5 +1733,15 @@ gfx::Rect VerticalTabStripRegionView::GetLinkDropBoundsFromPosition(
    return gfx::Rect(position, gfx::Size(DropArrow::kSize, DropArrow::kSize));
  }
  
@@ -392,7 +444,7 @@ index 25ffbdf18e..046ffd0eac 100644
  BEGIN_METADATA(VerticalTabStripRegionView)
  END_METADATA
 diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h
-index 70c78e23c0..5bd1b5a10b 100644
+index 70c78e23c0..b9f7a62e1c 100644
 --- a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h
 +++ b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h
 @@ -187,6 +187,13 @@ class VerticalTabStripRegionView final
@@ -409,6 +461,16 @@ index 70c78e23c0..5bd1b5a10b 100644
    void DisableTabStripEditingForTesting() override;
    gfx::Rect GetLinkDropBoundsForTesting(
        const BrowserRootView::DropIndex& drop_index,
+@@ -273,6 +280,9 @@ class VerticalTabStripRegionView final
+   void CalculateMouseVelocityForExpandOnHover();
+   void ResetExpandOnHoverTimers();
+   void AnimateExpandOnHover(bool expand);
++  // Keeps the native tab rows and Seoul shell in the same ephemeral
++  // presentation state while compact-mode hover reveals the sidebar.
++  void UpdateSeoulSidebarPresentation(bool collapsed);
+ 
+   void RegisterExpandOnHoverLock(VerticalTabStripExpandOnHoverLock* lock);
+   void UnregisterExpandOnHoverLock(VerticalTabStripExpandOnHoverLock* lock);
 diff --git a/chrome/browser/ui/views/side_panel/BUILD.gn b/chrome/browser/ui/views/side_panel/BUILD.gn
 index a17f190873..5cb78625bd 100644
 --- a/chrome/browser/ui/views/side_panel/BUILD.gn

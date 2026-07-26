@@ -10,7 +10,7 @@
 namespace seoul {
 namespace {
 
-SiteAdjustment HideSelector(const std::string& selector) {
+SiteAdjustment HideSelector(const std::string &selector) {
   SiteAdjustment adjustment;
   adjustment.kind = SiteAdjustmentKind::kHide;
   adjustment.selectors = {selector};
@@ -26,7 +26,7 @@ SiteLayer Layer(std::string id, std::string origin) {
   return layer;
 }
 
-}  // namespace
+} // namespace
 
 TEST(SiteLayerRegistryTest, UpsertFindListAndRemove) {
   SiteLayerRegistry registry;
@@ -84,6 +84,38 @@ TEST(SiteLayerRegistryTest, CompilesMatchingLayersForOriginAndScene) {
   EXPECT_EQ(css->find(".focus-noise"), std::string::npos);
 }
 
+TEST(SiteLayerRegistryTest, FindsEnabledAdjustmentForOriginAndScene) {
+  SiteLayerRegistry registry;
+  SiteLayer global = Layer("global-docs", "*.example.com");
+  SiteAdjustment automatic_dark;
+  automatic_dark.kind = SiteAdjustmentKind::kAutomaticDarkMode;
+  global.adjustments.push_back(automatic_dark);
+  ASSERT_TRUE(registry.Upsert(global).has_value());
+
+  SiteLayer scoped = Layer("focus-docs", "https://docs.example.com");
+  scoped.scene_scope = "focus";
+  SiteAdjustment tint;
+  tint.kind = SiteAdjustmentKind::kTintColor;
+  tint.color_value = "#123456";
+  tint.numeric_value = 0.25;
+  scoped.adjustments.push_back(tint);
+  ASSERT_TRUE(registry.Upsert(scoped).has_value());
+
+  EXPECT_TRUE(registry.HasEnabledAdjustmentForOrigin(
+      "https://docs.example.com", "", SiteAdjustmentKind::kAutomaticDarkMode));
+  EXPECT_FALSE(registry.HasEnabledAdjustmentForOrigin(
+      "https://other.test", "", SiteAdjustmentKind::kAutomaticDarkMode));
+  EXPECT_TRUE(registry.HasEnabledAdjustmentForOrigin(
+      "https://docs.example.com", "focus", SiteAdjustmentKind::kTintColor));
+  EXPECT_FALSE(registry.HasEnabledAdjustmentForOrigin(
+      "https://docs.example.com", "other", SiteAdjustmentKind::kTintColor));
+
+  global.enabled = false;
+  ASSERT_TRUE(registry.Upsert(global).has_value());
+  EXPECT_FALSE(registry.HasEnabledAdjustmentForOrigin(
+      "https://docs.example.com", "", SiteAdjustmentKind::kAutomaticDarkMode));
+}
+
 TEST(SiteLayerRegistryTest, MatchesExactPortsAndWildcardHosts) {
   SiteLayer exact = Layer("local-docs", "https://docs.example.com:8443");
   EXPECT_TRUE(SiteLayerMatchesOrigin(exact, "https://docs.example.com:8443"));
@@ -108,17 +140,18 @@ TEST(SiteLayerRegistryTest, MatchesExactPortsAndWildcardHosts) {
 
 TEST(SiteLayerRegistryTest, InvalidPageOriginFailsClosed) {
   SiteLayerRegistry registry;
-  ASSERT_TRUE(registry.Upsert(Layer("docs-clean", "*.example.com")).has_value());
+  ASSERT_TRUE(
+      registry.Upsert(Layer("docs-clean", "*.example.com")).has_value());
   EXPECT_EQ(registry.CompileForOrigin("chrome://settings", "").error(),
             SiteLayerError::kInvalidOrigin);
 }
 
 TEST(SiteLayerRegistryTest, PersistenceRoundTripsAndSkipsInvalidEntries) {
   SiteLayerRegistry registry;
-  ASSERT_TRUE(registry.Upsert(Layer("docs-clean", "*.example.com"))
-                  .has_value());
+  ASSERT_TRUE(
+      registry.Upsert(Layer("docs-clean", "*.example.com")).has_value());
   base::DictValue state = registry.TakePersistedState();
-  base::ListValue* layers = state.FindList("site_layers");
+  base::ListValue *layers = state.FindList("site_layers");
   ASSERT_NE(layers, nullptr);
   layers->Append(base::DictValue().Set("schema_version", 1));
 
@@ -135,4 +168,4 @@ TEST(SiteLayerRegistryTest, PersistenceRoundTripsAndSkipsInvalidEntries) {
   EXPECT_EQ(restored.size(), 1u);
 }
 
-}  // namespace seoul
+} // namespace seoul

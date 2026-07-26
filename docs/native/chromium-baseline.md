@@ -1,6 +1,6 @@
 # Native Chromium baseline
 
-Current as of 2026-07-23. The live product and release verdict is maintained in
+Current as of 2026-07-25. The live product and release verdict is maintained in
 `../release/seoul-product-readiness.md`.
 
 Project Seoul is pinned to a reproducible Chromium baseline on macOS arm64. The
@@ -17,8 +17,8 @@ launch, and runtime smoke have completed.
 | Seoul materialization and patch application | completed |
 | GN generation and dependency check | completed |
 | `chrome` component build | completed |
-| 24 native unit executables | completed, 514 tests passed |
-| Focused browser integration suite | completed, 20 tests passed |
+| 24 native unit executables | completed, 562 tests passed |
+| Focused browser integration suite | completed, 45 tests passed |
 | Launch and product smoke | completed |
 | Canvas WebUI runtime | completed, zero console errors |
 | Non-component release build | not yet run |
@@ -62,15 +62,15 @@ The build-host gate passed with:
 
 - macOS arm64;
 - 24 GiB RAM;
-- 264 GiB free storage;
-- Python 3.12.13;
+- 248 GiB free storage;
+- Python 3.11.8 from depot_tools' pinned bootstrap;
 - Xcode 26.6;
 - macOS SDK 26.5;
 - verified pinned checkout;
 - 6 planned Ninja jobs.
 
-The exact Python runtime was provided through `SEOUL_PYTHON3`; no gate was
-disabled or weakened.
+The exact Python runtime was resolved from depot_tools' pinned bootstrap; no
+gate was disabled or weakened.
 
 ## Development build configuration
 
@@ -130,7 +130,8 @@ npm run test:native:browser
 node native/scripts/smoke.mjs
 ```
 
-If the default interpreter is older, set `SEOUL_PYTHON3` to an installed
-Python 3.10 or newer executable. The full build and
-test procedure is in `seoul-product-build-runbook.md`; current observed results
-and remaining release gates are in the readiness report.
+If the default interpreter is older, the scripts automatically use
+depot_tools' pinned Python 3.10+ bootstrap interpreter. Set `SEOUL_PYTHON3`
+only when deliberately selecting another compatible executable. The full build
+and test procedure is in `seoul-product-build-runbook.md`; current observed
+results and remaining release gates are in the readiness report.

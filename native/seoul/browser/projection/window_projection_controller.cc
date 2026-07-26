@@ -15,6 +15,19 @@ bool ProjectionsEqual(const WindowProjection& a, const WindowProjection& b) {
          a.splits.size() == b.splits.size() && a.generation == b.generation;
 }
 
+bool ContainsActiveTab(const WindowProjection& projection,
+                       const LiveWindowTabState& live) {
+  if (!live.active_tab.is_valid()) {
+    return true;
+  }
+  for (const ProjectedTab& tab : projection.tabs) {
+    if (tab.tab == live.active_tab) {
+      return true;
+    }
+  }
+  return false;
+}
+
 }  // namespace
 
 WindowProjectionController::WindowProjectionController(
@@ -94,18 +107,29 @@ void WindowProjectionController::Recompute(bool publish) {
   }
   const WorkspaceId active = model_->ActiveWorkspaceForWindow(window_.value());
   generation_ = generation_.Next();
+
+  // Fail-open is a safety state, not a sticky presentation mode. During a
+  // fresh-window bootstrap, live tabs can be observed one task before their
+  // organization memberships are restored/created. That transient ordering
+  // used to leave every new window permanently showing the recovery banner.
+  // Probe the authoritative projection on every later recompute and recover as
+  // soon as the active tab is coherently projected. A genuinely missing active
+  // membership continues to fail open.
+  if (fail_open_ &&
+      !(lifecycle_ && lifecycle_->lifecycle_degraded())) {
+    WindowProjection recovered = ProjectionCalculator::Compute(
+        *model_, live_, active, generation_, /*fail_open=*/false);
+    if (recovered.status != ProjectionStatus::kFailOpen &&
+        ContainsActiveTab(recovered, live_)) {
+      fail_open_ = false;
+    }
+  }
+
   WindowProjection next = ProjectionCalculator::Compute(
       *model_, live_, active, generation_, fail_open_);
   if (!fail_open_ && live_.active_tab.is_valid() &&
       next.status != ProjectionStatus::kFailOpen) {
-    bool active_projected = false;
-    for (const ProjectedTab& pt : next.tabs) {
-      if (pt.tab == live_.active_tab) {
-        active_projected = true;
-        break;
-      }
-    }
-    if (!active_projected) {
+    if (!ContainsActiveTab(next, live_)) {
       fail_open_ = true;
       generation_ = generation_.Next();
       next = ProjectionCalculator::Compute(*model_, live_, active, generation_,

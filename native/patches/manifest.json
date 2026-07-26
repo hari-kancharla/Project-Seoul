@@ -21,7 +21,7 @@
   "patches": [
     {
       "id": "seoul-native-core",
-      "description": "Wire Seoul organization, lifecycle, command, projection, shell, product-runtime, and canvas targets into //chrome/browser (deps + allow_circular_includes_from); register SeoulOrganizationServiceFactory and SeoulRuntimeServiceFactory once at profile-service init; register Seoul projection and shell against VerticalTabStripRegionView only AFTER RootTabCollectionNode::Init() and unregister them at the start of ResetTabStrip; expose a production GetSeoulRootNode() accessor (no testing-only accessor in production); forward collapse-state changes to the shell; register the SeoulCanvasUIConfig (chrome://seoul-canvas), expose its typed Mojo factory only to that trusted controller, generate and merge its resources into Chromium's runtime resources.pak, register one regular-profile kSeoulCanvas side-panel entry per window, and pass the browser binding to the Shell so its launcher opens that exact entry; add a localized, DLP-gated Preview Link command to the regular-profile link context menu and route its exact source WebContents to PreviewHostService; and wire the Seoul in-process browser-test source_sets into //chrome/test:browser_tests.",
+      "description": "Wire Seoul organization, lifecycle, command, projection, shell, product-runtime, and canvas targets into //chrome/browser (deps + allow_circular_includes_from); register SeoulOrganizationServiceFactory and SeoulRuntimeServiceFactory once at profile-service init; register Seoul projection and shell against VerticalTabStripRegionView only AFTER RootTabCollectionNode::Init() and unregister them at the start of ResetTabStrip; expose a production GetSeoulRootNode() accessor (no testing-only accessor in production); forward durable collapse state separately from compact-mode hover presentation so the full tab/project hierarchy reveals without mutating preferences; register the SeoulCanvasUIConfig (chrome://seoul-canvas), expose its typed Mojo factory only to that trusted controller, generate and merge its resources into Chromium's runtime resources.pak, register one regular-profile kSeoulCanvas side-panel entry per window, and pass the browser binding to the Shell so its launcher opens that exact entry; add a localized, DLP-gated Preview Link command to the regular-profile link context menu and route its exact source WebContents to PreviewHostService; and wire the Seoul in-process browser-test source_sets into //chrome/test:browser_tests.",
       "rationale": "Chromium-facing Seoul glue includes //chrome/browser headers and must use the browser_public_dependencies circular-implementation pattern. A single patch avoids duplicate lifecycle linkage (organization already depends on lifecycle transitively), keeps factory registration in one place, and adds Preview at Chromium's existing typed link-command seam instead of intercepting or guessing page gestures.",
       "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
       "order": 1,
@@ -50,7 +50,7 @@
         "ui/webui/resources/tools/build_webui.gni"
       ],
       "dependencies": [],
-      "sha256": "868d3854973988d0f507b8b0bc4f57df62b195125c843b64bec1514a048e8c47",
+      "sha256": "77d7b72a0216e37d87d013041b6656276412ce1edbb6453f232c41b80f1a0c25",
       "applyVerify": "materialize.sh apply; git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0001-seoul-native-core.patch",
       "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R native/patches/chromium/0001-seoul-native-core.patch",
       "reviewable": true
@@ -73,6 +73,90 @@
       "sha256": "dc31706257dab68d613296c9daa9eede9dac5232e7dbcbf93dda1191828f1466",
       "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0002-seoul-product-defaults.patch after applying 0001-seoul-native-core.patch",
       "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R native/patches/chromium/0002-seoul-product-defaults.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-session-membership-restore",
+      "description": "Carry Seoul's opaque durable tab-membership id through Chromium's existing per-tab session extra-data channel, include it in full session-command rebuilds, and restore it onto WebContents before the tab enters TabStripModel.",
+      "rationale": "Chromium creates new window and tab SessionIDs during relaunch, rebuilds session commands from BrowserLiveTabContext, and does not expose generic restored tab extra-data after WebContents construction. Two narrow typed hooks beside Chromium's existing Glic extra-data snapshot/restore hooks let Seoul atomically rebind organization state without persisting page data, guessing by URL, or creating duplicate memberships.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 3,
+      "file": "0003-seoul-session-membership-restore.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/browser_live_tab_context.cc",
+        "chrome/browser/ui/browser_tabrestore.cc"
+      ],
+      "dependencies": [
+        "seoul-native-core"
+      ],
+      "sha256": "179a2ac62df52a1c7d89b9e6d2f7c3b0f0b7796eb09af0772670a4d54aa85ddb",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0003-seoul-session-membership-restore.patch after applying 0001-seoul-native-core.patch and 0002-seoul-product-defaults.patch",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0003-seoul-session-membership-restore.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-window-local-compact-hover",
+      "description": "Expose a window-local vertical-tab reveal-on-hover setter so Seoul can apply durable Workspace and Scene presentation policy without mutating Chromium's profile-wide stock preference.",
+      "rationale": "Chromium's public SetExpandOnHoverEnabled method writes a profile preference observed by every browser window. Seoul compact mode is Workspace/window scoped, so using that setter would make independent windows fight each other. The narrow setter updates the existing per-controller state and notifications without introducing a second presentation owner.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 4,
+      "file": "0004-seoul-window-local-compact-hover.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/tabs/vertical_tab_strip_state_controller.cc",
+        "chrome/browser/ui/tabs/vertical_tab_strip_state_controller.h"
+      ],
+      "dependencies": [
+        "seoul-product-defaults"
+      ],
+      "sha256": "138f7bbc4053d497cd0f83a05ad4c47886278c9640e440fbbbad378585750c59",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0004-seoul-window-local-compact-hover.patch after applying patches 0001 through 0003",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0004-seoul-window-local-compact-hover.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-boost-entry-points",
+      "description": "Add a localized Boost row to HTTP(S) site controls, accept the exact New Boost omnibox command without navigating or searching, and preserve each matching Boost's automatic-dark preference through Chromium WebPreferences recomputation and navigation.",
+      "rationale": "Site controls and the omnibox are Chromium-owned discovery surfaces, while Boost state and editing remain owned by Seoul's profile runtime and trusted Canvas. Two narrow entry calls keep both surfaces on one eligibility/editor path, and the WebPreferences hook makes automatic dark mode a per-tab, per-site behavior instead of mutating Chrome's profile-wide force-dark preference.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 5,
+      "file": "0005-seoul-boost-entry-points.patch",
+      "affectedPaths": [
+        "chrome/browser/chrome_content_browser_client.cc",
+        "chrome/browser/ui/omnibox/chrome_omnibox_client.cc",
+        "chrome/browser/ui/views/page_info/page_info_main_view.cc",
+        "chrome/browser/ui/views/page_info/page_info_main_view.h",
+        "components/page_info_strings.grdp"
+      ],
+      "dependencies": [
+        "seoul-native-core"
+      ],
+      "sha256": "9da8340893887d96481e61247e6172e68024712459f047aafba897ffe28e7925",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0005-seoul-boost-entry-points.patch after applying patches 0001 through 0004",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0005-seoul-boost-entry-points.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-integrated-vertical-shell",
+      "description": "Move Chromium's real native omnibox and core navigation controls into Seoul's vertical rail, hide the duplicate stock action strip, set a balanced expanded width for the workspace/Essentials/tab hierarchy, hide the address row in collapsed presentation, and route every regular-profile new-tab rewrite to the first-party Seoul Canvas.",
+      "rationale": "Keeping a full-width Chromium toolbar, responsive icon overflow, and Google NTP beside a custom vertical shell leaves the product visually and structurally Chromium-first. Reusing the native location bar preserves security and focus behavior while Commands owns secondary browser actions; placing the NTP decision in Chromium's canonical rewrite path covers startup and chrome://newtab rather than only one Browser call site.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 6,
+      "file": "0006-seoul-integrated-vertical-shell.patch",
+      "affectedPaths": [
+        "chrome/browser/search/search.cc",
+        "chrome/browser/ui/browser.cc",
+        "chrome/browser/ui/tabs/vertical_tab_strip_state.h",
+        "chrome/browser/ui/views/frame/browser_view.cc",
+        "chrome/browser/ui/views/toolbar/toolbar_view.cc",
+        "chrome/browser/ui/views/toolbar/toolbar_view.h"
+      ],
+      "dependencies": [
+        "seoul-native-core",
+        "seoul-product-defaults"
+      ],
+      "sha256": "7e4c6871acd8d026b31e0dbefa43d7242ef9da4cc95cbbad4fee61f9e4f0b6fb",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0006-seoul-integrated-vertical-shell.patch after applying patches 0001 through 0005",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0006-seoul-integrated-vertical-shell.patch",
       "reviewable": true
     }
   ]

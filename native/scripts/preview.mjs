@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
+import { assertBrowserLaunchPermitted } from '../../scripts/browser-launch-safety.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..', '..');
@@ -39,7 +40,16 @@ function fail(message) {
   process.exitCode = 1;
 }
 
-if (!existsSync(binary)) {
+let launchBlocked = '';
+try {
+  assertBrowserLaunchPermitted();
+} catch (error) {
+  launchBlocked = error instanceof Error ? error.message : String(error);
+}
+
+if (launchBlocked) {
+  fail(launchBlocked);
+} else if (!existsSync(binary)) {
   fail(`local Seoul Chromium build not found at:\n  ${binary}`);
 } else {
   mkdirSync(path.dirname(output), { recursive: true });
@@ -91,6 +101,42 @@ if (!existsSync(binary)) {
           root?.querySelector('.composer input[aria-label="Message Seoul"]'),
       );
     });
+    const requestedView = (process.env.SEOUL_PREVIEW_VIEW || '').trim().toLowerCase();
+    if (requestedView) {
+      const viewSelectors = {
+        canvas: '#canvas-root',
+        boosts: '.boosts-view',
+        library: '.library-view[aria-label="Library"]',
+        boards: '.library-view[aria-label="Boards"]',
+        studio: '.studio-view',
+      };
+      const readySelector = viewSelectors[requestedView];
+      if (!readySelector) {
+        throw new Error(
+          `Unknown SEOUL_PREVIEW_VIEW "${requestedView}". ` +
+            `Expected one of: ${Object.keys(viewSelectors).join(', ')}`,
+        );
+      }
+      const selected = await page.evaluate(async (view) => {
+        const app = document.querySelector('seoul-canvas-app');
+        const root = app?.shadowRoot;
+        if (!app || !root) return false;
+        const button = [...root.querySelectorAll('.view-switcher button')]
+            .find(candidate => candidate.textContent.trim().toLowerCase() === view);
+        if (!button) return false;
+        button.click();
+        await app.updateComplete;
+        return true;
+      }, requestedView);
+      if (!selected) {
+        throw new Error(`Canvas view "${requestedView}" is not reachable`);
+      }
+      await page.waitForSelector(`seoul-canvas-app`);
+      await page.waitForFunction((selector) => {
+        const root = document.querySelector('seoul-canvas-app')?.shadowRoot;
+        return Boolean(root?.querySelector(selector));
+      }, {}, readySelector);
+    }
     if (process.env.SEOUL_PREVIEW_SCENARIO === 'board') {
       const result = await page.evaluate(async () => {
         const app = document.querySelector('seoul-canvas-app');

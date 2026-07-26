@@ -176,6 +176,11 @@ struct LiveCollectionDefinition {
   // Opaque, non-secret provider locator. The capability adapter validates and
   // maps it into its typed input. Credentials remain in the secure store.
   std::string source_locator;
+  // Exact browser window used to establish the collection's permission and
+  // page/organization scope. Stored as an opaque live-window key string so
+  // Library core does not depend on Chromium lifecycle types. The product
+  // coordinator validates and resolves it before every refresh.
+  std::string scope_window;
   int refresh_interval_minutes = 15;
   bool enabled = true;
 
@@ -235,6 +240,7 @@ enum class LibraryError {
   kUnknownElement,
   kUnknownArtifact,
   kUnknownCollection,
+  kBoardArchived,
   kLimitExceeded,
   kStaleRefresh,
   kUnsupportedSchema,

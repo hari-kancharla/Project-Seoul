@@ -30,6 +30,25 @@ class ChromiumMutationAdapter {
                                       CommandForegroundDisposition disposition,
                                       LiveTabKey* out_tab) = 0;
 
+  virtual CommandStatusResult NavigateTab(Profile* profile,
+                                          const ResolvedTabTarget& tab,
+                                          const GURL& url) = 0;
+
+  // Opens `url` as a new tab and immediately pairs it with `existing_tab` in
+  // Chromium's real split model. The implementation rolls the new tab back if
+  // split creation fails, so callers never receive a false "split" success.
+  virtual CommandStatusResult OpenTabInSplit(
+      Profile* profile,
+      const ResolvedWindowTarget& window,
+      LiveTabKey existing_tab,
+      const GURL& url,
+      double ratio,
+      LiveTabKey* out_tab,
+      std::string* upstream_token) = 0;
+
+  virtual CommandStatusResult OpenExternal(Profile* profile,
+                                           const GURL& url) = 0;
+
   virtual CommandStatusResult ActivateTab(Profile* profile,
                                           const ResolvedTabTarget& tab) = 0;
 

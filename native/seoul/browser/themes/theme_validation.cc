@@ -28,12 +28,12 @@ double LinearChannel(uint8_t value) {
   return s <= 0.03928 ? s / 12.92 : std::pow((s + 0.055) / 1.055, 2.4);
 }
 
-double RelativeLuminance(const ThemeColor& color) {
+double RelativeLuminance(const ThemeColor &color) {
   return 0.2126 * LinearChannel(color.r) + 0.7152 * LinearChannel(color.g) +
          0.0722 * LinearChannel(color.b);
 }
 
-bool ValidTokenName(const std::string& name) {
+bool ValidTokenName(const std::string &name) {
   if (name.empty() || name.size() > kMaxTokenNameLength) {
     return false;
   }
@@ -49,23 +49,23 @@ bool ValidTokenName(const std::string& name) {
   return true;
 }
 
-bool ValidSlug(const std::string& slug) {
+bool ValidSlug(const std::string &slug) {
   return ValidTokenName(slug) && slug.size() <= kMaxThemeNameLength;
 }
 
-const char* SchemeToString(ColorScheme scheme) {
+const char *SchemeToString(ColorScheme scheme) {
   switch (scheme) {
-    case ColorScheme::kLight:
-      return "light";
-    case ColorScheme::kDark:
-      return "dark";
-    case ColorScheme::kSystem:
-      return "system";
+  case ColorScheme::kLight:
+    return "light";
+  case ColorScheme::kDark:
+    return "dark";
+  case ColorScheme::kSystem:
+    return "system";
   }
   return "system";
 }
 
-bool SchemeFromString(const std::string& s, ColorScheme* out) {
+bool SchemeFromString(const std::string &s, ColorScheme *out) {
   if (s == "light") {
     *out = ColorScheme::kLight;
   } else if (s == "dark") {
@@ -78,9 +78,9 @@ bool SchemeFromString(const std::string& s, ColorScheme* out) {
   return true;
 }
 
-}  // namespace
+} // namespace
 
-bool ParseHexColor(const std::string& hex, ThemeColor* out) {
+bool ParseHexColor(const std::string &hex, ThemeColor *out) {
   if (hex.empty() || hex[0] != '#') {
     return false;
   }
@@ -114,7 +114,7 @@ bool ParseHexColor(const std::string& hex, ThemeColor* out) {
   return false;
 }
 
-std::string ColorToHex(const ThemeColor& color) {
+std::string ColorToHex(const ThemeColor &color) {
   static constexpr std::string_view kDigits = "0123456789abcdef";
   std::string hex = "#";
   for (uint8_t channel : {color.r, color.g, color.b, color.a}) {
@@ -124,7 +124,7 @@ std::string ColorToHex(const ThemeColor& color) {
   return hex;
 }
 
-double ContrastRatio(const ThemeColor& a, const ThemeColor& b) {
+double ContrastRatio(const ThemeColor &a, const ThemeColor &b) {
   const double la = RelativeLuminance(a);
   const double lb = RelativeLuminance(b);
   const double lighter = std::max(la, lb);
@@ -132,7 +132,7 @@ double ContrastRatio(const ThemeColor& a, const ThemeColor& b) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-ThemeStatusResult ValidateTheme(const Theme& theme) {
+ThemeStatusResult ValidateTheme(const Theme &theme) {
   if (theme.schema_version != kThemeSchemaVersion) {
     return base::unexpected(ThemeError::kUnsupportedSchema);
   }
@@ -151,7 +151,7 @@ ThemeStatusResult ValidateTheme(const Theme& theme) {
   if (theme.custom_colors.size() > kMaxCustomTokens) {
     return base::unexpected(ThemeError::kTooManyCustomTokens);
   }
-  for (const auto& [name, color] : theme.custom_colors) {
+  for (const auto &[name, color] : theme.custom_colors) {
     if (!ValidTokenName(name)) {
       return base::unexpected(ThemeError::kInvalidToken);
     }
@@ -181,7 +181,7 @@ ThemeStatusResult ValidateTheme(const Theme& theme) {
   return base::ok();
 }
 
-base::DictValue ThemeToValue(const Theme& theme) {
+base::DictValue ThemeToValue(const Theme &theme) {
   base::DictValue dict;
   dict.Set("schema_version", theme.schema_version);
   dict.Set("id", theme.id);
@@ -212,7 +212,7 @@ base::DictValue ThemeToValue(const Theme& theme) {
   dict.Set("corner_radius_px", theme.corner_radius_px);
   if (!theme.custom_colors.empty()) {
     base::DictValue custom;
-    for (const auto& [name, color] : theme.custom_colors) {
+    for (const auto &[name, color] : theme.custom_colors) {
       custom.Set(name, ColorToHex(color));
     }
     dict.Set("custom_colors", std::move(custom));
@@ -220,8 +220,8 @@ base::DictValue ThemeToValue(const Theme& theme) {
   return dict;
 }
 
-ThemeResult<Theme> ThemeFromValue(const base::Value& value) {
-  const base::DictValue* dict = value.GetIfDict();
+ThemeResult<Theme> ThemeFromValue(const base::Value &value) {
+  const base::DictValue *dict = value.GetIfDict();
   if (!dict) {
     return base::unexpected(ThemeError::kUnsupportedSchema);
   }
@@ -229,24 +229,24 @@ ThemeResult<Theme> ThemeFromValue(const base::Value& value) {
     return base::unexpected(ThemeError::kUnsupportedSchema);
   }
   Theme theme;
-  const std::string* id = dict->FindString("id");
-  const std::string* name = dict->FindString("name");
+  const std::string *id = dict->FindString("id");
+  const std::string *name = dict->FindString("name");
   if (!id || !name) {
     return base::unexpected(ThemeError::kInvalidName);
   }
   theme.id = *id;
   theme.name = *name;
-  if (const std::string* scheme = dict->FindString("scheme")) {
+  if (const std::string *scheme = dict->FindString("scheme")) {
     if (!SchemeFromString(*scheme, &theme.scheme)) {
       return base::unexpected(ThemeError::kInvalidToken);
     }
   }
-  const base::DictValue* colors = dict->FindDict("colors");
+  const base::DictValue *colors = dict->FindDict("colors");
   if (!colors) {
     return base::unexpected(ThemeError::kInvalidColor);
   }
-  auto read_color = [&colors](const char* key, ThemeColor* out) {
-    const std::string* hex = colors->FindString(key);
+  auto read_color = [&colors](const char *key, ThemeColor *out) {
+    const std::string *hex = colors->FindString(key);
     return hex && ParseHexColor(*hex, out);
   };
   if (!read_color("background", &theme.colors.background) ||
@@ -259,8 +259,8 @@ ThemeResult<Theme> ThemeFromValue(const base::Value& value) {
       !read_color("error", &theme.colors.error)) {
     return base::unexpected(ThemeError::kInvalidColor);
   }
-  if (const base::DictValue* typography = dict->FindDict("typography")) {
-    if (const std::string* font = typography->FindString("font_family")) {
+  if (const base::DictValue *typography = dict->FindDict("typography")) {
+    if (const std::string *font = typography->FindString("font_family")) {
       theme.typography.font_family = *font;
     }
     theme.typography.base_size_px =
@@ -270,7 +270,7 @@ ThemeResult<Theme> ThemeFromValue(const base::Value& value) {
     theme.typography.base_line_height_permille =
         typography->FindInt("base_line_height_permille").value_or(1500);
   }
-  if (const base::DictValue* motion = dict->FindDict("motion")) {
+  if (const base::DictValue *motion = dict->FindDict("motion")) {
     theme.motion.reduced_motion =
         motion->FindBool("reduced_motion").value_or(false);
     theme.motion.reduced_transparency =
@@ -279,7 +279,7 @@ ThemeResult<Theme> ThemeFromValue(const base::Value& value) {
         motion->FindInt("base_duration_ms").value_or(150);
   }
   theme.corner_radius_px = dict->FindInt("corner_radius_px").value_or(8);
-  if (const base::DictValue* custom = dict->FindDict("custom_colors")) {
+  if (const base::DictValue *custom = dict->FindDict("custom_colors")) {
     for (const auto [key, color_value] : *custom) {
       ThemeColor color;
       if (!color_value.is_string() ||
@@ -295,28 +295,30 @@ ThemeResult<Theme> ThemeFromValue(const base::Value& value) {
   return theme;
 }
 
-const char* ThemeErrorToString(ThemeError error) {
+const char *ThemeErrorToString(ThemeError error) {
   switch (error) {
-    case ThemeError::kInvalidName:
-      return "invalid_name";
-    case ThemeError::kInvalidToken:
-      return "invalid_token";
-    case ThemeError::kInvalidColor:
-      return "invalid_color";
-    case ThemeError::kTooManyCustomTokens:
-      return "too_many_custom_tokens";
-    case ThemeError::kContrastTooLow:
-      return "contrast_too_low";
-    case ThemeError::kUnsupportedSchema:
-      return "unsupported_schema";
-    case ThemeError::kInvalidTypography:
-      return "invalid_typography";
-    case ThemeError::kUnknownTheme:
-      return "unknown_theme";
-    case ThemeError::kLimitExceeded:
-      return "limit_exceeded";
+  case ThemeError::kInvalidName:
+    return "invalid_name";
+  case ThemeError::kInvalidToken:
+    return "invalid_token";
+  case ThemeError::kInvalidColor:
+    return "invalid_color";
+  case ThemeError::kTooManyCustomTokens:
+    return "too_many_custom_tokens";
+  case ThemeError::kContrastTooLow:
+    return "contrast_too_low";
+  case ThemeError::kUnsupportedSchema:
+    return "unsupported_schema";
+  case ThemeError::kInvalidTypography:
+    return "invalid_typography";
+  case ThemeError::kUnknownTheme:
+    return "unknown_theme";
+  case ThemeError::kLimitExceeded:
+    return "limit_exceeded";
+  case ThemeError::kInUse:
+    return "in_use";
   }
   return "invalid_token";
 }
 
-}  // namespace seoul
+} // namespace seoul

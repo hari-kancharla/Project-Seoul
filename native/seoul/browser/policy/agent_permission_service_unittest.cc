@@ -66,6 +66,37 @@ TEST(AgentPermissionServiceTest, DestinationPairIsPartOfExactScope) {
             AgentPermissionDecisionKind::kNeedsApproval);
 }
 
+TEST(AgentPermissionServiceTest,
+     DestinationOnlyBrowserScopeIsValidAndRemainsExact) {
+  base::Time now = base::Time::Now();
+  AgentPermissionService service(
+      base::BindRepeating([](base::Time* now) { return *now; }, &now));
+  AgentPermissionRequest request;
+  request.capability = ToolId::FromString("browser.tabs.open");
+  request.approval = ApprovalPolicy::kFirstUsePerScope;
+  request.risk = RiskCategory::kReversibleMutation;
+  request.window = LiveWindowKey::FromSessionId(1);
+  request.destination_origin =
+      url::Origin::Create(GURL("https://destination.test/path"));
+
+  EXPECT_EQ(service.Evaluate(request).kind,
+            AgentPermissionDecisionKind::kNeedsApproval);
+  ASSERT_TRUE(service.GrantFirstUse(request));
+  EXPECT_EQ(service.Evaluate(request).kind,
+            AgentPermissionDecisionKind::kAllowed);
+
+  AgentPermissionRequest other_destination = request;
+  other_destination.destination_origin =
+      url::Origin::Create(GURL("https://other.test"));
+  EXPECT_EQ(service.Evaluate(other_destination).kind,
+            AgentPermissionDecisionKind::kNeedsApproval);
+
+  AgentPermissionRequest other_window = request;
+  other_window.window = LiveWindowKey::FromSessionId(2);
+  EXPECT_EQ(service.Evaluate(other_window).kind,
+            AgentPermissionDecisionKind::kNeedsApproval);
+}
+
 TEST(AgentPermissionServiceTest, HighRiskApprovalIsNeverReusable) {
   base::Time now = base::Time::Now();
   AgentPermissionService service(

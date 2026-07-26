@@ -162,6 +162,29 @@ TEST_F(OrganizationInvariantsTest, InvalidEssentialEnumRejected) {
             OrganizationError::kCorruptState);
 }
 
+TEST_F(OrganizationInvariantsTest, DuplicateEssentialOriginSnapshotRejected) {
+  OrganizationSnapshot snap;
+  snap.schema_version = kOrganizationSchemaVersion;
+  WorkspaceRecord workspace;
+  workspace.id = WorkspaceId::GenerateNew();
+  workspace.name = "Default";
+  workspace.is_default = true;
+  snap.default_workspace_id = workspace.id;
+  snap.workspaces.push_back(workspace);
+  EssentialRecord first;
+  first.id = EssentialId::GenerateNew();
+  first.name = "Mail";
+  first.root_url = "https://mail.test/inbox";
+  snap.essentials.push_back(first);
+  EssentialRecord duplicate;
+  duplicate.id = EssentialId::GenerateNew();
+  duplicate.name = "Mail settings";
+  duplicate.root_url = "https://mail.test/settings";
+  snap.essentials.push_back(duplicate);
+  EXPECT_EQ(model_.LoadSnapshot(snap).error(),
+            OrganizationError::kCorruptState);
+}
+
 TEST_F(OrganizationInvariantsTest, OversizedMembershipListRejected) {
   base::DictValue dict;
   dict.Set("schema_version", kOrganizationSchemaVersion);

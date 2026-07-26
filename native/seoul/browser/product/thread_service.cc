@@ -40,25 +40,36 @@ ThreadSummary& ThreadSummary::operator=(const ThreadSummary&) = default;
 ThreadSummary& ThreadSummary::operator=(ThreadSummary&&) = default;
 ThreadSummary::~ThreadSummary() = default;
 
-ThreadService::ThreadService(base::RepeatingCallback<base::Time()> clock)
-    : clock_(std::move(clock)) {}
+ThreadService::ThreadService(base::RepeatingCallback<base::Time()> clock,
+                             base::RepeatingClosure changed)
+    : clock_(std::move(clock)), changed_(std::move(changed)) {}
 
 ThreadService::~ThreadService() = default;
 
-std::string ThreadService::CreateThread(const std::string& name) {
+std::string ThreadService::CreateThread(const std::string& name,
+                                        const std::string& workspace_id) {
   if (threads_.size() >= kMaxThreads || name.empty() ||
-      name.size() > kMaxContextTitleLength) {
+      name.size() > kMaxContextTitleLength || workspace_id.size() > 256) {
     return std::string();
   }
   const std::string id = "thread-" + base::NumberToString(next_id_++);
   threads_[id] = std::make_unique<ContextThread>(id, name);
+  thread_workspaces_[id] = workspace_id;
+  if (changed_) {
+    changed_.Run();
+  }
   return id;
 }
 
 bool ThreadService::RenameThread(const std::string& thread_id,
                                  const std::string& name) {
   auto it = threads_.find(thread_id);
-  return it != threads_.end() && it->second->SetName(name).has_value();
+  const bool changed =
+      it != threads_.end() && it->second->SetName(name).has_value();
+  if (changed && changed_) {
+    changed_.Run();
+  }
+  return changed;
 }
 
 bool ThreadService::ArchiveThread(const std::string& thread_id) {
@@ -67,6 +78,9 @@ bool ThreadService::ArchiveThread(const std::string& thread_id) {
     return false;
   }
   it->second->Archive();
+  if (changed_) {
+    changed_.Run();
+  }
   return true;
 }
 
@@ -76,11 +90,21 @@ bool ThreadService::ReopenThread(const std::string& thread_id) {
     return false;
   }
   it->second->Restore();
+  if (changed_) {
+    changed_.Run();
+  }
   return true;
 }
 
 bool ThreadService::DeleteThread(const std::string& thread_id) {
-  return threads_.erase(thread_id) > 0;
+  const bool erased = threads_.erase(thread_id) > 0;
+  if (erased) {
+    thread_workspaces_.erase(thread_id);
+    if (changed_) {
+      changed_.Run();
+    }
+  }
+  return erased;
 }
 
 ContextResult<std::string> ThreadService::AttachItem(
@@ -90,13 +114,22 @@ ContextResult<std::string> ThreadService::AttachItem(
   if (it == threads_.end()) {
     return base::unexpected(ContextError::kUnknownItem);
   }
-  return it->second->AddItem(std::move(item), clock_.Run());
+  auto result = it->second->AddItem(std::move(item), clock_.Run());
+  if (result.has_value() && changed_) {
+    changed_.Run();
+  }
+  return result;
 }
 
 bool ThreadService::DetachItem(const std::string& thread_id,
                                const std::string& item_id) {
   auto it = threads_.find(thread_id);
-  return it != threads_.end() && it->second->RemoveItem(item_id).has_value();
+  const bool changed =
+      it != threads_.end() && it->second->RemoveItem(item_id).has_value();
+  if (changed && changed_) {
+    changed_.Run();
+  }
+  return changed;
 }
 
 const ContextThread* ThreadService::FindThread(
@@ -112,6 +145,10 @@ std::vector<ThreadSummary> ThreadService::Summaries() const {
     ThreadSummary summary;
     summary.id = id;
     summary.name = thread->name();
+    if (auto workspace = thread_workspaces_.find(id);
+        workspace != thread_workspaces_.end()) {
+      summary.workspace_id = workspace->second;
+    }
     summary.archived = thread->archived();
     summary.item_count = thread->items().size();
     out.push_back(std::move(summary));
@@ -127,6 +164,10 @@ base::DictValue ThreadService::TakePersistedState() const {
     base::DictValue entry;
     entry.Set("id", id);
     entry.Set("name", thread->name());
+    if (auto workspace = thread_workspaces_.find(id);
+        workspace != thread_workspaces_.end() && !workspace->second.empty()) {
+      entry.Set("workspace_id", workspace->second);
+    }
     entry.Set("archived", thread->archived());
     base::ListValue items;
     for (const ContextItem& item : thread->items()) {
@@ -197,6 +238,10 @@ void ThreadService::RestorePersistedState(const base::DictValue& state) {
       }
     }
     threads_[*id] = std::move(thread);
+    if (const std::string* workspace_id = dict->FindString("workspace_id");
+        workspace_id && workspace_id->size() <= 256) {
+      thread_workspaces_[*id] = *workspace_id;
+    }
   }
 }
 

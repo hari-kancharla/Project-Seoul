@@ -2,12 +2,17 @@
 
 ## Honesty header
 
-This document is product DIRECTION, not a description of a shipping product.
-Nothing in this matrix is implemented in Seoul yet. As of this writing the
-pinned Chromium checkout is complete and gclient-validated, and zero Chromium
-patches exist (the retired MV3 harness has been removed; `protocol/` is the
-browser-control protocol reference). GN generation, compilation, launch, smoke,
-and runtime tab validation have not happened.
+This document is the broad product direction, not a per-feature release
+checklist. The authoritative current implementation and test evidence lives in
+`docs/release/seoul-product-readiness.md`.
+
+Seoul now has a compiled Chromium development build with a default-on vertical
+shell, native organization and task services, an ephemeral Preview path, a
+first-party Canvas, live per-site Boosts, persistent Boards, editable provider
+routes, contextual page observation, and a Realtime voice-to-browser-task
+bridge. That does not mean every item in this matrix is complete. Entries below
+retain future-tense language where their full end-user behavior is still
+roadmap work.
 
 Seoul copies feature CAPABILITIES from other browsers. It does not copy their
 source code, assets, branding, or layout. Every reference-browser note below
@@ -84,11 +89,13 @@ Milestones are a proposed ordering, not a schedule:
 - Reference browser behavior: Arc "Favorites" are available in every Space and
   are protected from auto-archiving; Zen "Essentials" are always-available tabs
   prioritized ahead of pinned and ordinary tabs by keyboard navigation.
-- What Seoul will implement: A global favorites tier shown in every workspace,
-  persistent, never auto-cleaned, with stable ordering.
-- What Seoul will improve: Treat a favorite as a durable site identity (it
-  re-resolves to the live tab if already open in the current workspace instead of
-  spawning a duplicate), reducing duplicate-tab sprawl.
+- Current implementation: Canvas Studio creates, edits, and deletes
+  profile-global Essentials, including a current-page capture path. Destinations
+  are strict HTTP(S), duplicate origins are rejected, ordering and identity
+  persist, the native Shell exposes them in every workspace, and opening one
+  reuses an already-live tab for that site instead of spawning a duplicate.
+- What Seoul improves: An Essential is a durable site identity rather than a
+  copied tab. Removing the Essential never closes the user's live page.
 - Upstream Chromium support already available: Partial. Pinned-tab persistence
   primitives exist (`components/tabs/public/pinned_tab_collection.h`,
   `chrome/browser/ui/tabs/pinned_tab_codec.h` family under
@@ -100,9 +107,12 @@ Milestones are a proposed ordering, not a schedule:
 - Risks and edge cases: Favorite pointing at a logged-out or moved site;
   dedup-to-live-tab logic across workspaces; sync conflicts; ordering stability.
 - Milestone: M2.
-- Verification method: Define favorites, switch across all workspaces, confirm
-  presence and order everywhere; open a favorite that is already live and assert
-  no duplicate tab is created; relaunch and assert persistence.
+- Verification: Pure organization tests cover mutation, origin uniqueness,
+  unsafe-URL refusal, persistence, and ordering. A headless in-process browser
+  test creates and edits an Essential through the real Canvas, rejects a second
+  definition for the same origin, observes the persisted profile record, opens
+  the destination through the native Shell, proves a second open reuses the same
+  live tab, and deletes the Essential without closing that tab.
 
 ---
 
@@ -139,9 +149,13 @@ Milestones are a proposed ordering, not a schedule:
 - Reference browser behavior: Arc auto-archives idle unpinned tabs (default 12
   hours, timer resets on view, cannot be fully disabled, interval adjustable);
   pinned tabs and favorites are exempt.
-- What Seoul will implement: An auto-archive policy for ordinary (temporary) tabs
-  with a configurable idle interval, viewing resets the timer, pinned tabs and
-  favorites are exempt; archived tabs are recoverable.
+- Current implementation: An active Scene can enable a configurable idle
+  archive interval for temporary tabs and restore eligible archives when the
+  Scene is activated again. The production sweep protects the active tab,
+  retained/Essential tabs, media, loading or unsaved pages, permission prompts,
+  DevTools, splits, active tasks, and in-progress downloads. Archive commits
+  only after exact Chromium removal; restore is background-only and leaves a
+  durable archive intact when insertion cannot be verified.
 - What Seoul will improve: Make the policy explicitly configurable (including a
   user-chosen long interval) and pair archiving with memory discard so the
   feature also reclaims resources, not just visual clutter.
@@ -158,9 +172,11 @@ Milestones are a proposed ordering, not a schedule:
   across sleep/wake; exemption correctness for pinned/favorites; recovery UX;
   interaction with session restore.
 - Milestone: M2.
-- Verification method: Set a short interval, leave temporary tabs idle, assert
-  they archive and are recoverable; assert pinned/favorites are never archived;
-  assert active tab timer resets on view; assert discard frees the renderer.
+- Verification: Pure organization tests cover eligibility and exemptions. A
+  headless in-process browser test ages a real background temporary tab,
+  archives it transactionally, verifies recoverable metadata, reactivates its
+  Scene, and confirms background restoration without disturbing the active tab.
+  Resource discard is not claimed by that archive path.
 
 ---
 
@@ -171,9 +187,11 @@ Milestones are a proposed ordering, not a schedule:
 - Reference browser behavior: Arc opens external links in "Little Arc", a
   temporary lightweight window, so a quick link does not disturb your Spaces and
   tabs. Installed PWAs capture in-scope links into the app window.
-- What Seoul will implement: Configurable routing rules that decide where a new
-  link lands (current workspace, a preview surface, or a designated default
-  workspace), including external-app links.
+- Current implementation: Studio authors priority-ordered exact-origin,
+  URL-prefix, URL-glob, and fallback rules. The real open capability can route
+  into the current tab, a new temporary or retained tab, a specific workspace,
+  an ephemeral Preview, a native split pane, an external application, or an
+  explicit approval path.
 - What Seoul will improve: Make routing rule-based and inspectable (route by
   source, by URL pattern, by workspace) instead of a single fixed behavior.
 - Upstream Chromium support already available: Partial. Web-app link capturing
@@ -190,8 +208,11 @@ Milestones are a proposed ordering, not a schedule:
   macOS; loops between routing and capture; routing into an archived/closed
   workspace.
 - Milestone: M2.
-- Verification method: Define routing rules; open links from external apps and
-  in-browser; assert each lands per rule; assert PWA in-scope capture still works.
+- Verification: Organization tests cover precedence, matching, update, and
+  dispositions. Headless browser coverage proves specific-workspace,
+  native-split, current-tab, and Preview destinations through the real
+  capability and command layers. OS-level external-app handoff remains a
+  platform acceptance test.
 
 ---
 
@@ -201,8 +222,9 @@ Milestones are a proposed ordering, not a schedule:
   tiling, which is fiddly and not persisted.
 - Reference browser behavior: Zen Split View shows up to 4 tabs in a grid via
   drag-to-side. Chromium itself supports a two-pane split.
-- What Seoul will implement: Side-by-side split of tabs within one window,
-  persisted with the workspace/session, with drag-to-create.
+- Current implementation: The typed split capability and routing path create a
+  real Chromium two-pane split from exact live tab identities and commit Seoul
+  organization state only after the native mutation is observed.
 - What Seoul will improve: Persist split layout across restart and tie it to a
   workspace, and integrate split with command navigation (create/dissolve split
   by command). Whether Seoul exceeds two panes depends on extending the upstream
@@ -221,8 +243,10 @@ Milestones are a proposed ordering, not a schedule:
   upstream contents-view model; focus and keyboard target ambiguity; restoring
   split state; per-pane navigation history.
 - Milestone: M3.
-- Verification method: Create a split, navigate each pane, relaunch, assert
-  split and pane contents restore; unit-test split model persistence.
+- Verification: Pure model/lifecycle tests cover exact split membership and
+  reconciliation; headless browser tests cover both an explicit two-tab split
+  capability and a routed open into a split. Relaunch restoration and
+  drag-to-create remain open.
 
 ---
 
@@ -233,26 +257,27 @@ Milestones are a proposed ordering, not a schedule:
 - Reference browser behavior: Zen "Glance" (Alt+click) opens a floating preview
   overlay on top of the current tab without switching; equivalent in spirit to
   Arc's Little Arc.
-- What Seoul will implement: A modifier-activated floating preview surface that
-  loads a link over the current tab and can be dismissed or promoted to a real
-  tab.
-- What Seoul will improve: Make "promote to tab" route through the link-routing
-  rules (so a promoted preview lands in the right workspace), and keep preview
-  navigation isolated from the underlying tab's history.
-- Upstream Chromium support already available: Research required. No floating
-  link-preview overlay surface matching Glance was found in the checkout; the
-  closest primitive is the contents-view host at
-  `chrome/browser/ui/views/frame/multi_contents_view.h`, which is for split, not
-  overlay preview.
-- Expected native integration area: a new overlay WebContents host in the views
-  frame layer under `chrome/browser/ui/views/frame/` (research required), reusing
-  the browser's WebContents lifecycle.
+- Current implementation: Seoul owns an ephemeral non-tab-strip WebContents
+  host that opens over an exact source tab, keeps navigation bounded, dismisses
+  cleanly, and can be selected by routing without creating a retained tab.
+  Explicit promotion re-evaluates routing, transfers the same live WebContents,
+  creates retained membership in the resolved Workspace, or creates a real
+  Chromium split. Approval/external routes fail before transfer and leave the
+  Preview ready.
+- What Seoul will improve: Add a faster modifier/hover gesture alongside the
+  shipped context-menu command without weakening the exact source-tab binding.
+- Upstream Chromium support used: browser Views bubble hosting, independent
+  WebContents ownership, TabStripModel insertion, and native split-tab APIs.
+- Native integration area: `native/seoul/browser/preview/` plus the localized,
+  reversible Chromium context-menu bridge in patch 0001.
 - Risks and edge cases: Input focus and dismissal correctness; preventing the
   preview from polluting underlying tab history; nested previews; media/autoplay
   in preview; promote-to-tab edge cases.
 - Milestone: M3.
-- Verification method: Modifier-activate preview on links, dismiss, and promote;
-  assert underlying tab history is untouched; assert promote routes correctly.
+- Verification: Headless browser coverage proves the Preview stays outside the
+  tab strip, survives routing rejection unchanged, promotes into a routed
+  Workspace as retained membership, and can be routed into a native split.
+  Modifier gesture wiring remains open.
 
 ---
 
@@ -262,24 +287,34 @@ Milestones are a proposed ordering, not a schedule:
   want for content.
 - Reference browser behavior: Zen "Compact Mode" hides toolbars for a wider
   content view, toggled by shortcut or toolbar right-click; revealed on hover.
-- What Seoul will implement: A toggle that collapses the sidebar and top chrome,
-  reclaiming the space for content, with hover/peek reveal of hidden controls.
-- What Seoul will improve: Make compact mode workspace-aware and remembered per
-  window, and ensure command navigation remains fully usable while chrome is
-  hidden so the user never loses control.
-- Upstream Chromium support already available: Research required. No `kCompactMode`
-  feature or `compact_mode` symbol was found under `chrome/browser/ui/`.
-  Fullscreen/immersive primitives may be reusable but were not verified for this
-  use; treat as research required.
-- Expected native integration area: browser window/frame layer under
-  `chrome/browser/ui/views/frame/` and toolbar visibility control (research
-  required for the immersive/fullscreen reuse point).
-- Risks and edge cases: Reveal-on-hover thrash; losing access to controls;
-  interaction with OS fullscreen on macOS; per-window vs global state.
+- Current implementation: Standalone compact mode drives the real native
+  vertical-tab collapse and reveal-on-hover controls. It is available from the
+  fuzzy command launcher, `Command+Shift+C`, and the typed
+  `browser.compact.set` capability used by Canvas, tasks, and voice. The
+  preference is durable per Workspace and reapplied on Workspace switches and
+  browser relaunch. Scene activation temporarily owns the same controls;
+  manual changes are disabled with an explicit reason, and leaving the Scene
+  restores the exact prior collapse and hover settings.
+- What Seoul improves: Compact state follows the durable Workspace rather than
+  being a one-off window animation, while command navigation and its keyboard
+  shortcut remain available when the chrome is collapsed.
+- Upstream Chromium support already available: The pinned revision provides
+  `tabs::VerticalTabStripStateController` collapse, reveal-on-hover, state
+  notifications, and session hooks. Seoul composes those native controls with
+  its Workspace/Scene persistence instead of introducing a parallel toolbar.
+- Expected native integration area: Seoul's profile runtime, shell controller,
+  and command launcher over Chromium's vertical-tab state controller.
+- Risks and edge cases: Reveal-on-hover thrash; losing access to controls; and
+  interaction with OS fullscreen on macOS. Seoul uses a pinned window-local
+  hover setter so different browser windows do not mutate Chromium's
+  profile-wide stock preference or fight over presentation.
 - Milestone: M3.
-- Verification method: Toggle compact mode, assert chrome hides and content
-  expands, assert hover reveal works, assert command navigation still functions,
-  assert state persists per window across relaunch.
+- Verification: Browser coverage enters compact mode through the native command
+  path, switches between Workspaces with different preferences, exits through
+  the typed AI capability only after observing the native postcondition, and
+  proves Scene ownership fails closed. Separate two-process relaunch coverage
+  restores standalone compact state. The Studio test also verifies compact
+  Scene activation and exact baseline restoration, including across relaunch.
 
 ---
 
@@ -290,8 +325,11 @@ Milestones are a proposed ordering, not a schedule:
 - Reference browser behavior: SupaSidebar/Arc-style Command+E fuzzy search jumps
   to any tab; Dia exposes "Skills" (prewritten prompts) from a command-like
   surface.
-- What Seoul will implement: A command palette to switch tabs/workspaces, run
-  browser actions, and open favorites by fuzzy search.
+- Current implementation: The native command palette indexes live tabs across
+  profile windows, non-archived workspaces, Essentials, and typed browser
+  utilities. It uses deterministic fuzzy/subsequence ranking, bounds catalog
+  and result sizes, revalidates live targets at execution, and focuses another
+  window only after exact tab activation succeeds.
 - What Seoul will improve: Unify navigation targets (tabs, workspaces,
   favorites, splits, AI actions) in one ranked palette rather than separate
   surfaces, and keep it functional in compact mode.
@@ -300,16 +338,16 @@ Milestones are a proposed ordering, not a schedule:
   action framework exists (`components/omnibox/browser/actions/`, e.g.
   `contextual_search_action.h`) and can host some actions, but a tab/workspace
   command palette is Seoul-specific.
-- Expected native integration area: a new palette UI in
-  `chrome/browser/ui/views/` driven by the tab/workspace model; optional reuse of
-  omnibox actions in `components/omnibox/browser/actions/` (research required for
-  the palette host).
+- Native integration: `native/seoul/browser/shell/command_launcher_catalog.*`,
+  `shell_controller.*`, and `views/seoul_command_launcher_view.cc`, hosted in
+  the default-on native vertical Shell.
 - Risks and edge cases: Ranking quality; large tab/workspace counts; keyboard
   focus capture; collision with omnibox; localization of command names.
 - Milestone: M3.
-- Verification method: Open palette, fuzzy-match tabs/workspaces/favorites/actions,
-  assert correct target activation; assert it works while compact mode hides
-  chrome.
+- Verification: Pure catalog tests cover fuzzy ranking, complete target kinds,
+  invalid/archived exclusions, and deterministic bounds. Headless in-process
+  browser tests prove exact live-tab activation and rejection when a tab closes
+  after the search result was produced.
 
 ---
 

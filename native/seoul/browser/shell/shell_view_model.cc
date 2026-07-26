@@ -12,17 +12,15 @@
 namespace seoul {
 namespace {
 
-ShellItemState EssentialState(const EssentialRecord& essential) {
+ShellItemState EssentialState(const EssentialRecord &essential) {
   if (essential.root_url.empty()) {
     return ShellItemState::kUnavailable;
   }
   return ShellItemState::kNormal;
 }
 
-void AddAction(ShellSnapshot* snapshot,
-               ShellUtilityAction action,
-               bool enabled,
-               const std::string& disabled_reason) {
+void AddAction(ShellSnapshot *snapshot, ShellUtilityAction action, bool enabled,
+               const std::string &disabled_reason) {
   ShellActionEnablement entry;
   entry.action = action;
   entry.enabled = enabled;
@@ -30,29 +28,29 @@ void AddAction(ShellSnapshot* snapshot,
   snapshot->actions.push_back(std::move(entry));
 }
 
-}  // namespace
+} // namespace
 
-std::vector<ShellSplitCandidate> ShellViewModel::BuildSplitCandidates(
-    const WindowProjection& projection,
-    const LiveWindowSnapshot& live) {
+std::vector<ShellSplitCandidate>
+ShellViewModel::BuildSplitCandidates(const WindowProjection &projection,
+                                     const LiveWindowSnapshot &live) {
   std::vector<ShellSplitCandidate> candidates;
   if (!projection.active_tab.is_valid()) {
     return candidates;
   }
-  for (const LiveTabDescriptor& descriptor : live.tabs) {
+  for (const LiveTabDescriptor &descriptor : live.tabs) {
     if (descriptor.tab == projection.active_tab &&
         !descriptor.upstream_split_token.empty()) {
       return candidates;
     }
   }
-  for (const ProjectedTab& projected : projection.tabs) {
+  for (const ProjectedTab &projected : projection.tabs) {
     if (!projected.tab.is_valid() || projected.tab == projection.active_tab) {
       continue;
     }
     ShellSplitCandidate candidate;
     candidate.tab = projected.tab;
     bool found_live = false;
-    for (const LiveTabDescriptor& descriptor : live.tabs) {
+    for (const LiveTabDescriptor &descriptor : live.tabs) {
       if (descriptor.tab != projected.tab) {
         continue;
       }
@@ -72,7 +70,7 @@ std::vector<ShellSplitCandidate> ShellViewModel::BuildSplitCandidates(
   return candidates;
 }
 
-std::string ShellViewModel::TaskButtonLabel(const ShellTaskSummary& tasks,
+std::string ShellViewModel::TaskButtonLabel(const ShellTaskSummary &tasks,
                                             ShellMode mode) {
   if (mode == ShellMode::kCollapsed) {
     if (tasks.has_attention()) {
@@ -83,8 +81,7 @@ std::string ShellViewModel::TaskButtonLabel(const ShellTaskSummary& tasks,
   return tasks.total > 0 ? "Tasks " + std::to_string(tasks.total) : "Tasks";
 }
 
-std::string ShellViewModel::TaskAccessibleName(
-    const ShellTaskSummary& tasks) {
+std::string ShellViewModel::TaskAccessibleName(const ShellTaskSummary &tasks) {
   if (tasks.total == 0) {
     return "Task Deck, no tasks";
   }
@@ -94,10 +91,10 @@ std::string ShellViewModel::TaskAccessibleName(
          std::to_string(tasks.failed) + " failed";
 }
 
-ShellSnapshot ShellViewModel::Build(const OrganizationModel& model,
-                                    const ShellBuildContext& context,
-                                    const WindowProjection& projection,
-                                    const LiveWindowSnapshot& live,
+ShellSnapshot ShellViewModel::Build(const OrganizationModel &model,
+                                    const ShellBuildContext &context,
+                                    const WindowProjection &projection,
+                                    const LiveWindowSnapshot &live,
                                     uint64_t revision) {
   ShellSnapshot snapshot;
   snapshot.window = context.window;
@@ -108,7 +105,7 @@ ShellSnapshot ShellViewModel::Build(const OrganizationModel& model,
 
   const WorkspaceId active =
       model.ActiveWorkspaceForWindow(context.window.value());
-  const WorkspaceRecord* ws = model.FindWorkspace(active);
+  const WorkspaceRecord *ws = model.FindWorkspace(active);
   if (ws) {
     snapshot.workspace.workspace_id = ws->id;
     snapshot.workspace.name = ws->name;
@@ -128,7 +125,10 @@ ShellSnapshot ShellViewModel::Build(const OrganizationModel& model,
     AddAction(&snapshot, ShellUtilityAction::kAcknowledgeRecovery, true, "");
     AddAction(&snapshot, ShellUtilityAction::kCommandLauncher, true, "");
     AddAction(&snapshot, ShellUtilityAction::kOpenCanvas, true, "");
+    AddAction(&snapshot, ShellUtilityAction::kOpenBoost, true, "");
     AddAction(&snapshot, ShellUtilityAction::kOpenTaskDeck, true, "");
+    AddAction(&snapshot, ShellUtilityAction::kToggleCompactMode, false,
+              "Compact mode is unavailable for this window.");
     AddAction(&snapshot, ShellUtilityAction::kNewTemporaryTab, false,
               "Recovery required.");
     AddAction(&snapshot, ShellUtilityAction::kCreateSplit, false,
@@ -158,7 +158,7 @@ ShellSnapshot ShellViewModel::Build(const OrganizationModel& model,
   }
 
   const OrganizationSnapshot org = model.ToSnapshot();
-  for (const EssentialRecord& essential : org.essentials) {
+  for (const EssentialRecord &essential : org.essentials) {
     ShellEssentialItem item;
     item.id = essential.id;
     item.name = essential.name;
@@ -170,9 +170,9 @@ ShellSnapshot ShellViewModel::Build(const OrganizationModel& model,
     if (!essential_origin.opaque() &&
         essential_origin.GetURL().SchemeIsHTTPOrHTTPS()) {
       const std::string serialized = essential_origin.Serialize();
-      auto associate = [&](const LiveWindowSnapshot& candidate_window,
+      auto associate = [&](const LiveWindowSnapshot &candidate_window,
                            bool is_current_window) {
-        for (const LiveTabDescriptor& descriptor : candidate_window.tabs) {
+        for (const LiveTabDescriptor &descriptor : candidate_window.tabs) {
           if (descriptor.tab.is_valid() && descriptor.origin == serialized) {
             item.has_live_tab = true;
             item.live_in_current_window = is_current_window;
@@ -185,7 +185,7 @@ ShellSnapshot ShellViewModel::Build(const OrganizationModel& model,
         return false;
       };
       if (!associate(live, true)) {
-        for (const LiveWindowSnapshot& other : context.other_live_windows) {
+        for (const LiveWindowSnapshot &other : context.other_live_windows) {
           if (associate(other, false)) {
             break;
           }
@@ -198,14 +198,14 @@ ShellSnapshot ShellViewModel::Build(const OrganizationModel& model,
   int retained_count = 0;
   int temporary_count = 0;
   int pinned_count = 0;
-  for (const ProjectedTab& tab : projection.tabs) {
+  for (const ProjectedTab &tab : projection.tabs) {
     if (tab.role == TabRole::kPinned) {
       ShellPinnedItem pinned;
       pinned.membership_id = tab.membership_id;
       pinned.tab = tab.tab;
       pinned.is_active = tab.tab == projection.active_tab;
       pinned.state = ShellItemState::kNormal;
-      const TabMembershipRecord* m = model.FindMembership(tab.membership_id);
+      const TabMembershipRecord *m = model.FindMembership(tab.membership_id);
       if (m) {
         pinned.saved_root_url = m->saved_root_url;
       }
@@ -247,7 +247,10 @@ ShellSnapshot ShellViewModel::Build(const OrganizationModel& model,
             mutations_ok ? "" : "Reconciliation required.");
   AddAction(&snapshot, ShellUtilityAction::kCommandLauncher, true, "");
   AddAction(&snapshot, ShellUtilityAction::kOpenCanvas, true, "");
+  AddAction(&snapshot, ShellUtilityAction::kOpenBoost, true, "");
   AddAction(&snapshot, ShellUtilityAction::kOpenTaskDeck, true, "");
+  AddAction(&snapshot, ShellUtilityAction::kToggleCompactMode, false,
+            "Compact mode is unavailable for this window.");
 
   const bool split_ok =
       mutations_ok && !BuildSplitCandidates(projection, live).empty();
@@ -259,10 +262,11 @@ ShellSnapshot ShellViewModel::Build(const OrganizationModel& model,
 }
 
 ShellBuildContext::ShellBuildContext() = default;
-ShellBuildContext::ShellBuildContext(const ShellBuildContext&) = default;
-ShellBuildContext::ShellBuildContext(ShellBuildContext&&) = default;
-ShellBuildContext& ShellBuildContext::operator=(const ShellBuildContext&) = default;
-ShellBuildContext& ShellBuildContext::operator=(ShellBuildContext&&) = default;
+ShellBuildContext::ShellBuildContext(const ShellBuildContext &) = default;
+ShellBuildContext::ShellBuildContext(ShellBuildContext &&) = default;
+ShellBuildContext &
+ShellBuildContext::operator=(const ShellBuildContext &) = default;
+ShellBuildContext &ShellBuildContext::operator=(ShellBuildContext &&) = default;
 ShellBuildContext::~ShellBuildContext() = default;
 
-}  // namespace seoul
+} // namespace seoul

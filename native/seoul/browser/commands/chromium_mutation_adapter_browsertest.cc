@@ -10,6 +10,7 @@
 
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/sessions/core/session_id.h"
@@ -34,8 +35,16 @@
 namespace seoul {
 
 class ChromiumMutationAdapterBrowserTest : public InProcessBrowserTest {
- protected:
-  SeoulOrganizationService* service() {
+protected:
+  void SetUpOnMainThread() override {
+    InProcessBrowserTest::SetUpOnMainThread();
+    if (browser() && browser()->window()) {
+      browser()->window()->Hide();
+      browser()->window()->ShowInactive();
+    }
+  }
+
+  SeoulOrganizationService *service() {
     return SeoulOrganizationServiceFactory::GetForProfile(browser()->profile());
   }
 
@@ -56,7 +65,7 @@ class ChromiumMutationAdapterBrowserTest : public InProcessBrowserTest {
 // tab plumbing.
 IN_PROC_BROWSER_TEST_F(ChromiumMutationAdapterBrowserTest,
                        ExecutorAppliesModelOnlyCommand) {
-  SeoulOrganizationService* svc = service();
+  SeoulOrganizationService *svc = service();
   ASSERT_TRUE(svc);
   ASSERT_TRUE(svc->command_executor());
   const size_t before = svc->model().workspace_count();
@@ -78,7 +87,7 @@ IN_PROC_BROWSER_TEST_F(ChromiumMutationAdapterBrowserTest,
 IN_PROC_BROWSER_TEST_F(ChromiumMutationAdapterBrowserTest,
                        OpenNewTabInsertsRealTab) {
   ChromiumMutationAdapterImpl adapter;
-  TabStripModel* tab_strip = browser()->tab_strip_model();
+  TabStripModel *tab_strip = browser()->tab_strip_model();
   const int before = tab_strip->count();
 
   LiveTabKey inserted;
@@ -114,7 +123,7 @@ IN_PROC_BROWSER_TEST_F(ChromiumMutationAdapterBrowserTest,
 IN_PROC_BROWSER_TEST_F(ChromiumMutationAdapterBrowserTest,
                        ActivateTabActivatesResolvedIndex) {
   ChromiumMutationAdapterImpl adapter;
-  TabStripModel* tab_strip = browser()->tab_strip_model();
+  TabStripModel *tab_strip = browser()->tab_strip_model();
   ASSERT_TRUE(AddTabAtIndex(1, GURL("about:blank"), ui::PAGE_TRANSITION_TYPED));
   ASSERT_GE(tab_strip->count(), 2);
   ASSERT_NE(tab_strip->active_index(), 0);
@@ -134,7 +143,7 @@ IN_PROC_BROWSER_TEST_F(ChromiumMutationAdapterBrowserTest,
 IN_PROC_BROWSER_TEST_F(ChromiumMutationAdapterBrowserTest,
                        SetPinnedPinsResolvedTab) {
   ChromiumMutationAdapterImpl adapter;
-  TabStripModel* tab_strip = browser()->tab_strip_model();
+  TabStripModel *tab_strip = browser()->tab_strip_model();
   ASSERT_FALSE(tab_strip->IsTabPinned(0));
 
   ResolvedTabTarget target;
@@ -153,7 +162,7 @@ IN_PROC_BROWSER_TEST_F(ChromiumMutationAdapterBrowserTest,
 IN_PROC_BROWSER_TEST_F(ChromiumMutationAdapterBrowserTest,
                        MoveTabMovesResolvedTab) {
   ChromiumMutationAdapterImpl adapter;
-  TabStripModel* tab_strip = browser()->tab_strip_model();
+  TabStripModel *tab_strip = browser()->tab_strip_model();
   ASSERT_TRUE(AddTabAtIndex(1, GURL("about:blank"), ui::PAGE_TRANSITION_TYPED));
   ASSERT_TRUE(AddTabAtIndex(2, GURL("about:blank"), ui::PAGE_TRANSITION_TYPED));
   ASSERT_EQ(tab_strip->count(), 3);
@@ -171,4 +180,4 @@ IN_PROC_BROWSER_TEST_F(ChromiumMutationAdapterBrowserTest,
   EXPECT_TRUE(TabKeyAt(2) == moved);
 }
 
-}  // namespace seoul
+} // namespace seoul

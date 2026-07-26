@@ -20,14 +20,24 @@ import type {
   LibraryBoardDoc,
   LibraryBoardElementDoc,
   LibrarySnapshotDoc,
+  LiveCollectionDoc,
+  LiveCollectionSourceDoc,
   PageContextDoc,
   SiteLayerAdjustmentDoc,
   SiteLayerDoc,
   SiteLayerSnapshotDoc,
+  StudioEssentialDoc,
   StudioProviderRouteDoc,
+  StudioRoutingRuleDoc,
+  StudioSceneDoc,
   StudioSnapshotDoc,
+  StudioThemeDoc,
+  StudioWorkflowDoc,
+  StudioWorkflowEdgeDoc,
+  StudioWorkflowNodeDoc,
   SurfaceDoc,
   TaskSnapshotDoc,
+  ThreadSnapshotDoc,
 } from './canvas_types.js';
 import {propString, safeHexColor, safeHttpUrl} from './canvas_types.js';
 import {renderDataTable, renderVisualization} from './canvas_visualizations.js';
@@ -66,6 +76,8 @@ interface RealtimeTaskBridgeState {
 }
 
 type BoardElementKind = LibraryBoardElementDoc['kind'];
+type StudioEditorKind =
+    'essential'|'scene'|'theme'|'routing'|'workflow'|'';
 
 type BoardHistoryEntry =
     {kind: 'add'|'remove', boardId: string, element: LibraryBoardElementDoc}|
@@ -86,6 +98,72 @@ interface BoardPointerGesture {
   mode: 'move'|'resize';
 }
 
+interface BoardKeyboardGesture {
+  boardId: string;
+  before: LibraryBoardElementDoc;
+  after: LibraryBoardElementDoc;
+  timerId: number;
+}
+
+interface BoardPendingLayout {
+  boardId: string;
+  element: LibraryBoardElementDoc;
+}
+
+function normalizedRevision(value: unknown): string|undefined {
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return undefined;
+  return value.replace(/^0+(?=\d)/, '');
+}
+
+function olderRevision(candidate: string, current: string): boolean {
+  return candidate.length !== current.length ?
+      candidate.length < current.length :
+      candidate < current;
+}
+
+function libraryErrorMessage(detail: string|undefined): string {
+  switch (detail) {
+    case 'board_archived':
+      return 'This board is archived. Restore it before making changes.';
+    case 'unknown_board':
+      return 'This board no longer exists.';
+    case 'unknown_element':
+      return 'This board item no longer exists.';
+    case 'invalid_element':
+      return 'That board item is invalid. Check its content, size, and position.';
+    case 'limit_exceeded':
+      return 'This board has reached its item limit.';
+    case 'window_unbound':
+      return 'This Canvas is no longer attached to its browser window.';
+    case 'library_unavailable':
+      return 'Library is unavailable for this profile.';
+    case 'invalid_live_collection':
+      return 'Check the collection name, source, and refresh interval.';
+    case 'unknown_collection':
+      return 'This live collection no longer exists.';
+    case 'collection_source_unavailable':
+      return 'That source is not currently available for this browser window.';
+    case 'collection_source_not_background_safe':
+      return 'That source is not safe for unattended read-only refreshes.';
+    case 'collection_source_schema_unsupported':
+      return 'That source needs inputs a Live Collection cannot safely store.';
+    case 'collection_source_input_invalid':
+      return 'Enter a valid source value for this collection.';
+    case 'collection_refresh_in_progress':
+      return 'This collection is already refreshing.';
+    default:
+      return detail || 'Library is unavailable.';
+  }
+}
+
+function collectionRefreshLabel(milliseconds: number|undefined): string {
+  if (!milliseconds || !Number.isFinite(milliseconds)) return 'Never refreshed';
+  return `Updated ${new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(milliseconds))}`;
+}
+
 const VISUAL_TYPES = new Set([
   'line_chart', 'area_chart', 'bar_chart', 'stacked_bar_chart',
   'scatter_chart', 'pie_chart', 'candlestick_chart', 'range_chart',
@@ -102,6 +180,201 @@ const BOARD_STAGE_WIDTH = 1400;
 const BOARD_STAGE_HEIGHT = 820;
 const BOARD_MIN_WIDTH = 180;
 const BOARD_MIN_HEIGHT = 110;
+
+function newThemeDraft(): StudioThemeDoc {
+  return {
+    schema_version: 1,
+    id: '',
+    name: '',
+    scheme: 'system',
+    colors: {
+      background: '#f7f6f2',
+      surface: '#ffffff',
+      text: '#191a18',
+      muted_text: '#555750',
+      accent: '#315c43',
+      accent_text: '#ffffff',
+      border: '#6d7068',
+      error: '#a40018',
+    },
+    typography: {
+      font_family: 'system-ui',
+      base_size_px: 15,
+      scale_ratio: 1.2,
+      base_line_height_permille: 1500,
+    },
+    motion: {
+      reduced_motion: false,
+      reduced_transparency: false,
+      base_duration_ms: 160,
+    },
+    corner_radius_px: 12,
+    active: false,
+  };
+}
+
+function newSceneDraft(): StudioSceneDoc {
+  return {
+    id: '',
+    name: '',
+    workspace_id: '',
+    theme_id: '',
+    site_layer_ids: [],
+    routing_rule_ids: [],
+    workflow_shortcut_ids: [],
+    lifecycle: {
+      archive_temporary_tabs: true,
+      idle_archive_minutes: 60,
+      restore_on_activation: true,
+    },
+    assistant: {
+      allow_network: false,
+      allow_cloud_models: false,
+      max_sensitivity: 'organization',
+      default_connectors: [],
+    },
+    prefer_compact: false,
+    active: false,
+  };
+}
+
+function newRoutingDraft(): StudioRoutingRuleDoc {
+  return {
+    id: '',
+    priority: 0,
+    match_type: 'anything',
+    pattern: '',
+    source_workspace_id: '',
+    require_user_gesture: false,
+    disposition: 'current_tab',
+    target_workspace_id: '',
+    enabled: true,
+  };
+}
+
+function newWorkflowDraft(): StudioWorkflowDoc {
+  const now = Date.now();
+  return {
+    schema_version: 1,
+    id: '',
+    name: '',
+    description: '',
+    params: [],
+    nodes: [],
+    edges: [],
+    trigger: {kind: 'manual'},
+    version: 1,
+    created_at_ms: now,
+    updated_at_ms: now,
+  };
+}
+
+function studioErrorMessage(code: string): string {
+  const messages: Record<string, string> = {
+    runtime_unavailable:
+        'The profile runtime is unavailable. Reopen Canvas and try again.',
+    studio_unavailable:
+        'Studio is unavailable for this profile.',
+    window_unbound:
+        'Studio lost this browser window. Reopen Canvas in the window you want to edit.',
+    invalid_theme_input:
+        'The Theme contains an invalid color, type, motion, or identity value.',
+    invalid_scene_input:
+        'The Scene contains an invalid or oversized value.',
+    invalid_routing_rule:
+        'The routing rule is incomplete or contains an invalid pattern.',
+    invalid_workflow_document:
+        'The workflow document is invalid or too large.',
+    invalid_name:
+        'Enter a valid name and stable ID.',
+    invalid_url:
+        'Enter a complete http:// or https:// address.',
+    essential_not_found:
+        'That Essential no longer exists. Studio refreshed the live profile.',
+    duplicate_essential:
+        'An Essential already represents this site. Edit the existing Essential instead.',
+    invalid_id:
+        'Use a stable ID that begins with a lowercase letter and contains only letters, numbers, hyphens, or underscores.',
+    invalid_token:
+        'One of the Theme tokens is invalid.',
+    invalid_color:
+        'Every Theme color must be a valid hex color.',
+    contrast_too_low:
+        'This Theme does not meet accessible contrast. Increase the contrast between text and its background.',
+    invalid_typography:
+        'The type scale, line height, size, duration, or corner radius is outside the supported range.',
+    unknown_workspace:
+        'The selected workspace no longer exists.',
+    unknown_theme:
+        'The selected Theme no longer exists.',
+    unknown_site_layer:
+        'A selected Site Layer no longer exists.',
+    unknown_routing_rule:
+        'A selected routing rule no longer exists.',
+    routing_rule_not_found:
+        'That routing rule no longer exists.',
+    unknown_workflow:
+        'The selected workflow no longer exists.',
+    unknown_scene:
+        'That Scene no longer exists.',
+    duplicate_reference:
+        'The same dependency cannot be attached more than once.',
+    missing_workspace:
+        'Choose a workspace for this Scene.',
+    invalid_lifecycle_policy:
+        'The Scene lifecycle settings are outside the supported range.',
+    activation_failed:
+        'The Scene could not activate because its workspace is no longer available.',
+    empty_workflow:
+        'Add at least one real step before saving the workflow.',
+    invalid_node_id:
+        'Each workflow step needs a unique stable ID.',
+    duplicate_node_id:
+        'Workflow step IDs must be unique.',
+    missing_prompt:
+        'Approval and user-input steps need a prompt.',
+    edge_unknown_node:
+        'A workflow edge points to a step that no longer exists.',
+    self_edge:
+        'A workflow step cannot connect to itself.',
+    duplicate_edge:
+        'That workflow edge already exists.',
+    cycle_without_loop:
+        'Cycles must use an explicit bounded loop-back edge.',
+    loop_back_not_to_header:
+        'A loop-back edge must return to an earlier step.',
+    loop_unbounded:
+        'Set a finite iteration limit for every workflow loop.',
+    loop_too_large:
+        'The workflow loop exceeds the safe iteration limit.',
+    invalid_trigger:
+        'Complete the selected workflow trigger.',
+    unknown_tool:
+        'A workflow step references a capability that is no longer registered.',
+    args_invalid:
+        'A workflow step has arguments that do not match its capability schema.',
+    too_many_nodes:
+        'This workflow has reached the maximum number of steps.',
+    too_many_edges:
+        'This workflow has reached the maximum number of edges.',
+    too_many_scene_items:
+        'This Scene has too many linked items.',
+    too_many_custom_tokens:
+        'This Theme has too many custom tokens.',
+    limit_exceeded:
+        'This profile has reached the supported limit for this item.',
+    in_use:
+        'This item is still used by an active Scene or another Studio resource. Remove those references first.',
+    resource_in_use:
+        'This routing rule is still used by a Scene. Remove that reference first.',
+    unsupported_schema:
+        'This item was created by an unsupported version of Studio.',
+    workflow_save_failed:
+        'The workflow could not be saved without replacing valid data.',
+  };
+  return messages[code] ??
+      `Studio rejected this change (${code.replaceAll('_', ' ')}).`;
+}
 
 const RECORD_TYPES = new Set([
   'entity_card', 'key_value_card', 'document', 'file', 'workflow_node',
@@ -129,6 +402,9 @@ export class SeoulCanvasAppElement extends CrLitElement {
       voiceConfigured_: {type: Boolean},
       voiceError_: {type: String},
       selectedView_: {type: String},
+      activeThreadId_: {type: String},
+      thread_: {type: Object},
+      threadError_: {type: String},
       library_: {type: Object},
       libraryError_: {type: String},
       libraryBusy_: {type: Boolean},
@@ -136,6 +412,16 @@ export class SeoulCanvasAppElement extends CrLitElement {
       pendingDeleteBoardId_: {type: String},
       pendingDeleteElementId_: {type: String},
       libraryQuery_: {type: String},
+      collectionEditorOpen_: {type: Boolean},
+      collectionEditingId_: {type: String},
+      collectionName_: {type: String},
+      collectionCapability_: {type: String},
+      collectionSource_: {type: String},
+      collectionInterval_: {type: Number},
+      collectionEnabled_: {type: Boolean},
+      collectionBusyId_: {type: String},
+      collectionMessage_: {type: String},
+      pendingDeleteCollectionId_: {type: String},
       selectedBoardId_: {type: String},
       boardRenameValue_: {type: String},
       boardDraftKind_: {type: String},
@@ -144,6 +430,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       editingBoardElementId_: {type: String},
       boardUndoCount_: {type: Number},
       boardRedoCount_: {type: Number},
+      boardAnnouncement_: {type: String},
       taskInputs_: {type: Object},
       studio_: {type: Object},
       studioError_: {type: String},
@@ -158,6 +445,20 @@ export class SeoulCanvasAppElement extends CrLitElement {
       studioProviderBusy_: {type: Boolean},
       studioProviderMessage_: {type: String},
       pendingClearProvider_: {type: String},
+      studioEditorKind_: {type: String},
+      studioEditingId_: {type: String},
+      studioEssentialName_: {type: String},
+      studioEssentialUrl_: {type: String},
+      studioThemeDraft_: {type: Object},
+      studioSceneDraft_: {type: Object},
+      studioRoutingDraft_: {type: Object},
+      studioWorkflowDraft_: {type: Object},
+      studioMutationBusy_: {type: Boolean},
+      studioPendingDelete_: {type: String},
+      studioWorkflowEdgeFrom_: {type: String},
+      studioWorkflowEdgeTo_: {type: String},
+      studioWorkflowEdgeKind_: {type: String},
+      studioWorkflowArgsDrafts_: {type: Object},
       boosts_: {type: Object},
       boostsError_: {type: String},
       boostsMessage_: {type: String},
@@ -178,9 +479,16 @@ export class SeoulCanvasAppElement extends CrLitElement {
       boostBackground_: {type: String},
       boostTextEnabled_: {type: Boolean},
       boostText_: {type: String},
+      boostTintEnabled_: {type: Boolean},
+      boostTint_: {type: String},
+      boostTintStrength_: {type: Number},
+      boostFontEnabled_: {type: Boolean},
+      boostFontFamily_: {type: String},
+      boostAutomaticDarkMode_: {type: Boolean},
       boostContrast_: {type: Boolean},
       boostReduceMotion_: {type: Boolean},
       boostHideSelectors_: {type: String},
+      boostZapActive_: {type: Boolean},
       pendingDeleteBoostId_: {type: String},
       pageContext_: {type: Object},
     };
@@ -194,7 +502,10 @@ export class SeoulCanvasAppElement extends CrLitElement {
   protected accessor voiceConfigured_ = false;
   protected accessor voiceError_ = '';
   protected accessor selectedView_:
-      'canvas'|'boosts'|'library'|'boards'|'studio' = 'canvas';
+      'canvas'|'chat'|'boosts'|'library'|'boards'|'studio' = 'canvas';
+  protected accessor activeThreadId_ = '';
+  protected accessor thread_: ThreadSnapshotDoc = {status: 'ready', items: []};
+  protected accessor threadError_ = '';
   protected accessor library_: LibrarySnapshotDoc = {};
   protected accessor libraryError_ = '';
   protected accessor libraryBusy_ = false;
@@ -202,6 +513,16 @@ export class SeoulCanvasAppElement extends CrLitElement {
   protected accessor pendingDeleteBoardId_ = '';
   protected accessor pendingDeleteElementId_ = '';
   protected accessor libraryQuery_ = '';
+  protected accessor collectionEditorOpen_ = false;
+  protected accessor collectionEditingId_ = '';
+  protected accessor collectionName_ = '';
+  protected accessor collectionCapability_ = '';
+  protected accessor collectionSource_ = '';
+  protected accessor collectionInterval_ = 15;
+  protected accessor collectionEnabled_ = true;
+  protected accessor collectionBusyId_ = '';
+  protected accessor collectionMessage_ = '';
+  protected accessor pendingDeleteCollectionId_ = '';
   protected accessor selectedBoardId_ = '';
   protected accessor boardRenameValue_ = '';
   protected accessor boardDraftKind_: BoardElementKind|'' = '';
@@ -210,6 +531,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
   protected accessor editingBoardElementId_ = '';
   protected accessor boardUndoCount_ = 0;
   protected accessor boardRedoCount_ = 0;
+  protected accessor boardAnnouncement_ = '';
   protected accessor taskInputs_: Record<string, string> = {};
   protected accessor studio_: StudioSnapshotDoc = {};
   protected accessor studioError_ = '';
@@ -224,6 +546,23 @@ export class SeoulCanvasAppElement extends CrLitElement {
   protected accessor studioProviderBusy_ = false;
   protected accessor studioProviderMessage_ = '';
   protected accessor pendingClearProvider_: 'local'|'cloud'|'' = '';
+  protected accessor studioEditorKind_: StudioEditorKind = '';
+  protected accessor studioEditingId_ = '';
+  protected accessor studioEssentialName_ = '';
+  protected accessor studioEssentialUrl_ = '';
+  protected accessor studioThemeDraft_: StudioThemeDoc = newThemeDraft();
+  protected accessor studioSceneDraft_: StudioSceneDoc = newSceneDraft();
+  protected accessor studioRoutingDraft_: StudioRoutingRuleDoc =
+      newRoutingDraft();
+  protected accessor studioWorkflowDraft_: StudioWorkflowDoc =
+      newWorkflowDraft();
+  protected accessor studioMutationBusy_ = false;
+  protected accessor studioPendingDelete_ = '';
+  protected accessor studioWorkflowEdgeFrom_ = '';
+  protected accessor studioWorkflowEdgeTo_ = '';
+  protected accessor studioWorkflowEdgeKind_:
+      StudioWorkflowEdgeDoc['kind'] = 'sequence';
+  protected accessor studioWorkflowArgsDrafts_: Record<string, string> = {};
   protected accessor boosts_: SiteLayerSnapshotDoc = {};
   protected accessor boostsError_ = '';
   protected accessor boostsMessage_ = '';
@@ -244,9 +583,16 @@ export class SeoulCanvasAppElement extends CrLitElement {
   protected accessor boostBackground_ = '#f7f5ef';
   protected accessor boostTextEnabled_ = false;
   protected accessor boostText_ = '#171714';
+  protected accessor boostTintEnabled_ = false;
+  protected accessor boostTint_ = '#7467d6';
+  protected accessor boostTintStrength_ = .22;
+  protected accessor boostFontEnabled_ = false;
+  protected accessor boostFontFamily_ = 'Arial';
+  protected accessor boostAutomaticDarkMode_ = false;
   protected accessor boostContrast_ = false;
   protected accessor boostReduceMotion_ = false;
   protected accessor boostHideSelectors_ = '';
+  protected accessor boostZapActive_ = false;
   protected accessor pendingDeleteBoostId_ = '';
   protected accessor pageContext_: PageContextDoc = {
     status: 'unavailable',
@@ -273,6 +619,11 @@ export class SeoulCanvasAppElement extends CrLitElement {
   private boardUndo_: BoardHistoryEntry[] = [];
   private boardRedo_: BoardHistoryEntry[] = [];
   private boardPointer_: BoardPointerGesture|undefined;
+  private boardKeyboard_: BoardKeyboardGesture|undefined;
+  private boardCommitTail_: Promise<void> = Promise.resolve();
+  private boardCommitSequence_ = 0;
+  private boardPendingLayouts_ = new Map<number, BoardPendingLayout>();
+  private libraryRevision_ = '0';
 
   override render() {
     return getHtml.bind(this)();
@@ -284,12 +635,28 @@ export class SeoulCanvasAppElement extends CrLitElement {
       return;
     }
     this.initialized_ = true;
+    const route = new URL(window.location.href).searchParams;
+    const requestedView = route.get('view');
+    const allowedViews =
+        new Set(['canvas', 'chat', 'boosts', 'library', 'boards', 'studio']);
+    if (requestedView && allowedViews.has(requestedView)) {
+      this.selectedView_ = requestedView as typeof this.selectedView_;
+    }
+    this.activeThreadId_ = route.get('thread') ?? '';
+    if (this.activeThreadId_) {
+      this.selectedView_ = 'chat';
+    } else if (this.selectedView_ === 'chat') {
+      this.selectedView_ = 'canvas';
+    }
     this.installPageCallbacks_();
     this.pageHandler_ = new PageHandlerRemote();
     PageHandlerFactory.getRemote().createPageHandler(
         this.callbackRouter_.$.bindNewPipeAndPassRemote(),
         this.pageHandler_.$.bindNewPipeAndPassReceiver());
     this.pageHandler_.requestInitialState();
+    if (this.activeThreadId_) {
+      void this.refreshThread_();
+    }
     // Only prefetch the library when it is the initial view; switching to the
     // library or boards view refreshes it lazily on demand.
     if (this.selectedView_ === 'library' || this.selectedView_ === 'boards') {
@@ -298,6 +665,8 @@ export class SeoulCanvasAppElement extends CrLitElement {
   }
 
   override disconnectedCallback() {
+    void this.flushBoardKeyboard_();
+    this.boardPointer_ = undefined;
     void this.stopRealtimeVoice_();
     super.disconnectedCallback();
   }
@@ -473,12 +842,75 @@ export class SeoulCanvasAppElement extends CrLitElement {
     </section>`;
   }
 
+  protected renderThread_(): unknown {
+    if (this.threadError_) {
+      return html`<section class="thread-empty" role="alert">
+        <h2>Chat unavailable</h2><p>${this.threadError_}</p>
+      </section>`;
+    }
+    const items = this.thread_.items ?? [];
+    if (!items.length) {
+      return html`<section class="thread-empty">
+        <span class="eyebrow">PROJECT CHAT</span>
+        <h2>Start ${this.thread_.name || 'this chat'}.</h2>
+        <p>Messages, task receipts, selected files, and saved references stay
+          attached to this project thread.</p>
+      </section>`;
+    }
+    return html`<section class="thread-view" aria-label="Project chat">
+      ${items.map(item => html`<article class="thread-item"
+          data-kind="${item.kind}">
+        <header><strong>${item.kind === 'note' ? 'You' :
+          item.kind === 'task_output' ? 'Seoul' : item.title || 'Context'}</strong>
+          <span>${item.kind.replaceAll('_', ' ')}</span></header>
+        ${item.text ? html`<p>${item.text}</p>` : nothing}
+        ${item.kind === 'task_output' ? html`
+          <p>Task completed and saved to this chat.</p>
+          <code>${item.reference}</code>` : nothing}
+        ${item.origin ? html`<small>${item.origin}</small>` : nothing}
+      </article>`)}
+    </section>`;
+  }
+
+  private applyThreadSnapshot_(snapshotJson: string): boolean {
+    try {
+      const snapshot = JSON.parse(snapshotJson) as ThreadSnapshotDoc;
+      if (snapshot.status === 'error') {
+        this.threadError_ = snapshot.detail || 'This chat no longer exists.';
+        return false;
+      }
+      if (!snapshot.id || !Array.isArray(snapshot.items)) {
+        throw new Error('invalid thread');
+      }
+      this.thread_ = snapshot;
+      this.threadError_ = '';
+      return true;
+    } catch {
+      this.threadError_ = 'Seoul returned an unreadable chat.';
+      return false;
+    }
+  }
+
+  private async refreshThread_() {
+    if (!this.pageHandler_ || !this.activeThreadId_) return;
+    try {
+      const response =
+          await this.pageHandler_.getThreadSnapshot(this.activeThreadId_);
+      this.applyThreadSnapshot_(response.snapshotJson);
+    } catch {
+      this.threadError_ = 'The project chat could not reach the browser runtime.';
+    }
+  }
+
   protected submitTurn_() {
     const text = this.inputValue_.trim();
     if (!text || !this.pageHandler_) {
       return;
     }
-    this.pageHandler_.submitTurn({text});
+    this.pageHandler_.submitTurn({
+      text,
+      threadId: this.selectedView_ === 'chat' ? this.activeThreadId_ : '',
+    });
     this.inputValue_ = '';
   }
 
@@ -530,7 +962,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
   }
 
   protected selectView_(
-      view: 'canvas'|'boosts'|'library'|'boards'|'studio') {
+      view: 'canvas'|'chat'|'boosts'|'library'|'boards'|'studio') {
     if (view === this.selectedView_) return;
     this.selectedView_ = view;
     void this.updateComplete.then(() => {
@@ -542,6 +974,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       });
     });
     if (view === 'library' || view === 'boards') void this.refreshLibrary_();
+    if (view === 'chat') void this.refreshThread_();
     if (view === 'boosts') void this.refreshSiteLayers_();
     if (view === 'studio') void this.refreshStudio_();
   }
@@ -592,9 +1025,16 @@ export class SeoulCanvasAppElement extends CrLitElement {
     this.boostBackground_ = '#f7f5ef';
     this.boostTextEnabled_ = false;
     this.boostText_ = '#171714';
+    this.boostTintEnabled_ = false;
+    this.boostTint_ = '#7467d6';
+    this.boostTintStrength_ = .22;
+    this.boostFontEnabled_ = false;
+    this.boostFontFamily_ = 'Arial';
+    this.boostAutomaticDarkMode_ = false;
     this.boostContrast_ = false;
     this.boostReduceMotion_ = false;
     this.boostHideSelectors_ = '';
+    this.boostZapActive_ = false;
     this.pendingDeleteBoostId_ = '';
   }
 
@@ -606,6 +1046,9 @@ export class SeoulCanvasAppElement extends CrLitElement {
   }
 
   protected closeBoostEditor_() {
+    if (this.boostZapActive_) {
+      this.pageHandler_?.cancelSiteLayerZap();
+    }
     this.boostEditorOpen_ = false;
     this.resetBoostEditor_();
   }
@@ -643,6 +1086,16 @@ export class SeoulCanvasAppElement extends CrLitElement {
     this.boostTextEnabled_ = Boolean(text);
     this.boostText_ = safeHexColor(text?.color_value) === 'transparent' ?
         '#171714' : text!.color_value!;
+    const tint = this.adjustmentFor_(layer, 'tint_color');
+    this.boostTintEnabled_ = Boolean(tint);
+    this.boostTint_ = safeHexColor(tint?.color_value) === 'transparent' ?
+        '#7467d6' : tint!.color_value!;
+    this.boostTintStrength_ = tint?.numeric_value ?? .22;
+    const font = this.adjustmentFor_(layer, 'font_family');
+    this.boostFontEnabled_ = Boolean(font);
+    this.boostFontFamily_ = font?.font_family || 'Arial';
+    this.boostAutomaticDarkMode_ =
+        Boolean(this.adjustmentFor_(layer, 'automatic_dark_mode'));
     this.boostContrast_ =
         Boolean(this.adjustmentFor_(layer, 'increase_contrast'));
     this.boostReduceMotion_ =
@@ -698,6 +1151,13 @@ export class SeoulCanvasAppElement extends CrLitElement {
     if (this.boostTextEnabled_) {
       add('text_color', ['body'], this.boostText_);
     }
+    if (this.boostTintEnabled_) {
+      add('tint_color', [], this.boostTint_, this.boostTintStrength_);
+    }
+    if (this.boostFontEnabled_) {
+      add('font_family', [], this.boostFontFamily_.trim());
+    }
+    if (this.boostAutomaticDarkMode_) add('automatic_dark_mode');
     if (this.boostContrast_) add('increase_contrast');
     if (this.boostReduceMotion_) add('reduce_motion');
     const selectors = this.boostHideSelectors_.split('\n')
@@ -707,32 +1167,81 @@ export class SeoulCanvasAppElement extends CrLitElement {
     return adjustments;
   }
 
-  protected async saveBoost_() {
-    if (!this.pageHandler_ || this.boostsBusy_) return;
+  protected async saveBoost_(keepEditorOpen = false):
+      Promise<string|undefined> {
+    if (!this.pageHandler_ || this.boostsBusy_) return undefined;
     const origin = this.editingBoostId_ ?
         this.boosts_.layers?.find(layer =>
           layer.id === this.editingBoostId_)?.origin_pattern :
         this.boosts_.active_page?.origin;
     const name = this.boostName_.trim();
     const adjustments = this.boostAdjustments_();
-    if (!origin || !name || !adjustments.length) return;
+    if (!origin || !name) return undefined;
+    const targetId =
+        this.editingBoostId_ || `boost-${crypto.randomUUID()}`;
     this.boostsBusy_ = true;
     this.boostsError_ = '';
     this.boostsMessage_ = '';
     try {
       const response = await this.pageHandler_.upsertSiteLayer(
-          this.editingBoostId_, name, origin, '', true, adjustments);
+          targetId, name, origin, '', true, adjustments);
       if (this.adoptSiteLayerSnapshot_(response.snapshotJson)) {
-        this.boostsMessage_ =
-            this.editingBoostId_ ? 'Boost updated on the live page.' :
-                                   'Boost applied to the live page.';
-        this.closeBoostEditor_();
+        const wasEditing = Boolean(this.editingBoostId_);
+        if (keepEditorOpen) {
+          this.editingBoostId_ = targetId;
+          this.boostsMessage_ = 'Boost saved. Pick an element on the page.';
+        } else {
+          this.boostsMessage_ =
+              wasEditing ? 'Boost updated on the live page.' :
+                           'Boost applied to the live page.';
+          this.closeBoostEditor_();
+        }
+        return targetId;
       }
     } catch {
       this.boostsError_ = 'The Boost could not be saved.';
     } finally {
       this.boostsBusy_ = false;
     }
+    return undefined;
+  }
+
+  protected async zapElement_() {
+    if (!this.pageHandler_ || this.boostsBusy_) return;
+    let layerId = this.editingBoostId_;
+    if (!layerId) {
+      layerId = await this.saveBoost_(true) ?? '';
+    }
+    if (!layerId || !this.pageHandler_) return;
+    this.boostsBusy_ = true;
+    this.boostZapActive_ = true;
+    this.boostsError_ = '';
+    this.boostsMessage_ =
+        'Zap is active: click an element on the page, or press Escape.';
+    try {
+      const response = await this.pageHandler_.zapSiteLayer(layerId);
+      if (this.adoptSiteLayerSnapshot_(response.snapshotJson)) {
+        this.boostsMessage_ = response.changed ?
+            'Element removed. The Zap will reapply on the next visit.' :
+            'Zap cancelled. No page changes were saved.';
+        const updated =
+            this.boosts_.layers?.find(layer => layer.id === layerId);
+        if (updated && this.boostEditorOpen_ &&
+            this.editingBoostId_ === layerId) {
+          this.editBoost_(updated);
+        }
+      }
+    } catch {
+      this.boostsError_ = 'The page picker could not start.';
+    } finally {
+      this.boostZapActive_ = false;
+      this.boostsBusy_ = false;
+    }
+  }
+
+  protected cancelZap_() {
+    this.pageHandler_?.cancelSiteLayerZap();
+    this.boostsMessage_ = 'Cancelling Zap…';
   }
 
   protected async setBoostEnabled_(layer: SiteLayerDoc, enabled: boolean) {
@@ -780,7 +1289,8 @@ export class SeoulCanvasAppElement extends CrLitElement {
     const layers = this.boosts_.layers ?? [];
     const matching = layers.filter(layer => layer.matches_active_page);
     const canSave = Boolean(
-        this.boostName_.trim() && this.boostAdjustments_().length &&
+        this.boostName_.trim() &&
+        (!this.boostFontEnabled_ || this.boostFontFamily_.trim()) &&
         (this.editingBoostId_ || active?.customizable));
     return html`<section class="boosts-view" aria-label="Boosts">
       <div class="view-heading boosts-heading"><div>
@@ -857,11 +1367,13 @@ export class SeoulCanvasAppElement extends CrLitElement {
   }
 
   private renderBoostEditor_(canSave: boolean): unknown {
-    const updateNumber = (key: 'width'|'scale'|'spacing', event: Event) => {
+    const updateNumber =
+        (key: 'width'|'scale'|'spacing'|'tint', event: Event) => {
       const value = Number((event.target as HTMLInputElement).value);
       if (key === 'width') this.boostContentWidth_ = value;
       if (key === 'scale') this.boostFontScale_ = value;
       if (key === 'spacing') this.boostLineSpacing_ = value;
+      if (key === 'tint') this.boostTintStrength_ = value;
     };
     return html`<form class="boost-editor" aria-label="${this.editingBoostId_ ?
         'Edit Boost' : 'Create Boost'}" @submit="${(event: Event) => {
@@ -892,6 +1404,12 @@ export class SeoulCanvasAppElement extends CrLitElement {
               this.boostReduceMotion_ =
                   (event.target as HTMLInputElement).checked}">
           <span><strong>Reduce motion</strong><small>Neutralize transitions and animations</small></span></label>
+        <label class="boost-toggle"><input type="checkbox"
+            .checked="${this.boostAutomaticDarkMode_}"
+            @change="${(event: Event) => this.boostAutomaticDarkMode_ =
+              (event.target as HTMLInputElement).checked}">
+          <span><strong>Automatic dark mode</strong>
+            <small>Darken the site when your browser uses dark mode</small></span></label>
 
         ${this.renderBoostRange_(
           'Content width', 'Keep long pages comfortably readable',
@@ -912,7 +1430,42 @@ export class SeoulCanvasAppElement extends CrLitElement {
               (event.target as HTMLInputElement).checked,
           event => updateNumber('spacing', event))}
       </div>
+      <div class="boost-style-grid">
+        <label class="boost-font" data-enabled="${this.boostFontEnabled_}">
+          <span class="boost-control-heading"><input type="checkbox"
+              .checked="${this.boostFontEnabled_}"
+              @change="${(event: Event) => this.boostFontEnabled_ =
+                (event.target as HTMLInputElement).checked}">
+            <span><strong>Font family</strong>
+              <small>Override the site's typography</small></span></span>
+          <input list="boost-font-families" maxlength="64"
+              ?disabled="${!this.boostFontEnabled_}"
+              .value="${this.boostFontFamily_}"
+              @input="${(event: Event) => this.boostFontFamily_ =
+                (event.target as HTMLInputElement).value}">
+          <datalist id="boost-font-families">
+            <option value="Arial"></option><option value="Helvetica"></option>
+            <option value="Georgia"></option>
+            <option value="Times New Roman"></option>
+            <option value="Verdana"></option>
+            <option value="Trebuchet MS"></option>
+            <option value="Courier New"></option>
+          </datalist>
+        </label>
+        ${this.renderBoostRange_(
+          'Tint strength', 'Blend a color through the whole page',
+          this.boostTintEnabled_, this.boostTintStrength_, .05, .75, .05, '',
+          event => this.boostTintEnabled_ =
+              (event.target as HTMLInputElement).checked,
+          event => updateNumber('tint', event))}
+      </div>
       <div class="boost-color-grid">
+        ${this.renderBoostColor_(
+          'Tint', this.boostTintEnabled_, this.boostTint_,
+          event => this.boostTintEnabled_ =
+              (event.target as HTMLInputElement).checked,
+          event => this.boostTint_ =
+              (event.target as HTMLInputElement).value)}
         ${this.renderBoostColor_(
           'Accent', this.boostAccentEnabled_, this.boostAccent_,
           event => this.boostAccentEnabled_ =
@@ -938,7 +1491,13 @@ export class SeoulCanvasAppElement extends CrLitElement {
               this.boostHideSelectors_ =
                   (event.target as HTMLTextAreaElement).value}"></textarea></label>
       <footer><p>Every value is validated by the browser before it reaches the page.</p>
-        <div><button type="button" @click="${this.closeBoostEditor_}">Cancel</button>
+        <div>${this.boostZapActive_ ? html`
+            <button class="danger-button" type="button"
+                @click="${this.cancelZap_}">Cancel Zap</button>` : html`
+            <button class="boost-zap-button" type="button"
+                ?disabled="${this.boostsBusy_ || !canSave}"
+                @click="${() => void this.zapElement_()}">Zap an element</button>`}
+          <button type="button" @click="${this.closeBoostEditor_}">Cancel</button>
           <button class="primary" type="submit"
               ?disabled="${this.boostsBusy_ || !canSave}">
             ${this.editingBoostId_ ? 'Update live Boost' : 'Apply live Boost'}
@@ -973,15 +1532,23 @@ export class SeoulCanvasAppElement extends CrLitElement {
   }
 
   protected renderStudio_(): unknown {
+    const essentials = this.studio_.essentials ?? [];
     const scenes = this.studio_.scenes ?? [];
     const themes = this.studio_.themes ?? [];
     const layers = this.studio_.site_layers ?? [];
+    const routingRules = this.studio_.routing_rules ?? [];
+    const workflows = this.studio_.workflows ?? [];
     const local = this.studio_.providers?.local;
     const cloud = this.studio_.providers?.cloud;
+    const currentEssential = this.pageContext_.customizable ?
+        essentials.find(essential => {
+          const url = safeHttpUrl(essential.root_url);
+          return url ? new URL(url).origin === this.pageContext_.origin : false;
+        }) : undefined;
     return html`<section class="studio-view" aria-label="Studio">
       <div class="view-heading"><div><span class="eyebrow">PROFILE RUNTIME</span>
         <h2>Studio</h2></div><span class="count-chip">Live profile</span></div>
-      <p class="studio-intro">Configure Seoul's local and cloud intelligence without exposing credentials to the page. Appearance systems below reflect the validated profile catalogs.</p>
+      <p class="studio-intro">Shape the real profile runtime: intelligence, Scenes, Themes, routing, and typed workflows. Every save is validated by the browser before it replaces durable state.</p>
       ${this.studioError_ ? html`<div class="saui-error" role="alert">${this.studioError_}</div>` : nothing}
       ${this.studioProviderMessage_ ? html`<div class="studio-provider-message"
           role="status">${this.studioProviderMessage_}</div>` : nothing}
@@ -999,29 +1566,116 @@ export class SeoulCanvasAppElement extends CrLitElement {
           this.renderProviderEditor_(this.studioEditingRoute_, local, cloud) :
           nothing}
       </section>
+      <section class="studio-section" aria-labelledby="studio-essentials-title">
+        <div class="studio-section-heading"><div><span class="studio-index">02</span><h3 id="studio-essentials-title">Essentials</h3></div>
+          <div class="studio-heading-actions"><span class="count-chip">${essentials.length}</span>
+            <button type="button" ?disabled="${!this.pageContext_.customizable}"
+                @click="${() => this.openEssentialEditor_(
+                  currentEssential, !currentEssential)}">${currentEssential ?
+                  'Edit current Essential' : 'Keep current page'}</button>
+            <button type="button" @click="${() =>
+              this.openEssentialEditor_()}">New Essential</button></div></div>
+        ${essentials.length ? html`<div class="studio-list">${essentials.map(essential => html`
+          <article class="studio-item essential-item"><div class="studio-item-mark" aria-hidden="true">★</div>
+            <div class="studio-item-body"><h4>${essential.name}</h4>
+              <p>${essential.root_url}</p>
+              <div class="studio-tags"><span>Every workspace</span>
+                ${currentEssential?.id === essential.id ?
+                  html`<span class="active-chip">Current site</span>` :
+                  nothing}</div></div>
+            <div class="studio-item-actions">
+              <button type="button" @click="${() =>
+                this.openEssentialEditor_(essential)}">Edit</button>
+              ${this.renderStudioDelete_(
+                'essential', essential.id, essential.name)}
+            </div>
+          </article>`)}</div>` : html`<div class="empty-shelf"><h4>No Essentials yet</h4>
+            <p>Keep a site once and Seoul makes the same durable destination available in every workspace without opening duplicates.</p></div>`}
+        ${this.studioEditorKind_ === 'essential' ?
+          this.renderEssentialEditor_() : nothing}
+      </section>
       <section class="studio-section" aria-labelledby="studio-scenes-title">
-        <div class="studio-section-heading"><div><span class="studio-index">02</span><h3 id="studio-scenes-title">Scenes</h3></div><span class="count-chip">${scenes.length}</span></div>
+        <div class="studio-section-heading"><div><span class="studio-index">03</span><h3 id="studio-scenes-title">Scenes</h3></div>
+          <div class="studio-heading-actions"><span class="count-chip">${scenes.length}</span>
+            <button type="button" @click="${() => this.openSceneEditor_()}">New Scene</button></div></div>
         ${scenes.length ? html`<div class="studio-list">${scenes.map(scene => html`
-          <article class="studio-item"><div class="studio-item-mark" aria-hidden="true">${scene.name.slice(0, 1).toLocaleUpperCase()}</div>
+          <article class="studio-item ${scene.active ? 'active' : ''}"><div class="studio-item-mark" aria-hidden="true">${scene.name.slice(0, 1).toLocaleUpperCase()}</div>
             <div class="studio-item-body"><h4>${scene.name}</h4><p>Workspace ${scene.workspace_id}</p>
-              <div class="studio-tags"><span>${scene.site_layer_count} site layer${scene.site_layer_count === 1 ? '' : 's'}</span>
+              <div class="studio-tags"><span>${scene.site_layer_ids.length} site layer${scene.site_layer_ids.length === 1 ? '' : 's'}</span>
                 <span>${scene.theme_id ? 'Theme linked' : 'Global theme'}</span>
-                ${scene.prefer_compact ? html`<span>Compact</span>` : nothing}</div></div>
+                ${scene.prefer_compact ? html`<span>Compact</span>` : nothing}
+                ${scene.active ? html`<span class="active-chip">Active here</span>` : nothing}</div></div>
+            <div class="studio-item-actions">
+              <button type="button" ?disabled="${this.studioMutationBusy_}"
+                  @click="${() => void this.activateScene_(scene.active ? '' : scene.id)}">${scene.active ? 'Leave' : 'Activate'}</button>
+              <button type="button" @click="${() => this.openSceneEditor_(scene)}">Edit</button>
+              ${this.renderStudioDelete_('scene', scene.id, scene.name)}
+            </div>
           </article>`)}</div>` : html`<div class="empty-shelf"><h4>No Scenes configured</h4><p>Scenes will appear here from the profile registry; this view does not invent presets.</p></div>`}
+        ${this.studioEditorKind_ === 'scene' ? this.renderSceneEditor_() : nothing}
       </section>
       <section class="studio-section" aria-labelledby="studio-themes-title">
-        <div class="studio-section-heading"><div><span class="studio-index">03</span><h3 id="studio-themes-title">Themes</h3></div><span class="count-chip">${themes.length}</span></div>
+        <div class="studio-section-heading"><div><span class="studio-index">04</span><h3 id="studio-themes-title">Themes</h3></div>
+          <div class="studio-heading-actions"><span class="count-chip">${themes.length}</span>
+            <button type="button" @click="${() => this.openThemeEditor_()}">New Theme</button></div></div>
         ${themes.length ? html`<div class="theme-grid">${themes.map(theme => html`
-          <article class="theme-card"><div class="theme-preview" style="background:${safeHexColor(theme.background)}">
-            <span class="theme-surface" style="background:${safeHexColor(theme.surface)};border-radius:${Math.max(0, Math.min(64, theme.corner_radius_px))}px">
-              <i style="background:${safeHexColor(theme.accent)}"></i><i></i><i></i>
+          <article class="theme-card ${theme.active ? 'active' : ''}"><div class="theme-preview" style="background:${safeHexColor(theme.colors.background)}">
+            <span class="theme-surface" style="background:${safeHexColor(theme.colors.surface)};border-radius:${Math.max(0, Math.min(64, theme.corner_radius_px))}px">
+              <i style="background:${safeHexColor(theme.colors.accent)}"></i><i></i><i></i>
             </span></div>
-            <div class="theme-meta"><div><h4>${theme.name}</h4><p>${theme.scheme} · ${theme.reduced_motion ? 'Reduced motion' : 'Motion on'}</p></div>
-              <span class="theme-accent" style="background:${safeHexColor(theme.accent)}" aria-label="Accent ${safeHexColor(theme.accent)}"></span></div>
+            <div class="theme-meta"><div><h4>${theme.name}</h4><p>${theme.scheme} · ${theme.motion.reduced_motion ? 'Reduced motion' : 'Motion on'}</p></div>
+              <span class="theme-accent" style="background:${safeHexColor(theme.colors.accent)}" aria-label="Accent ${safeHexColor(theme.colors.accent)}"></span></div>
+            <div class="theme-actions">
+              <button type="button" ?disabled="${this.studioMutationBusy_}"
+                  @click="${() => void this.activateTheme_(theme.active ? '' : theme.id)}">${theme.active ? 'Use system' : 'Apply here'}</button>
+              <button type="button" @click="${() => this.openThemeEditor_(theme)}">Edit</button>
+              ${this.renderStudioDelete_('theme', theme.id, theme.name)}
+            </div>
           </article>`)}</div>` : html`<div class="empty-shelf"><h4>No Themes configured</h4><p>Only accessibility-validated themes from the profile registry will appear here.</p></div>`}
+        ${this.studioEditorKind_ === 'theme' ? this.renderThemeEditor_() : nothing}
+      </section>
+      <section class="studio-section" aria-labelledby="studio-routing-title">
+        <div class="studio-section-heading"><div><span class="studio-index">05</span><h3 id="studio-routing-title">Link routing</h3></div>
+          <div class="studio-heading-actions"><span class="count-chip">${routingRules.length}</span>
+            <button type="button" @click="${() => this.openRoutingEditor_()}">New rule</button></div></div>
+        ${routingRules.length ? html`<div class="routing-list">${routingRules.map(rule => html`
+          <article class="routing-card ${rule.enabled ? '' : 'disabled'}">
+            <div><span class="route-priority">${rule.priority}</span>
+              <h4>${this.routingMatchLabel_(rule)}</h4>
+              <p>${this.routingDispositionLabel_(rule)}</p>
+              <small>${rule.require_user_gesture ? 'Requires a user gesture' : 'Automatic'}${rule.source_workspace_id ? ' · Workspace scoped' : ''}</small></div>
+            <div class="studio-item-actions"><span class="layer-state ${rule.enabled ? 'enabled' : ''}">${rule.enabled ? 'Enabled' : 'Paused'}</span>
+              <button type="button" @click="${() => this.openRoutingEditor_(rule)}">Edit</button>
+              ${this.renderStudioDelete_('routing', rule.id, 'routing rule')}
+            </div>
+          </article>`)}</div>` : html`<div class="empty-shelf"><h4>No routing rules</h4><p>Links use the current tab until you add an inspectable rule.</p></div>`}
+        ${this.studioEditorKind_ === 'routing' ? this.renderRoutingEditor_() : nothing}
+      </section>
+      <section class="studio-section" aria-labelledby="studio-workflows-title">
+        <div class="studio-section-heading"><div><span class="studio-index">06</span><h3 id="studio-workflows-title">Workflows</h3></div>
+          <div class="studio-heading-actions"><span class="count-chip">${workflows.length}</span>
+            <button type="button" @click="${() => this.openWorkflowEditor_()}">New workflow</button></div></div>
+        ${workflows.length ? html`<div class="workflow-list">${workflows.map(workflow => html`
+          <article class="workflow-card"><div class="workflow-card-main"><span class="workflow-version">v${workflow.version}</span>
+            <h4>${workflow.name}</h4><p>${workflow.description || 'No description'}</p>
+            <div class="studio-tags"><span>${workflow.nodes.length} step${workflow.nodes.length === 1 ? '' : 's'}</span>
+              <span>${workflow.trigger.kind.replaceAll('_', ' ')}</span>
+              ${workflow.scene_scope ? html`<span>Scene scoped</span>` : nothing}</div></div>
+            <div class="studio-item-actions">
+              <button type="button" ?disabled="${this.studioMutationBusy_}"
+                  @click="${() => void this.runWorkflow_(workflow.id)}">Run</button>
+              <button type="button" @click="${() => this.openWorkflowEditor_(workflow)}">Edit</button>
+              <button type="button" ?disabled="${this.studioMutationBusy_}"
+                  @click="${() => void this.duplicateWorkflow_(workflow.id)}">Duplicate</button>
+              ${this.renderStudioDelete_('workflow', workflow.id, workflow.name)}
+            </div>
+          </article>`)}</div>` : html`<div class="empty-shelf"><h4>No saved workflows</h4><p>Build a typed graph over Seoul's registered capabilities. Runs appear in the Task Deck.</p></div>`}
+        ${this.studioEditorKind_ === 'workflow' ? this.renderWorkflowEditor_() : nothing}
       </section>
       <section class="studio-section" aria-labelledby="studio-layers-title">
-        <div class="studio-section-heading"><div><span class="studio-index">04</span><h3 id="studio-layers-title">Site Layers</h3></div><span class="count-chip">${layers.length}</span></div>
+        <div class="studio-section-heading"><div><span class="studio-index">07</span><h3 id="studio-layers-title">Site Layers</h3></div>
+          <div class="studio-heading-actions"><span class="count-chip">${layers.length}</span>
+            <button type="button" @click="${() => this.selectView_('boosts')}">Open Boosts</button></div></div>
         ${layers.length ? html`<div class="layer-grid">${layers.map(layer => html`
           <article class="layer-card"><header><span class="layer-state ${layer.enabled ? 'enabled' : ''}">${layer.enabled ? 'Enabled' : 'Paused'}</span><span>${layer.adjustment_count} adjustment${layer.adjustment_count === 1 ? '' : 's'}</span></header>
             <h4>${layer.name}</h4><p>${layer.origin_pattern}</p>
@@ -1029,6 +1683,606 @@ export class SeoulCanvasAppElement extends CrLitElement {
           </article>`)}</div>` : html`<div class="empty-shelf"><h4>No Site Layers configured</h4><p>Validated visual adjustments will appear here from the Site Layer registry.</p></div>`}
       </section>
     </section>`;
+  }
+
+  private renderStudioDelete_(
+      kind: 'essential'|'scene'|'theme'|'routing'|'workflow',
+      id: string, label: string): unknown {
+    const key = `${kind}:${id}`;
+    if (this.studioPendingDelete_ !== key) {
+      return html`<button class="danger-quiet" type="button"
+          ?disabled="${this.studioMutationBusy_}"
+          @click="${() => this.studioPendingDelete_ = key}">Delete</button>`;
+    }
+    return html`<span class="inline-confirm" role="group"
+        aria-label="Confirm deletion of ${label}">
+      <button type="button" @click="${() => this.studioPendingDelete_ = ''}">Keep</button>
+      <button class="danger" type="button"
+          ?disabled="${this.studioMutationBusy_}"
+          @click="${() => void this.deleteStudioEntity_(kind, id)}">Delete</button>
+    </span>`;
+  }
+
+  private renderEssentialEditor_(): unknown {
+    const rootUrl = safeHttpUrl(this.studioEssentialUrl_.trim());
+    const canSave = Boolean(this.studioEssentialName_.trim() && rootUrl);
+    return html`<form class="studio-authoring essential-editor"
+        aria-label="${this.studioEditingId_ ?
+          'Edit Essential' : 'Create Essential'}"
+        @submit="${(event: Event) => {
+          event.preventDefault();
+          void this.saveEssential_();
+        }}">
+      <header><div><span class="eyebrow">GLOBAL DESTINATION</span>
+        <h4>${this.studioEditingId_ ?
+          `Edit ${this.studioEssentialName_}` : 'New Essential'}</h4></div>
+        <button type="button" @click="${this.closeStudioEditor_}">Close</button></header>
+      <div class="authoring-grid two-column">
+        <label><span>Name</span><input required maxlength="256"
+            .value="${this.studioEssentialName_}"
+            @input="${(event: Event) => this.studioEssentialName_ =
+              (event.target as HTMLInputElement).value}"></label>
+        <label><span>Site address</span><input required type="url"
+            maxlength="4096" placeholder="https://example.com/"
+            .value="${this.studioEssentialUrl_}"
+            @input="${(event: Event) => this.studioEssentialUrl_ =
+              (event.target as HTMLInputElement).value}"></label>
+      </div>
+      <footer><p>Essentials are profile-global, protected from cleanup, and open an existing live tab for the same site instead of spawning another.</p>
+        <button class="primary" type="submit"
+            ?disabled="${this.studioMutationBusy_ || !canSave}">
+          ${this.studioMutationBusy_ ? 'Validating…' :
+            this.studioEditingId_ ? 'Save Essential' : 'Keep everywhere'}
+        </button></footer>
+    </form>`;
+  }
+
+  private renderThemeEditor_(): unknown {
+    const theme = this.studioThemeDraft_;
+    const canSave = theme.id.trim() && theme.name.trim() &&
+        theme.typography.font_family.trim();
+    return html`<form class="studio-authoring theme-editor"
+        aria-label="${this.studioEditingId_ ? 'Edit Theme' : 'Create Theme'}"
+        @submit="${(event: Event) => {
+          event.preventDefault();
+          void this.saveTheme_();
+        }}">
+      <header><div><span class="eyebrow">ACCESSIBILITY-VALIDATED TOKENS</span>
+        <h4>${this.studioEditingId_ ? `Edit ${theme.name}` : 'New Theme'}</h4></div>
+        <button type="button" @click="${this.closeStudioEditor_}">Close</button></header>
+      <div class="authoring-grid two-column">
+        <label><span>Name</span><input required maxlength="120"
+            .value="${theme.name}" @input="${(event: Event) =>
+              this.updateThemeDraft_({name: (event.target as HTMLInputElement).value})}"></label>
+        <label><span>Stable ID <small>lowercase letters, numbers, - or _</small></span>
+          <input required maxlength="120" pattern="[a-z][a-z0-9_\\-]*"
+              ?disabled="${Boolean(this.studioEditingId_)}"
+              .value="${theme.id}" @input="${(event: Event) =>
+                this.updateThemeDraft_({id: (event.target as HTMLInputElement).value})}"></label>
+        <label><span>Color mode</span><select .value="${theme.scheme}"
+            @change="${(event: Event) => this.updateThemeDraft_({
+              scheme: (event.target as HTMLSelectElement).value as
+                  StudioThemeDoc['scheme'],
+            })}">
+          <option value="system">Follow system</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select></label>
+        <label><span>Font family</span><input required maxlength="120"
+            .value="${theme.typography.font_family}"
+            @input="${(event: Event) => this.updateThemeTypography_({
+              font_family: (event.target as HTMLInputElement).value,
+            })}"></label>
+      </div>
+      <fieldset class="theme-color-fields"><legend>Required color roles</legend>
+        ${this.renderThemeColorInput_('Background', 'background')}
+        ${this.renderThemeColorInput_('Surface', 'surface')}
+        ${this.renderThemeColorInput_('Text', 'text')}
+        ${this.renderThemeColorInput_('Muted text', 'muted_text')}
+        ${this.renderThemeColorInput_('Accent', 'accent')}
+        ${this.renderThemeColorInput_('Accent text', 'accent_text')}
+        ${this.renderThemeColorInput_('Border', 'border')}
+        ${this.renderThemeColorInput_('Error', 'error')}
+      </fieldset>
+      <div class="theme-live-preview"
+          style="background:${safeHexColor(theme.colors.background)};
+              color:${safeHexColor(theme.colors.text)};
+              border-color:${safeHexColor(theme.colors.border)};
+              border-radius:${Math.max(0, Math.min(64, theme.corner_radius_px))}px">
+        <div style="background:${safeHexColor(theme.colors.surface)}">
+          <span style="background:${safeHexColor(theme.colors.accent)};
+              color:${safeHexColor(theme.colors.accent_text)}">Live preview</span>
+          <strong>Readable by construction</strong>
+          <p style="color:${safeHexColor(theme.colors.muted_text)}">The browser checks all required WCAG contrast pairs before saving.</p>
+        </div>
+      </div>
+      <div class="authoring-grid five-column">
+        <label><span>Base size</span><input type="number" min="8" max="48"
+            .value="${String(theme.typography.base_size_px)}"
+            @input="${(event: Event) => this.updateThemeTypography_({
+              base_size_px: Number((event.target as HTMLInputElement).value),
+            })}"></label>
+        <label><span>Type scale</span><input type="number" min="1" max="2" step="0.05"
+            .value="${String(theme.typography.scale_ratio)}"
+            @input="${(event: Event) => this.updateThemeTypography_({
+              scale_ratio: Number((event.target as HTMLInputElement).value),
+            })}"></label>
+        <label><span>Line height ‰</span><input type="number" min="1000" max="3000"
+            .value="${String(theme.typography.base_line_height_permille)}"
+            @input="${(event: Event) => this.updateThemeTypography_({
+              base_line_height_permille:
+                  Number((event.target as HTMLInputElement).value),
+            })}"></label>
+        <label><span>Corner radius</span><input type="number" min="0" max="64"
+            .value="${String(theme.corner_radius_px)}"
+            @input="${(event: Event) => this.updateThemeDraft_({
+              corner_radius_px: Number((event.target as HTMLInputElement).value),
+            })}"></label>
+        <label><span>Motion duration</span><input type="number" min="0" max="10000"
+            .value="${String(theme.motion.base_duration_ms)}"
+            @input="${(event: Event) => this.updateThemeMotion_({
+              base_duration_ms: Number((event.target as HTMLInputElement).value),
+            })}"></label>
+      </div>
+      <div class="authoring-toggles">
+        <label><input type="checkbox" .checked="${theme.motion.reduced_motion}"
+            @change="${(event: Event) => this.updateThemeMotion_({
+              reduced_motion: (event.target as HTMLInputElement).checked,
+            })}"> Reduce motion</label>
+        <label><input type="checkbox" .checked="${theme.motion.reduced_transparency}"
+            @change="${(event: Event) => this.updateThemeMotion_({
+              reduced_transparency:
+                  (event.target as HTMLInputElement).checked,
+            })}"> Reduce transparency</label>
+      </div>
+      <footer><p>Invalid contrast or typography is rejected without changing the saved Theme.</p>
+        <button class="primary" type="submit"
+            ?disabled="${this.studioMutationBusy_ || !canSave}">${this.studioMutationBusy_ ? 'Validating…' : 'Save Theme'}</button></footer>
+    </form>`;
+  }
+
+  private renderThemeColorInput_(
+      label: string, key: keyof StudioThemeDoc['colors']): unknown {
+    const value = this.studioThemeDraft_.colors[key];
+    return html`<label><span>${label}</span><span class="color-input-pair">
+      <input type="color" .value="${safeHexColor(value).slice(0, 7)}"
+          @input="${(event: Event) => this.updateThemeColor_(
+            key, (event.target as HTMLInputElement).value)}">
+      <input required pattern="#[0-9a-fA-F]{3}([0-9a-fA-F]{3}([0-9a-fA-F]{2})?)?"
+          .value="${value}" @input="${(event: Event) => this.updateThemeColor_(
+            key, (event.target as HTMLInputElement).value)}">
+    </span></label>`;
+  }
+
+  private renderSceneEditor_(): unknown {
+    const scene = this.studioSceneDraft_;
+    const workspaces = (this.studio_.workspaces ?? []).filter(
+        workspace => !workspace.archived);
+    const canSave = scene.id.trim() && scene.name.trim() &&
+        scene.workspace_id;
+    return html`<form class="studio-authoring scene-editor"
+        aria-label="${this.studioEditingId_ ? 'Edit Scene' : 'Create Scene'}"
+        @submit="${(event: Event) => {
+          event.preventDefault();
+          void this.saveScene_();
+        }}">
+      <header><div><span class="eyebrow">COMPOSED PROFILE ENVIRONMENT</span>
+        <h4>${this.studioEditingId_ ? `Edit ${scene.name}` : 'New Scene'}</h4></div>
+        <button type="button" @click="${this.closeStudioEditor_}">Close</button></header>
+      <div class="authoring-grid three-column">
+        <label><span>Name</span><input required maxlength="120"
+            .value="${scene.name}" @input="${(event: Event) =>
+              this.updateSceneDraft_({name: (event.target as HTMLInputElement).value})}"></label>
+        <label><span>Stable ID</span><input required maxlength="120"
+            pattern="[a-z][a-z0-9_\\-]*" ?disabled="${Boolean(this.studioEditingId_)}"
+            .value="${scene.id}" @input="${(event: Event) =>
+              this.updateSceneDraft_({id: (event.target as HTMLInputElement).value})}"></label>
+        <label><span>Workspace</span><select required
+            @change="${(event: Event) => this.updateSceneDraft_({
+              workspace_id: (event.target as HTMLSelectElement).value,
+            })}">
+          <option value="" ?selected="${!scene.workspace_id}">Choose a workspace</option>
+          ${workspaces.map(workspace => html`<option value="${workspace.id}"
+              ?selected="${scene.workspace_id === workspace.id}">${workspace.icon ? `${workspace.icon} ` : ''}${workspace.name}</option>`)}
+        </select></label>
+        <label><span>Theme</span><select
+            @change="${(event: Event) => this.updateSceneDraft_({
+              theme_id: (event.target as HTMLSelectElement).value,
+            })}">
+          <option value="" ?selected="${!scene.theme_id}">Use system Theme</option>
+          ${(this.studio_.themes ?? []).map(theme => html`<option
+              value="${theme.id}" ?selected="${scene.theme_id === theme.id}">${theme.name}</option>`)}
+        </select></label>
+        <label><span>Idle archive</span><span class="number-with-unit">
+          <input type="number" min="1" max="10080"
+              .value="${String(scene.lifecycle.idle_archive_minutes)}"
+              @input="${(event: Event) => this.updateSceneLifecycle_({
+                idle_archive_minutes:
+                    Number((event.target as HTMLInputElement).value),
+              })}"><small>minutes</small></span></label>
+        <label><span>Maximum task sensitivity</span><select
+            .value="${scene.assistant.max_sensitivity}"
+            @change="${(event: Event) => this.updateSceneAssistant_({
+              max_sensitivity: (event.target as HTMLSelectElement).value as
+                  StudioSceneDoc['assistant']['max_sensitivity'],
+            })}">
+          <option value="none">No user data</option>
+          <option value="organization">Workspace metadata</option>
+          <option value="page_content">Page content</option>
+          <option value="personal">Personal data</option>
+          <option value="credential_adjacent">Authenticated actions</option>
+        </select></label>
+      </div>
+      <div class="authoring-toggles">
+        <label><input type="checkbox" .checked="${scene.lifecycle.archive_temporary_tabs}"
+            @change="${(event: Event) => this.updateSceneLifecycle_({
+              archive_temporary_tabs:
+                  (event.target as HTMLInputElement).checked,
+            })}"> Archive idle temporary tabs</label>
+        <label><input type="checkbox" .checked="${scene.lifecycle.restore_on_activation}"
+            @change="${(event: Event) => this.updateSceneLifecycle_({
+              restore_on_activation:
+                  (event.target as HTMLInputElement).checked,
+            })}"> Restore on activation</label>
+        <label><input type="checkbox" .checked="${scene.assistant.allow_network}"
+            @change="${(event: Event) => this.updateSceneAssistant_({
+              allow_network: (event.target as HTMLInputElement).checked,
+            })}"> Allow network capabilities</label>
+        <label><input type="checkbox" .checked="${scene.assistant.allow_cloud_models}"
+            @change="${(event: Event) => this.updateSceneAssistant_({
+              allow_cloud_models: (event.target as HTMLInputElement).checked,
+            })}"> Allow cloud models</label>
+        <label><input type="checkbox" .checked="${scene.prefer_compact}"
+            @change="${(event: Event) => this.updateSceneDraft_({
+              prefer_compact: (event.target as HTMLInputElement).checked,
+            })}"> Compact product chrome</label>
+      </div>
+      <div class="reference-groups">
+        ${this.renderSceneReferences_(
+          'Site Layers', 'site_layer_ids',
+          (this.studio_.site_layers ?? []).map(layer => ({
+            id: layer.id, label: layer.name,
+          })))}
+        ${this.renderSceneReferences_(
+          'Routing rules', 'routing_rule_ids',
+          (this.studio_.routing_rules ?? []).map(rule => ({
+            id: rule.id, label: this.routingMatchLabel_(rule),
+          })))}
+        ${this.renderSceneReferences_(
+          'Workflow shortcuts', 'workflow_shortcut_ids',
+          (this.studio_.workflows ?? []).map(workflow => ({
+            id: workflow.id, label: workflow.name,
+          })))}
+      </div>
+      <label class="wide-field"><span>Default connector providers <small>comma-separated provider IDs</small></span>
+        <input maxlength="2048"
+            .value="${scene.assistant.default_connectors.join(', ')}"
+            @input="${(event: Event) => this.updateSceneAssistant_({
+              default_connectors: (event.target as HTMLInputElement).value
+                  .split(',').map(item => item.trim()).filter(Boolean),
+            })}"></label>
+      <footer><p>All references are checked again when this Scene activates.</p>
+        <button class="primary" type="submit"
+            ?disabled="${this.studioMutationBusy_ || !canSave}">${this.studioMutationBusy_ ? 'Validating…' : 'Save Scene'}</button></footer>
+    </form>`;
+  }
+
+  private renderSceneReferences_(
+      title: string,
+      field: 'site_layer_ids'|'routing_rule_ids'|'workflow_shortcut_ids',
+      items: Array<{id: string, label: string}>): unknown {
+    const selected = new Set(this.studioSceneDraft_[field]);
+    return html`<fieldset><legend>${title}</legend>
+      ${items.length ? items.map(item => html`<label>
+        <input type="checkbox" .checked="${selected.has(item.id)}"
+            @change="${(event: Event) => this.toggleSceneReference_(
+              field, item.id, (event.target as HTMLInputElement).checked)}">
+        <span>${item.label}</span>
+      </label>`) : html`<p>None available</p>`}
+    </fieldset>`;
+  }
+
+  private renderRoutingEditor_(): unknown {
+    const rule = this.studioRoutingDraft_;
+    const needsPattern = rule.match_type !== 'anything';
+    const needsTarget = rule.disposition === 'specific_workspace';
+    const requiresGesture = rule.disposition === 'external_application' ||
+        rule.disposition === 'ask_user';
+    const canSave = !needsPattern || rule.pattern.trim();
+    return html`<form class="studio-authoring routing-editor"
+        aria-label="${this.studioEditingId_ ? 'Edit routing rule' : 'Create routing rule'}"
+        @submit="${(event: Event) => {
+          event.preventDefault();
+          void this.saveRoutingRule_();
+        }}">
+      <header><div><span class="eyebrow">DETERMINISTIC LINK POLICY</span>
+        <h4>${this.studioEditingId_ ? 'Edit routing rule' : 'New routing rule'}</h4></div>
+        <button type="button" @click="${this.closeStudioEditor_}">Close</button></header>
+      <div class="authoring-grid three-column">
+        <label><span>Match</span><select .value="${rule.match_type}"
+            @change="${(event: Event) => this.updateRoutingDraft_({
+              match_type: (event.target as HTMLSelectElement).value as
+                  StudioRoutingRuleDoc['match_type'],
+            })}">
+          <option value="anything">Any link</option>
+          <option value="origin_exact">Exact origin</option>
+          <option value="url_prefix">URL prefix</option>
+          <option value="url_glob">URL glob</option>
+        </select></label>
+        <label class="${needsPattern ? '' : 'field-disabled'}"><span>Pattern</span>
+          <input maxlength="2048" ?required="${needsPattern}"
+              ?disabled="${!needsPattern}"
+              placeholder="${rule.match_type === 'origin_exact' ? 'https://example.com' : 'https://example.com/*'}"
+              .value="${rule.pattern}" @input="${(event: Event) =>
+                this.updateRoutingDraft_({
+                  pattern: (event.target as HTMLInputElement).value,
+                })}"></label>
+        <label><span>Priority</span><input type="number" min="-100000" max="100000"
+            .value="${String(rule.priority)}" @input="${(event: Event) =>
+              this.updateRoutingDraft_({
+                priority: Number((event.target as HTMLInputElement).value),
+              })}"></label>
+        <label><span>Source workspace</span><select
+            .value="${rule.source_workspace_id}"
+            @change="${(event: Event) => this.updateRoutingDraft_({
+              source_workspace_id: (event.target as HTMLSelectElement).value,
+            })}">
+          <option value="">Any workspace</option>
+          ${(this.studio_.workspaces ?? []).filter(workspace => !workspace.archived)
+              .map(workspace => html`<option value="${workspace.id}">${workspace.name}</option>`)}
+        </select></label>
+        <label><span>Open as</span><select .value="${rule.disposition}"
+            @change="${(event: Event) => {
+              const disposition = (event.target as HTMLSelectElement).value as
+                  StudioRoutingRuleDoc['disposition'];
+              this.updateRoutingDraft_({
+                disposition,
+                require_user_gesture:
+                    disposition === 'external_application' ||
+                    disposition === 'ask_user' ||
+                    rule.require_user_gesture,
+              });
+            }}">
+          <option value="current_tab">Current tab</option>
+          <option value="new_temporary_tab">New temporary tab</option>
+          <option value="new_retained_tab">New retained tab</option>
+          <option value="specific_workspace">Specific workspace</option>
+          <option value="preview">Preview</option>
+          <option value="split_pane">Split pane</option>
+          <option value="external_application">External application</option>
+          <option value="ask_user">Ask every time</option>
+        </select></label>
+        <label class="${needsTarget ? '' : 'field-disabled'}"><span>Target workspace</span>
+          <select ?required="${needsTarget}" ?disabled="${!needsTarget}"
+              .value="${rule.target_workspace_id}"
+              @change="${(event: Event) => this.updateRoutingDraft_({
+                target_workspace_id:
+                    (event.target as HTMLSelectElement).value,
+              })}">
+            <option value="">Choose a workspace</option>
+            ${(this.studio_.workspaces ?? []).filter(workspace => !workspace.archived)
+                .map(workspace => html`<option value="${workspace.id}">${workspace.name}</option>`)}
+          </select></label>
+      </div>
+      <div class="authoring-toggles">
+        <label><input type="checkbox" .checked="${rule.enabled}"
+            @change="${(event: Event) => this.updateRoutingDraft_({
+              enabled: (event.target as HTMLInputElement).checked,
+            })}"> Enabled</label>
+        <label><input type="checkbox" .checked="${rule.require_user_gesture}"
+            ?disabled="${requiresGesture}"
+            @change="${(event: Event) => this.updateRoutingDraft_({
+              require_user_gesture:
+                  (event.target as HTMLInputElement).checked,
+            })}"> ${requiresGesture ? 'User gesture required for safety' :
+              'Require a user gesture'}</label>
+      </div>
+      <footer><p>Higher priority wins; ties resolve by stable rule ID.</p>
+        <button class="primary" type="submit"
+            ?disabled="${this.studioMutationBusy_ || !canSave || (needsTarget && !rule.target_workspace_id)}">${this.studioMutationBusy_ ? 'Validating…' : 'Save rule'}</button></footer>
+    </form>`;
+  }
+
+  private renderWorkflowEditor_(): unknown {
+    const workflow = this.studioWorkflowDraft_;
+    const canSave = workflow.name.trim() && workflow.nodes.length > 0;
+    return html`<form class="studio-authoring workflow-editor"
+        aria-label="${this.studioEditingId_ ? 'Edit workflow' : 'Create workflow'}"
+        @submit="${(event: Event) => {
+          event.preventDefault();
+          void this.saveWorkflow_();
+        }}">
+      <header><div><span class="eyebrow">TYPED TASK GRAPH</span>
+        <h4>${this.studioEditingId_ ? `Edit ${workflow.name}` : 'New workflow'}</h4></div>
+        <button type="button" @click="${this.closeStudioEditor_}">Close</button></header>
+      <div class="authoring-grid two-column">
+        <label><span>Name</span><input required maxlength="200"
+            .value="${workflow.name}" @input="${(event: Event) =>
+              this.updateWorkflowDraft_({
+                name: (event.target as HTMLInputElement).value,
+              })}"></label>
+        <label><span>Trigger</span><select .value="${workflow.trigger.kind}"
+            @change="${(event: Event) => this.updateWorkflowTrigger_({
+              kind: (event.target as HTMLSelectElement).value as
+                  StudioWorkflowDoc['trigger']['kind'],
+            })}">
+          <option value="manual">Manual</option>
+          <option value="schedule">Schedule</option>
+          <option value="scene_activation">Scene activation</option>
+          <option value="navigation">Navigation</option>
+          <option value="page_state_change">Page state change</option>
+          <option value="service_event">Service event</option>
+          <option value="startup">Startup</option>
+        </select></label>
+        <label class="wide-field"><span>Description</span><textarea rows="2"
+            maxlength="2000" .value="${workflow.description}"
+            @input="${(event: Event) => this.updateWorkflowDraft_({
+              description: (event.target as HTMLTextAreaElement).value,
+            })}"></textarea></label>
+        ${this.renderWorkflowTriggerFields_()}
+        <label><span>Scene scope</span><select .value="${workflow.scene_scope ?? ''}"
+            @change="${(event: Event) => this.updateWorkflowDraft_({
+              scene_scope: (event.target as HTMLSelectElement).value,
+            })}">
+          <option value="">Any Scene</option>
+          ${(this.studio_.scenes ?? []).map(scene => html`<option value="${scene.id}">${scene.name}</option>`)}
+        </select></label>
+        <label><span>Site scope <small>optional origin pattern</small></span>
+          <input maxlength="256" placeholder="https://example.com"
+              .value="${workflow.site_scope ?? ''}"
+              @input="${(event: Event) => this.updateWorkflowDraft_({
+                site_scope: (event.target as HTMLInputElement).value,
+              })}"></label>
+      </div>
+      <div class="workflow-builder-heading"><div><h5>Steps</h5>
+        <p>Each step is a typed capability, approval, or user-input gate.</p></div>
+        <button type="button" @click="${this.addWorkflowNode_}">Add step</button></div>
+      ${workflow.nodes.length ? html`<div class="workflow-node-list">
+        ${workflow.nodes.map((node, index) =>
+          this.renderWorkflowNode_(node, index))}
+      </div>` : html`<div class="empty-shelf compact"><h4>No steps yet</h4><p>Add the first real step before saving.</p></div>`}
+      <div class="workflow-builder-heading"><div><h5>Edges</h5>
+        <p>Sequence, outcome branches, and bounded loop-backs are explicit.</p></div></div>
+      ${workflow.edges.length ? html`<div class="workflow-edge-list">
+        ${workflow.edges.map((edge, index) => html`<div>
+          <code>${edge.from}</code><span>${edge.kind.replaceAll('_', ' ')}</span><code>${edge.to}</code>
+          <button type="button" aria-label="Remove edge"
+              @click="${() => this.removeWorkflowEdge_(index)}">×</button>
+        </div>`)}
+      </div>` : html`<p class="authoring-note">No edges. A one-step workflow does not need one.</p>`}
+      ${workflow.nodes.length > 1 ? html`<div class="workflow-edge-adder">
+        <select aria-label="Edge source" .value="${this.studioWorkflowEdgeFrom_}"
+            @change="${(event: Event) => this.studioWorkflowEdgeFrom_ =
+              (event.target as HTMLSelectElement).value}">
+          <option value="">From step</option>
+          ${workflow.nodes.map(node => html`<option value="${node.id}">${node.id}</option>`)}
+        </select>
+        <select aria-label="Edge kind" .value="${this.studioWorkflowEdgeKind_}"
+            @change="${(event: Event) => this.studioWorkflowEdgeKind_ =
+              (event.target as HTMLSelectElement).value as
+                  StudioWorkflowEdgeDoc['kind']}">
+          <option value="sequence">Then</option>
+          <option value="on_success">On success</option>
+          <option value="on_failure">On failure</option>
+          <option value="loop_back">Loop back</option>
+        </select>
+        <select aria-label="Edge target" .value="${this.studioWorkflowEdgeTo_}"
+            @change="${(event: Event) => this.studioWorkflowEdgeTo_ =
+              (event.target as HTMLSelectElement).value}">
+          <option value="">To step</option>
+          ${workflow.nodes.map(node => html`<option value="${node.id}">${node.id}</option>`)}
+        </select>
+        <button type="button" @click="${this.addWorkflowEdge_}">Add edge</button>
+      </div>` : nothing}
+      <footer><p>The browser validates graph structure, bounds, triggers, and every run plan.</p>
+        <button class="primary" type="submit"
+            ?disabled="${this.studioMutationBusy_ || !canSave}">${this.studioMutationBusy_ ? 'Validating…' : 'Save workflow'}</button></footer>
+    </form>`;
+  }
+
+  private renderWorkflowTriggerFields_(): unknown {
+    const trigger = this.studioWorkflowDraft_.trigger;
+    if (trigger.kind === 'schedule') {
+      return html`<label><span>Interval</span><span class="number-with-unit">
+        <input type="number" min="1" max="10080"
+            .value="${String(trigger.interval_minutes ?? 60)}"
+            @input="${(event: Event) => this.updateWorkflowTrigger_({
+              interval_minutes:
+                  Number((event.target as HTMLInputElement).value),
+            })}"><small>minutes</small></span></label>`;
+    }
+    if (trigger.kind === 'scene_activation') {
+      return html`<label><span>Scene</span><select required
+          .value="${trigger.scene_id ?? ''}"
+          @change="${(event: Event) => this.updateWorkflowTrigger_({
+            scene_id: (event.target as HTMLSelectElement).value,
+          })}">
+        <option value="">Choose a Scene</option>
+        ${(this.studio_.scenes ?? []).map(scene => html`<option value="${scene.id}">${scene.name}</option>`)}
+      </select></label>`;
+    }
+    if (trigger.kind === 'navigation' ||
+        trigger.kind === 'page_state_change') {
+      return html`<label><span>Origin pattern</span><input required maxlength="256"
+          placeholder="https://example.com"
+          .value="${trigger.origin_pattern ?? ''}"
+          @input="${(event: Event) => this.updateWorkflowTrigger_({
+            origin_pattern: (event.target as HTMLInputElement).value,
+          })}"></label>`;
+    }
+    if (trigger.kind === 'service_event') {
+      return html`<label><span>Service event</span><input required maxlength="256"
+          .value="${trigger.event_name ?? ''}"
+          @input="${(event: Event) => this.updateWorkflowTrigger_({
+            event_name: (event.target as HTMLInputElement).value,
+          })}"></label>`;
+    }
+    return nothing;
+  }
+
+  private renderWorkflowNode_(
+      node: StudioWorkflowNodeDoc, index: number): unknown {
+    return html`<article class="workflow-node-editor">
+      <header><span>${String(index + 1).padStart(2, '0')}</span>
+        <button type="button" @click="${() => this.removeWorkflowNode_(index)}">Remove</button></header>
+      <div class="authoring-grid three-column">
+        <label><span>Step ID</span><input required maxlength="64"
+            pattern="[a-z][a-z0-9_\\-]*" .value="${node.id}"
+            @input="${(event: Event) => this.updateWorkflowNode_(index, {
+              id: (event.target as HTMLInputElement).value,
+            })}"></label>
+        <label><span>Type</span><select .value="${node.kind}"
+            @change="${(event: Event) => this.changeWorkflowNodeKind_(
+              index, (event.target as HTMLSelectElement).value as
+                  StudioWorkflowNodeDoc['kind'])}">
+          <option value="tool_step">Capability</option>
+          <option value="approval">Approval gate</option>
+          <option value="user_input">User input</option>
+        </select></label>
+        <label><span>Label</span><input maxlength="200" .value="${node.label}"
+            @input="${(event: Event) => this.updateWorkflowNode_(index, {
+              label: (event.target as HTMLInputElement).value,
+            })}"></label>
+        ${node.kind === 'tool_step' ? html`
+          <label class="wide-field"><span>Capability</span><select required
+              .value="${node.tool ?? ''}"
+              @change="${(event: Event) => this.updateWorkflowNode_(index, {
+                tool: (event.target as HTMLSelectElement).value,
+              })}">
+            <option value="">Choose a registered capability</option>
+            ${(this.studio_.capabilities ?? []).map(capability => html`
+              <option value="${capability.id}">${capability.name} · ${capability.id}</option>`)}
+          </select></label>
+          <label class="wide-field"><span>Typed arguments <small>JSON object; capability schema is rechecked at run time</small></span>
+            <textarea class="workflow-args" rows="4"
+                .value="${this.studioWorkflowArgsDrafts_[node.id] ??
+                    JSON.stringify(node.args ?? {}, null, 2)}"
+                @input="${(event: Event) => this.updateWorkflowArgsDraft_(
+                  node.id, (event.target as HTMLTextAreaElement).value)}"></textarea></label>
+          <label class="check-field"><input type="checkbox"
+              .checked="${node.requires_approval ?? false}"
+              @change="${(event: Event) => this.updateWorkflowNode_(index, {
+                requires_approval:
+                    (event.target as HTMLInputElement).checked,
+              })}"> Require approval before this step</label>` :
+          html`<label class="wide-field"><span>Prompt</span><input required
+              maxlength="1000"
+              placeholder="${node.kind === 'approval' ?
+                'Explain what must be approved' :
+                'Ask for the input this step needs'}"
+              .value="${node.prompt ?? ''}"
+              @input="${(event: Event) => this.updateWorkflowNode_(index, {
+                prompt: (event.target as HTMLInputElement).value,
+              })}"></label>`}
+        ${node.max_iterations ? html`<label><span>Loop limit</span>
+          <input type="number" min="1" max="25"
+              .value="${String(node.max_iterations)}"
+              @input="${(event: Event) => this.updateWorkflowNode_(index, {
+                max_iterations:
+                    Number((event.target as HTMLInputElement).value),
+              })}"></label>` : nothing}
+      </div>
+    </article>`;
   }
 
   private renderProviderRoute_(
@@ -1170,12 +2424,13 @@ export class SeoulCanvasAppElement extends CrLitElement {
         .some(value => value.toLocaleLowerCase().includes(query)));
     return html`<section class="library-view" aria-label="Library">
       <div class="view-heading"><div><span class="eyebrow">DURABLE, USER-OWNED</span>
-        <h2>Library</h2></div><span class="count-chip">${artifacts.length} artifacts</span></div>
+        <h2>Library</h2></div><span class="count-chip">${artifacts.length} saved · ${collections.length} live</span></div>
       <label class="library-search"><span class="sr-only">Search Library</span>
         <input type="search" placeholder="Search saved things and live collections"
             .value="${this.libraryQuery_}" @input="${this.onLibraryQueryInput_}">
       </label>
       ${this.libraryError_ ? html`<div class="saui-error" role="alert">${this.libraryError_}</div>` : nothing}
+      ${this.collectionMessage_ ? html`<div class="library-notice" role="status">${this.collectionMessage_}</div>` : nothing}
       <section class="library-section"><h3>Saved artifacts</h3>
         ${artifacts.length ? html`<div class="artifact-grid">${artifacts.map(artifact => html`
           <article class="artifact-card"><span class="artifact-kind">${artifact.kind.replace(/_/g, ' ')}</span>
@@ -1185,20 +2440,150 @@ export class SeoulCanvasAppElement extends CrLitElement {
           </article>`)}</div>` : html`<div class="empty-shelf"><h4>No saved artifacts yet</h4>
             <p>Captures, images, media, and download references appear here after you explicitly save them.</p></div>`}
       </section>
-      <section class="library-section"><h3>Live collections</h3>
-        ${collections.length ? html`<div class="collection-list">${collections.map(collection => html`
-          <article class="collection-card"><header><div><h4>${collection.name}</h4>
-            <p>${collection.refresh_capability}</p></div><span class="task-state task-${collection.refresh_state}">${collection.refresh_state}</span></header>
-            ${collection.last_error ? html`<div class="saui-error">${collection.last_error}</div>` : nothing}
-            <ul>${(collection.items ?? []).slice(0, 6).map(item => {
-              const href = safeHttpUrl(item.url);
-              return html`<li><div><strong>${item.title}</strong><small>${item.subtitle || item.status || ''}</small></div>
-                ${href ? html`<a href="${href}" target="_blank" rel="noreferrer noopener">Open</a>` : nothing}</li>`;
-            })}</ul>
-          </article>`)}</div>` : html`<div class="empty-shelf"><h4>No live collections</h4>
-            <p>Any registered read-only capability can back a collection; provider and domain names are not built into Library.</p></div>`}
+      <section class="library-section">
+        <div class="library-section-heading"><div><h3>Live collections</h3>
+          <p>Verified, read-only capability results that stay current.</p></div>
+          <button class="primary" type="button"
+              ?disabled="${!(this.library_.live_collection_sources?.length)}"
+              @click="${() => this.openCollectionEditor_()}">New collection</button>
+        </div>
+        ${this.collectionEditorOpen_ ? this.renderCollectionEditor_() : nothing}
+        ${collections.length ? html`<div class="collection-list">
+          ${collections.map(collection => this.renderCollectionCard_(collection))}
+        </div>` : html`<div class="empty-shelf"><h4>No live collections</h4>
+          <p>${this.library_.live_collection_sources?.length ?
+            'Build one from a real read-only browser or connected-service source.' :
+            'No safe read-only collection source is available in this window.'}</p></div>`}
       </section>
     </section>`;
+  }
+
+  private renderCollectionEditor_(): unknown {
+    const sources = this.library_.live_collection_sources ?? [];
+    const source = this.selectedCollectionSource_();
+    const editing = !!this.collectionEditingId_;
+    const currentMissing = editing && this.collectionCapability_ &&
+        !sources.some(candidate => candidate.id === this.collectionCapability_);
+    return html`<form class="collection-editor" @submit="${(event: Event) => {
+      event.preventDefault();
+      void this.saveCollection_();
+    }}">
+      <header><div><span class="eyebrow">${editing ? 'EDIT SOURCE' : 'NEW LIVE SOURCE'}</span>
+        <h4>${editing ? 'Update collection' : 'Create a live collection'}</h4></div>
+        <button type="button" @click="${this.closeCollectionEditor_}">Cancel</button>
+      </header>
+      <div class="collection-editor-grid">
+        <label><span>Name</span><input aria-label="Collection name"
+            maxlength="200" placeholder="Open tabs"
+            .value="${this.collectionName_}" @input="${(event: Event) =>
+              this.collectionName_ = (event.target as HTMLInputElement).value}"></label>
+        <label><span>Read-only source</span><select aria-label="Collection source"
+            .value="${this.collectionCapability_}" @change="${(event: Event) => {
+              this.collectionCapability_ =
+                  (event.target as HTMLSelectElement).value;
+              this.collectionSource_ = '';
+            }}">
+          <option value="">Choose a source</option>
+          ${currentMissing ? html`<option value="${this.collectionCapability_}">
+            ${this.collectionCapability_} (currently unavailable)</option>` : nothing}
+          ${sources.map(candidate => html`<option value="${candidate.id}">
+            ${candidate.name}${candidate.provider ? ` · ${candidate.provider}` : ''}</option>`)}
+        </select></label>
+        ${source?.source_required ? html`<label class="collection-source-field">
+          <span>${source.source_description || source.source_field || 'Source'}</span>
+          <input aria-label="Collection source value"
+              type="${source.source_kind === 'url' ? 'url' : 'text'}"
+              placeholder="${source.source_kind === 'url' ?
+                'https://…' : 'Query or source identifier'}"
+              .value="${this.collectionSource_}" @input="${(event: Event) =>
+                this.collectionSource_ =
+                    (event.target as HTMLInputElement).value}"></label>` : nothing}
+        <label><span>Refresh every</span><span class="number-suffix">
+          <input aria-label="Refresh interval in minutes" type="number"
+              min="5" max="1440" step="1" .value="${String(this.collectionInterval_)}"
+              @input="${(event: Event) =>
+                this.collectionInterval_ =
+                    Number((event.target as HTMLInputElement).value)}">
+          <small>minutes</small></span></label>
+      </div>
+      ${source ? html`<p class="collection-source-description">${source.description}</p>` : nothing}
+      <footer><label class="switch-row"><input type="checkbox"
+          .checked="${this.collectionEnabled_}" @change="${(event: Event) =>
+            this.collectionEnabled_ =
+                (event.target as HTMLInputElement).checked}">
+          <span>Keep this collection current automatically</span></label>
+        <button class="primary" type="submit"
+            ?disabled="${!!this.collectionBusyId_ ||
+                !this.collectionName_.trim() || !this.collectionCapability_ ||
+                !Number.isInteger(this.collectionInterval_) ||
+                this.collectionInterval_ < 5 ||
+                this.collectionInterval_ > 1440 ||
+                (!!source?.source_required && !this.collectionSource_.trim())}">
+          ${this.collectionBusyId_ === (this.collectionEditingId_ || 'new') ?
+            'Saving…' : editing ? 'Save changes' : 'Create and refresh'}
+        </button></footer>
+    </form>`;
+  }
+
+  private renderCollectionCard_(collection: LiveCollectionDoc): unknown {
+    const source = this.collectionSourceFor_(collection.refresh_capability);
+    const busy = this.collectionBusyId_ === collection.id;
+    const refreshing = collection.refresh_state === 'refreshing';
+    const items = collection.items ?? [];
+    return html`<article class="collection-card"
+        data-collection-id="${collection.id}">
+      <header><div><span class="collection-source-name">${source?.name ||
+          collection.refresh_capability}</span><h4>${collection.name}</h4>
+        <p>${collection.enabled ?
+          `Every ${collection.refresh_interval_minutes} minutes` : 'Paused'} ·
+          ${collectionRefreshLabel(collection.last_success_at_ms)}</p></div>
+        <span class="task-state task-${collection.refresh_state}"
+            role="status">${refreshing ? 'refreshing' :
+              collection.enabled ? collection.refresh_state : 'paused'}</span>
+      </header>
+      <div class="collection-actions">
+        <button type="button" ?disabled="${busy || refreshing ||
+            !collection.enabled}" @click="${() =>
+              void this.refreshCollection_(collection)}">
+          ${refreshing ? 'Refreshing…' : 'Refresh now'}
+        </button>
+        <button type="button" ?disabled="${busy}" @click="${() =>
+          void this.setCollectionEnabled_(collection, !collection.enabled)}">
+          ${collection.enabled ? 'Pause' : 'Resume'}
+        </button>
+        <button type="button" ?disabled="${busy || refreshing}"
+            @click="${() => this.openCollectionEditor_(collection)}">Edit</button>
+        ${this.pendingDeleteCollectionId_ === collection.id ? html`
+          <button class="danger-button confirmed" type="button"
+              ?disabled="${busy}" @click="${() =>
+                void this.deleteCollection_(collection)}">Confirm delete</button>
+          <button type="button" @click="${() =>
+            this.pendingDeleteCollectionId_ = ''}">Cancel</button>` : html`
+          <button class="danger-button" type="button" ?disabled="${busy}"
+              @click="${() =>
+                this.pendingDeleteCollectionId_ = collection.id}">Delete</button>`}
+      </div>
+      ${!collection.scope_available ? html`<div class="collection-warning">
+        Its original window is unavailable. Refresh now to bind it to this window.
+      </div>` : nothing}
+      ${collection.last_error ? html`<div class="saui-error" role="status">
+        ${collection.last_error}${items.length ? ' Showing the last verified result.' : ''}
+      </div>` : nothing}
+      ${items.length ? html`<ul>${items.slice(0, 20).map(item => html`<li>
+        <div><strong>${item.title}</strong>
+          <small>${item.subtitle || item.status || 'Verified result'}</small></div>
+        ${item.actionable && safeHttpUrl(item.url) ? html`<button type="button"
+            ?disabled="${busy}" @click="${() =>
+              void this.openCollectionItem_(collection, item.stable_key)}">
+          Open</button>` : nothing}
+      </li>`)}</ul>
+      ${items.length > 20 ? html`<p class="collection-overflow">
+        Showing 20 of ${items.length} verified items.</p>` : nothing}` :
+      html`<div class="collection-empty">${refreshing ?
+        'Reading the source…' :
+        collection.last_error ? 'No verified items are available yet.' :
+        'This source returned no items.'}</div>`}
+    </article>`;
   }
 
   protected renderBoards_(): unknown {
@@ -1243,26 +2628,35 @@ export class SeoulCanvasAppElement extends CrLitElement {
         }}">
           <label><span class="sr-only">Board name</span>
             <input aria-label="Board name" maxlength="200"
+                ?disabled="${board.archived || this.libraryBusy_}"
                 .value="${this.boardRenameValue_}"
                 @input="${(event: Event) => {
                   this.boardRenameValue_ =
                       (event.target as HTMLInputElement).value;
                 }}"></label>
-          <button type="submit" ?disabled="${this.libraryBusy_ ||
+          <button type="submit" ?disabled="${board.archived ||
+              this.libraryBusy_ ||
               !this.boardRenameValue_.trim() ||
               this.boardRenameValue_.trim() === board.name}">Rename</button>
         </form>
         <div class="board-history-actions" aria-label="Board history">
-          <button type="button" ?disabled="${this.libraryBusy_ ||
+          <span class="board-layout-status" aria-hidden="true">
+            ${this.libraryBusy_ ? 'Saving…' : `${elements.length} item${elements.length === 1 ? '' : 's'}`}
+          </span>
+          <button type="button" data-history-action="undo"
+              ?disabled="${board.archived || this.libraryBusy_ ||
               !this.boardUndoCount_}" @click="${() => void this.undoBoard_()}">
             Undo
           </button>
-          <button type="button" ?disabled="${this.libraryBusy_ ||
+          <button type="button" data-history-action="redo"
+              ?disabled="${board.archived || this.libraryBusy_ ||
               !this.boardRedoCount_}" @click="${() => void this.redoBoard_()}">
             Redo
           </button>
         </div>
       </header>
+      <div class="sr-only" role="status" aria-live="polite"
+          aria-atomic="true">${this.boardAnnouncement_}</div>
 
       ${this.libraryError_ ?
         html`<div class="saui-error" role="alert">${this.libraryError_}</div>` :
@@ -1281,7 +2675,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
             <button type="button" @click="${() =>
               this.beginBoardDraft_('link')}"><span aria-hidden="true">↗</span> Link</button>
           </div>
-          <p>Drag to arrange. Use arrow keys for precise movement; Shift moves farther.</p>
+          <p>Drag to arrange. Arrow keys move; Alt + arrows resize; Shift uses larger steps.</p>
         </div>`}
 
       ${this.boardDraftKind_ && !board.archived ? html`
@@ -1322,7 +2716,13 @@ export class SeoulCanvasAppElement extends CrLitElement {
         </form>` : nothing}
 
       <div class="board-stage-shell">
-        <div class="board-stage" role="application"
+        <p class="sr-only" id="board-keyboard-help">
+          Focus an item and use arrow keys to move it. Hold Alt with an arrow
+          key to resize it. Hold Shift for a larger step. Press Enter to edit,
+          Delete to request removal, and Escape to cancel removal.
+        </p>
+        <div class="board-stage" role="region"
+            aria-describedby="board-keyboard-help"
             aria-label="${board.name} spatial canvas">
           ${elements.map(element => this.renderBoardElement_(board, element))}
           ${!elements.length ? html`<div class="board-stage-empty">
@@ -1340,11 +2740,20 @@ export class SeoulCanvasAppElement extends CrLitElement {
     const label = element.title ||
         (element.kind === 'text' ? 'Untitled note' :
           element.kind.replace(/_/g, ' '));
+    const semanticsId = `board-element-meta-${element.id}`;
     return html`<article class="board-element element-${element.kind}"
         tabindex="0" aria-label="${label}"
+        aria-describedby="board-keyboard-help ${semanticsId}"
+        aria-keyshortcuts="Enter Delete Escape ArrowLeft ArrowRight ArrowUp ArrowDown Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown"
+        data-pending-delete="${this.pendingDeleteElementId_ === element.id}"
         style="left:${element.x}px;top:${element.y}px;width:${element.width}px;height:${element.height}px;z-index:${element.z_index}"
         @keydown="${(event: KeyboardEvent) =>
-          this.onBoardElementKeydown_(event, board, element)}">
+          this.onBoardElementKeydown_(event, board, element)}"
+        @dblclick="${() => this.beginBoardElementEdit_(board, element)}">
+      <span class="sr-only" id="${semanticsId}">
+        Position ${Math.round(element.x)}, ${Math.round(element.y)}. Size
+        ${Math.round(element.width)} by ${Math.round(element.height)}.
+      </span>
       <header class="board-element-grip"
           @pointerdown="${(event: PointerEvent) =>
             this.startBoardPointer_(event, board, element, 'move')}"
@@ -1362,20 +2771,24 @@ export class SeoulCanvasAppElement extends CrLitElement {
           html`<p>${element.reference}</p>`}
       </div>
       <footer class="board-element-actions">
-        <button type="button" @click="${() =>
-          this.beginBoardElementEdit_(element)}">Edit</button>
+        <button type="button" ?disabled="${board.archived || this.libraryBusy_}"
+            @click="${() =>
+          this.beginBoardElementEdit_(board, element)}">Edit</button>
         ${this.pendingDeleteElementId_ === element.id ? html`
           <button class="danger-button confirmed" type="button"
+              ?disabled="${board.archived || this.libraryBusy_}"
               @click="${() => void this.removeBoardElement_(board, element)}">
             Confirm remove
           </button>
           <button type="button" @click="${() =>
             this.pendingDeleteElementId_ = ''}">Cancel</button>` : html`
-          <button class="danger-button" type="button" @click="${() =>
+          <button class="danger-button" type="button"
+              ?disabled="${board.archived || this.libraryBusy_}" @click="${() =>
             this.pendingDeleteElementId_ = element.id}">Remove</button>`}
       </footer>
       <button class="board-resize-handle" type="button"
           aria-label="Resize ${label}"
+          ?disabled="${board.archived || this.libraryBusy_}"
           @pointerdown="${(event: PointerEvent) =>
             this.startBoardPointer_(event, board, element, 'resize')}"
           @pointermove="${this.moveBoardPointer_}"
@@ -1390,6 +2803,156 @@ export class SeoulCanvasAppElement extends CrLitElement {
 
   protected onLibraryQueryInput_(event: Event) {
     this.libraryQuery_ = (event.target as HTMLInputElement).value;
+  }
+
+  private collectionSourceFor_(
+      capability: string): LiveCollectionSourceDoc|undefined {
+    return this.library_.live_collection_sources?.find(
+        source => source.id === capability);
+  }
+
+  private selectedCollectionSource_(): LiveCollectionSourceDoc|undefined {
+    return this.collectionSourceFor_(this.collectionCapability_);
+  }
+
+  private openCollectionEditor_(collection?: LiveCollectionDoc) {
+    this.collectionEditingId_ = collection?.id ?? '';
+    this.collectionName_ = collection?.name ?? '';
+    this.collectionCapability_ = collection?.refresh_capability ??
+        this.library_.live_collection_sources?.[0]?.id ?? '';
+    this.collectionSource_ = collection?.source_locator ?? '';
+    this.collectionInterval_ = collection?.refresh_interval_minutes ?? 15;
+    this.collectionEnabled_ = collection?.enabled ?? true;
+    this.pendingDeleteCollectionId_ = '';
+    this.collectionMessage_ = '';
+    this.libraryError_ = '';
+    this.collectionEditorOpen_ = true;
+  }
+
+  private closeCollectionEditor_() {
+    this.collectionEditorOpen_ = false;
+    this.collectionEditingId_ = '';
+    this.collectionName_ = '';
+    this.collectionCapability_ = '';
+    this.collectionSource_ = '';
+    this.collectionInterval_ = 15;
+    this.collectionEnabled_ = true;
+  }
+
+  private async saveCollection_() {
+    const name = this.collectionName_.trim();
+    const source = this.selectedCollectionSource_();
+    if (!this.pageHandler_ || this.collectionBusyId_ || !name ||
+        !this.collectionCapability_ ||
+        !Number.isInteger(this.collectionInterval_) ||
+        this.collectionInterval_ < 5 || this.collectionInterval_ > 1440 ||
+        (source?.source_required && !this.collectionSource_.trim())) {
+      return;
+    }
+    const busyId = this.collectionEditingId_ || 'new';
+    this.collectionBusyId_ = busyId;
+    this.collectionMessage_ = '';
+    this.libraryError_ = '';
+    try {
+      const response = await this.pageHandler_.upsertLiveCollection(
+          this.collectionEditingId_, name, this.collectionCapability_,
+          this.collectionSource_.trim(), this.collectionInterval_,
+          this.collectionEnabled_);
+      if (this.applyLibrarySnapshot_(response.snapshotJson)) {
+        this.collectionMessage_ = this.collectionEditingId_ ?
+            `${name} was updated.` :
+            `${name} was created.`;
+        this.closeCollectionEditor_();
+      }
+    } catch {
+      this.libraryError_ = 'The live collection could not be saved.';
+    } finally {
+      this.collectionBusyId_ = '';
+    }
+  }
+
+  private async setCollectionEnabled_(
+      collection: LiveCollectionDoc, enabled: boolean) {
+    if (!this.pageHandler_ || this.collectionBusyId_) return;
+    this.collectionBusyId_ = collection.id;
+    this.collectionMessage_ = '';
+    this.libraryError_ = '';
+    try {
+      const response = await this.pageHandler_.setLiveCollectionEnabled(
+          collection.id, enabled);
+      if (this.applyLibrarySnapshot_(response.snapshotJson)) {
+        this.collectionMessage_ =
+            `${collection.name} is ${enabled ? 'live again' : 'paused'}.`;
+      }
+    } catch {
+      this.libraryError_ =
+          `${collection.name} could not be ${enabled ? 'resumed' : 'paused'}.`;
+    } finally {
+      this.collectionBusyId_ = '';
+    }
+  }
+
+  private async refreshCollection_(collection: LiveCollectionDoc) {
+    if (!this.pageHandler_ || this.collectionBusyId_ ||
+        collection.refresh_state === 'refreshing') {
+      return;
+    }
+    this.collectionBusyId_ = collection.id;
+    this.collectionMessage_ = '';
+    this.libraryError_ = '';
+    try {
+      const response =
+          await this.pageHandler_.refreshLiveCollection(collection.id);
+      if (this.applyLibrarySnapshot_(response.snapshotJson)) {
+        const refreshed = this.library_.live_collections?.find(
+            candidate => candidate.id === collection.id);
+        this.collectionMessage_ = refreshed?.last_error ?
+            `${collection.name} kept its last verified result because the source failed.` :
+            `${collection.name} is current.`;
+      }
+    } catch {
+      this.libraryError_ = `${collection.name} could not be refreshed.`;
+    } finally {
+      this.collectionBusyId_ = '';
+    }
+  }
+
+  private async deleteCollection_(collection: LiveCollectionDoc) {
+    if (!this.pageHandler_ || this.collectionBusyId_) return;
+    this.collectionBusyId_ = collection.id;
+    this.collectionMessage_ = '';
+    this.libraryError_ = '';
+    try {
+      const response =
+          await this.pageHandler_.deleteLiveCollection(collection.id);
+      if (this.applyLibrarySnapshot_(response.snapshotJson)) {
+        this.pendingDeleteCollectionId_ = '';
+        if (this.collectionEditingId_ === collection.id) {
+          this.closeCollectionEditor_();
+        }
+        this.collectionMessage_ = `${collection.name} was deleted.`;
+      }
+    } catch {
+      this.libraryError_ = `${collection.name} could not be deleted.`;
+    } finally {
+      this.collectionBusyId_ = '';
+    }
+  }
+
+  private async openCollectionItem_(
+      collection: LiveCollectionDoc, stableKey: string) {
+    if (!this.pageHandler_ || this.collectionBusyId_) return;
+    this.collectionMessage_ = '';
+    this.libraryError_ = '';
+    try {
+      const response = await this.pageHandler_.openLiveCollectionItem(
+          collection.id, stableKey);
+      this.collectionMessage_ = response.taskId ?
+          'Opening through Seoul’s browser routing. Track it in the Task Deck.' :
+          'That item is no longer available to open.';
+    } catch {
+      this.libraryError_ = 'The collection item could not be opened.';
+    }
   }
 
   private renderRecord_(node: ComponentNode, entry: DataEntry|undefined) {
@@ -1425,22 +2988,26 @@ export class SeoulCanvasAppElement extends CrLitElement {
   }
 
   private selectBoard_(board: LibraryBoardDoc) {
+    void this.flushBoardKeyboard_();
     this.selectedBoardId_ = board.id;
     this.boardRenameValue_ = board.name;
     this.cancelBoardDraft_();
     this.pendingDeleteElementId_ = '';
     this.boardUndo_ = [];
     this.boardRedo_ = [];
+    this.boardAnnouncement_ = `${board.name} opened.`;
     this.syncBoardHistory_();
   }
 
-  private closeBoard_() {
+  private async closeBoard_() {
+    await this.flushBoardKeyboard_();
     this.selectedBoardId_ = '';
     this.boardRenameValue_ = '';
     this.cancelBoardDraft_();
     this.pendingDeleteElementId_ = '';
     this.boardUndo_ = [];
     this.boardRedo_ = [];
+    this.boardAnnouncement_ = '';
     this.syncBoardHistory_();
   }
 
@@ -1452,7 +3019,10 @@ export class SeoulCanvasAppElement extends CrLitElement {
     this.pendingDeleteElementId_ = '';
   }
 
-  private beginBoardElementEdit_(element: LibraryBoardElementDoc) {
+  private beginBoardElementEdit_(
+      board: LibraryBoardDoc, element: LibraryBoardElementDoc) {
+    if (board.archived || this.libraryBusy_) return;
+    void this.flushBoardKeyboard_();
     this.editingBoardElementId_ = element.id;
     this.boardDraftKind_ = element.kind;
     this.boardDraftTitle_ = element.title;
@@ -1653,6 +3223,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       event: PointerEvent, board: LibraryBoardDoc,
       element: LibraryBoardElementDoc, mode: 'move'|'resize') {
     if (this.libraryBusy_ || board.archived || event.button !== 0) return;
+    void this.flushBoardKeyboard_();
     event.preventDefault();
     event.stopPropagation();
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
@@ -1704,7 +3275,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
                   after.y !== gesture.before.y ||
                   after.width !== gesture.before.width ||
                   after.height !== gesture.before.height)) {
-      void this.commitBoardElementUpdate_(
+      void this.enqueueBoardElementCommit_(
           gesture.boardId, gesture.before, {...after});
     }
   }
@@ -1719,44 +3290,171 @@ export class SeoulCanvasAppElement extends CrLitElement {
   private onBoardElementKeydown_(
       event: KeyboardEvent, board: LibraryBoardDoc,
       element: LibraryBoardElementDoc) {
+    const target = event.target as HTMLElement;
+    if (target.closest('button, a, input, textarea')) {
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+      event.preventDefault();
+      if (board.archived) {
+        this.boardAnnouncement_ =
+            'This board is archived. Restore it before changing history.';
+        return;
+      }
+      if (event.shiftKey) {
+        void this.redoBoard_();
+      } else {
+        void this.undoBoard_();
+      }
+      return;
+    }
+    if (event.key === 'Escape') {
+      if (this.pendingDeleteElementId_ === element.id) {
+        event.preventDefault();
+        this.pendingDeleteElementId_ = '';
+        this.boardAnnouncement_ = `Removal cancelled for ${element.title || 'board item'}.`;
+      }
+      return;
+    }
+    if ((event.key === 'Delete' || event.key === 'Backspace') &&
+        !board.archived && !this.libraryBusy_) {
+      event.preventDefault();
+      this.pendingDeleteElementId_ = element.id;
+      this.boardAnnouncement_ =
+          `Remove ${element.title || 'this board item'}? Choose Confirm remove to continue.`;
+      return;
+    }
+    if (event.key === 'Enter' && !board.archived && !this.libraryBusy_) {
+      event.preventDefault();
+      this.beginBoardElementEdit_(board, element);
+      return;
+    }
     if (this.libraryBusy_ || board.archived ||
         !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(
             event.key)) {
       return;
     }
-    if ((event.target as HTMLElement).closest('button, a, input, textarea')) {
-      return;
-    }
     event.preventDefault();
     const distance = event.shiftKey ? 48 : 12;
-    const next = {...element};
-    if (event.key === 'ArrowLeft') next.x -= distance;
-    if (event.key === 'ArrowRight') next.x += distance;
-    if (event.key === 'ArrowUp') next.y -= distance;
-    if (event.key === 'ArrowDown') next.y += distance;
-    next.x = Math.max(0, Math.min(BOARD_STAGE_WIDTH - next.width, next.x));
-    next.y = Math.max(0, Math.min(BOARD_STAGE_HEIGHT - next.height, next.y));
+    const current = this.boardElement_(board.id, element.id) ?? element;
+    const next = {...current};
+    if (event.altKey) {
+      if (event.key === 'ArrowLeft') next.width -= distance;
+      if (event.key === 'ArrowRight') next.width += distance;
+      if (event.key === 'ArrowUp') next.height -= distance;
+      if (event.key === 'ArrowDown') next.height += distance;
+      next.width = Math.max(
+          BOARD_MIN_WIDTH,
+          Math.min(BOARD_STAGE_WIDTH - next.x, next.width));
+      next.height = Math.max(
+          BOARD_MIN_HEIGHT,
+          Math.min(BOARD_STAGE_HEIGHT - next.y, next.height));
+    } else {
+      if (event.key === 'ArrowLeft') next.x -= distance;
+      if (event.key === 'ArrowRight') next.x += distance;
+      if (event.key === 'ArrowUp') next.y -= distance;
+      if (event.key === 'ArrowDown') next.y += distance;
+      next.x =
+          Math.max(0, Math.min(BOARD_STAGE_WIDTH - next.width, next.x));
+      next.y =
+          Math.max(0, Math.min(BOARD_STAGE_HEIGHT - next.height, next.y));
+    }
+    if (next.x === current.x && next.y === current.y &&
+        next.width === current.width && next.height === current.height) {
+      this.boardAnnouncement_ =
+          `${element.title || 'Board item'} is at the canvas boundary.`;
+      return;
+    }
     this.replaceLocalBoardElement_(board.id, next);
-    void this.commitBoardElementUpdate_(
-        board.id, {...element}, {...next});
+    this.queueBoardKeyboardCommit_(board.id, current, next);
+    this.boardAnnouncement_ = event.altKey ?
+        `${element.title || 'Board item'} resized to ${Math.round(next.width)} by ${Math.round(next.height)}.` :
+        `${element.title || 'Board item'} moved to ${Math.round(next.x)}, ${Math.round(next.y)}.`;
+  }
+
+  private queueBoardKeyboardCommit_(
+      boardId: string, before: LibraryBoardElementDoc,
+      after: LibraryBoardElementDoc) {
+    const current = this.boardKeyboard_;
+    if (current &&
+        (current.boardId !== boardId || current.before.id !== before.id)) {
+      void this.flushBoardKeyboard_();
+    }
+    const active = this.boardKeyboard_;
+    if (active && active.boardId === boardId &&
+        active.before.id === before.id) {
+      window.clearTimeout(active.timerId);
+      active.after = {...after};
+      active.timerId =
+          window.setTimeout(() => void this.flushBoardKeyboard_(), 160);
+      return;
+    }
+    this.boardKeyboard_ = {
+      boardId,
+      before: {...before},
+      after: {...after},
+      timerId: window.setTimeout(
+          () => void this.flushBoardKeyboard_(), 160),
+    };
+  }
+
+  private async flushBoardKeyboard_(): Promise<void> {
+    const gesture = this.boardKeyboard_;
+    if (gesture) {
+      window.clearTimeout(gesture.timerId);
+      this.boardKeyboard_ = undefined;
+      await this.enqueueBoardElementCommit_(
+          gesture.boardId, gesture.before, gesture.after);
+      return;
+    }
+    await this.boardCommitTail_;
+  }
+
+  private enqueueBoardElementCommit_(
+      boardId: string, before: LibraryBoardElementDoc,
+      after: LibraryBoardElementDoc): Promise<boolean> {
+    const commitId = ++this.boardCommitSequence_;
+    this.boardPendingLayouts_.set(
+        commitId, {boardId, element: {...after}});
+    const commit = this.boardCommitTail_.then(
+        () => this.commitBoardElementUpdate_(boardId, before, after));
+    const settled = commit.then(result => {
+      this.boardPendingLayouts_.delete(commitId);
+      return result;
+    }, error => {
+      this.boardPendingLayouts_.delete(commitId);
+      throw error;
+    });
+    // Keep the queue usable even if a future transport implementation throws.
+    // The returned promise still carries that failure to the initiating action.
+    this.boardCommitTail_ = settled.then(() => undefined, () => undefined);
+    return settled;
   }
 
   private async commitBoardElementUpdate_(
       boardId: string, before: LibraryBoardElementDoc,
-      after: LibraryBoardElementDoc) {
+      after: LibraryBoardElementDoc): Promise<boolean> {
     if (this.libraryBusy_) {
       this.replaceLocalBoardElement_(boardId, before);
-      return;
+      this.boardAnnouncement_ = 'The previous board change is still saving.';
+      return false;
     }
     this.libraryBusy_ = true;
     if (await this.callUpdateBoardElement_(boardId, after)) {
       this.recordBoardHistory_({
         kind: 'update', boardId, before: {...before}, after: {...after},
       });
+      this.boardAnnouncement_ =
+          `${after.title || 'Board item'} layout saved.`;
+      this.libraryBusy_ = false;
+      return true;
     } else {
       this.replaceLocalBoardElement_(boardId, before);
+      this.boardAnnouncement_ =
+          `${before.title || 'Board item'} returned to its last saved layout.`;
     }
     this.libraryBusy_ = false;
+    return false;
   }
 
   private async applyBoardHistory_(
@@ -1780,6 +3478,8 @@ export class SeoulCanvasAppElement extends CrLitElement {
   }
 
   private async undoBoard_() {
+    if (this.libraryBusy_) return;
+    await this.flushBoardKeyboard_();
     const entry = this.boardUndo_.at(-1);
     if (!entry || this.libraryBusy_) return;
     this.libraryBusy_ = true;
@@ -1791,11 +3491,14 @@ export class SeoulCanvasAppElement extends CrLitElement {
       if (board) this.boardRenameValue_ = board.name;
       this.cancelBoardDraft_();
       this.pendingDeleteElementId_ = '';
+      this.boardAnnouncement_ = 'Board change undone.';
     }
     this.libraryBusy_ = false;
   }
 
   private async redoBoard_() {
+    if (this.libraryBusy_) return;
+    await this.flushBoardKeyboard_();
     const entry = this.boardRedo_.at(-1);
     if (!entry || this.libraryBusy_) return;
     this.libraryBusy_ = true;
@@ -1807,6 +3510,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       if (board) this.boardRenameValue_ = board.name;
       this.cancelBoardDraft_();
       this.pendingDeleteElementId_ = '';
+      this.boardAnnouncement_ = 'Board change redone.';
     }
     this.libraryBusy_ = false;
   }
@@ -1815,13 +3519,43 @@ export class SeoulCanvasAppElement extends CrLitElement {
     try {
       const snapshot = JSON.parse(snapshotJson) as LibrarySnapshotDoc;
       if (snapshot.status === 'error') {
-        this.libraryError_ = snapshot.detail || 'Library is unavailable.';
+        this.libraryError_ = libraryErrorMessage(snapshot.detail);
         return false;
       }
+      const revision = normalizedRevision(snapshot.revision);
+      if (revision !== undefined &&
+          olderRevision(revision, this.libraryRevision_)) {
+        // The mutation succeeded, but a newer authoritative snapshot is
+        // already rendered. Treat this reply as complete without regressing
+        // visible state.
+        return true;
+      }
+      if (revision !== undefined) this.libraryRevision_ = revision;
+      const optimisticLayouts = [...this.boardPendingLayouts_.values()];
+      if (this.boardKeyboard_) {
+        optimisticLayouts.push({
+          boardId: this.boardKeyboard_.boardId,
+          element: {...this.boardKeyboard_.after},
+        });
+      }
+      if (this.boardPointer_) {
+        const activePointerElement = this.boardElement_(
+            this.boardPointer_.boardId, this.boardPointer_.before.id);
+        if (activePointerElement) {
+          optimisticLayouts.push({
+            boardId: this.boardPointer_.boardId,
+            element: {...activePointerElement},
+          });
+        }
+      }
       this.library_ = snapshot;
+      for (const optimistic of optimisticLayouts) {
+        this.replaceLocalBoardElement_(
+            optimistic.boardId, optimistic.element);
+      }
       if (this.selectedBoardId_ &&
           !snapshot.boards?.some(board => board.id === this.selectedBoardId_)) {
-        this.closeBoard_();
+        void this.closeBoard_();
       }
       this.libraryError_ = '';
       return true;
@@ -1857,11 +3591,563 @@ export class SeoulCanvasAppElement extends CrLitElement {
     }
   }
 
+  private openEssentialEditor_(
+      essential?: StudioEssentialDoc, useCurrentPage = false) {
+    this.closeStudioEditor_();
+    this.studioEditorKind_ = 'essential';
+    this.studioEditingId_ = essential?.id ?? '';
+    this.studioEssentialName_ = essential?.name ??
+        (useCurrentPage ? this.pageContext_.title.slice(0, 256) : '');
+    this.studioEssentialUrl_ = essential?.root_url ??
+        (useCurrentPage ? this.pageContext_.origin : '');
+  }
+
+  private openThemeEditor_(theme?: StudioThemeDoc) {
+    this.closeStudioEditor_();
+    this.studioEditorKind_ = 'theme';
+    this.studioEditingId_ = theme?.id ?? '';
+    this.studioThemeDraft_ = theme ?
+        structuredClone(theme) : newThemeDraft();
+  }
+
+  private openSceneEditor_(scene?: StudioSceneDoc) {
+    this.closeStudioEditor_();
+    this.studioEditorKind_ = 'scene';
+    this.studioEditingId_ = scene?.id ?? '';
+    this.studioSceneDraft_ = scene ?
+        structuredClone(scene) : newSceneDraft();
+    if (!scene) {
+      this.studioSceneDraft_ = {
+        ...this.studioSceneDraft_,
+        workspace_id: (this.studio_.workspaces ?? [])
+            .find(workspace => !workspace.archived)?.id ?? '',
+      };
+    }
+  }
+
+  private openRoutingEditor_(rule?: StudioRoutingRuleDoc) {
+    this.closeStudioEditor_();
+    this.studioEditorKind_ = 'routing';
+    this.studioEditingId_ = rule?.id ?? '';
+    this.studioRoutingDraft_ = rule ?
+        structuredClone(rule) : newRoutingDraft();
+  }
+
+  private openWorkflowEditor_(workflow?: StudioWorkflowDoc) {
+    this.closeStudioEditor_();
+    this.studioEditorKind_ = 'workflow';
+    this.studioEditingId_ = workflow?.id ?? '';
+    this.studioWorkflowDraft_ = workflow ?
+        structuredClone(workflow) : newWorkflowDraft();
+    this.studioWorkflowArgsDrafts_ = Object.fromEntries(
+        this.studioWorkflowDraft_.nodes
+            .filter(node => node.kind === 'tool_step')
+            .map(node => [node.id, JSON.stringify(node.args ?? {}, null, 2)]));
+  }
+
+  private closeStudioEditor_() {
+    this.studioEditorKind_ = '';
+    this.studioEditingId_ = '';
+    this.studioPendingDelete_ = '';
+    this.studioWorkflowEdgeFrom_ = '';
+    this.studioWorkflowEdgeTo_ = '';
+    this.studioWorkflowEdgeKind_ = 'sequence';
+    this.studioWorkflowArgsDrafts_ = {};
+    this.studioEssentialName_ = '';
+    this.studioEssentialUrl_ = '';
+    this.studioError_ = '';
+  }
+
+  private updateThemeDraft_(patch: Partial<StudioThemeDoc>) {
+    this.studioThemeDraft_ = {...this.studioThemeDraft_, ...patch};
+  }
+
+  private updateThemeColor_(
+      key: keyof StudioThemeDoc['colors'], value: string) {
+    this.studioThemeDraft_ = {
+      ...this.studioThemeDraft_,
+      colors: {...this.studioThemeDraft_.colors, [key]: value},
+    };
+  }
+
+  private updateThemeTypography_(
+      patch: Partial<StudioThemeDoc['typography']>) {
+    this.studioThemeDraft_ = {
+      ...this.studioThemeDraft_,
+      typography: {...this.studioThemeDraft_.typography, ...patch},
+    };
+  }
+
+  private updateThemeMotion_(patch: Partial<StudioThemeDoc['motion']>) {
+    this.studioThemeDraft_ = {
+      ...this.studioThemeDraft_,
+      motion: {...this.studioThemeDraft_.motion, ...patch},
+    };
+  }
+
+  private updateSceneDraft_(patch: Partial<StudioSceneDoc>) {
+    this.studioSceneDraft_ = {...this.studioSceneDraft_, ...patch};
+  }
+
+  private updateSceneLifecycle_(
+      patch: Partial<StudioSceneDoc['lifecycle']>) {
+    this.studioSceneDraft_ = {
+      ...this.studioSceneDraft_,
+      lifecycle: {...this.studioSceneDraft_.lifecycle, ...patch},
+    };
+  }
+
+  private updateSceneAssistant_(
+      patch: Partial<StudioSceneDoc['assistant']>) {
+    this.studioSceneDraft_ = {
+      ...this.studioSceneDraft_,
+      assistant: {...this.studioSceneDraft_.assistant, ...patch},
+    };
+  }
+
+  private toggleSceneReference_(
+      field: 'site_layer_ids'|'routing_rule_ids'|'workflow_shortcut_ids',
+      id: string, selected: boolean) {
+    const values = new Set(this.studioSceneDraft_[field]);
+    if (selected) {
+      values.add(id);
+    } else {
+      values.delete(id);
+    }
+    this.studioSceneDraft_ = {
+      ...this.studioSceneDraft_,
+      [field]: [...values],
+    };
+  }
+
+  private updateRoutingDraft_(patch: Partial<StudioRoutingRuleDoc>) {
+    let next = {...this.studioRoutingDraft_, ...patch};
+    if (patch.match_type === 'anything') {
+      next = {...next, pattern: ''};
+    }
+    if (patch.disposition &&
+        patch.disposition !== 'specific_workspace') {
+      next = {...next, target_workspace_id: ''};
+    }
+    this.studioRoutingDraft_ = next;
+  }
+
+  private updateWorkflowDraft_(patch: Partial<StudioWorkflowDoc>) {
+    this.studioWorkflowDraft_ = {...this.studioWorkflowDraft_, ...patch};
+  }
+
+  private updateWorkflowTrigger_(
+      patch: Partial<StudioWorkflowDoc['trigger']>) {
+    const previous = this.studioWorkflowDraft_.trigger;
+    const kind = patch.kind ?? previous.kind;
+    const next: StudioWorkflowDoc['trigger'] = {kind};
+    if (kind === 'schedule') {
+      next.interval_minutes =
+          patch.interval_minutes ?? previous.interval_minutes ?? 60;
+    } else if (kind === 'scene_activation') {
+      next.scene_id = patch.scene_id ?? previous.scene_id ?? '';
+    } else if (kind === 'navigation' || kind === 'page_state_change') {
+      next.origin_pattern =
+          patch.origin_pattern ?? previous.origin_pattern ?? '';
+    } else if (kind === 'service_event') {
+      next.event_name = patch.event_name ?? previous.event_name ?? '';
+    }
+    this.studioWorkflowDraft_ = {
+      ...this.studioWorkflowDraft_,
+      trigger: next,
+    };
+  }
+
+  private addWorkflowNode_() {
+    const used = new Set(this.studioWorkflowDraft_.nodes.map(node => node.id));
+    let index = this.studioWorkflowDraft_.nodes.length + 1;
+    while (used.has(`step_${index}`)) ++index;
+    const node: StudioWorkflowNodeDoc = {
+      id: `step_${index}`,
+      kind: 'user_input',
+      label: `Step ${index}`,
+      prompt: '',
+    };
+    this.studioWorkflowDraft_ = {
+      ...this.studioWorkflowDraft_,
+      nodes: [...this.studioWorkflowDraft_.nodes, node],
+    };
+  }
+
+  private removeWorkflowNode_(index: number) {
+    const node = this.studioWorkflowDraft_.nodes[index];
+    if (!node) return;
+    const nodes = this.studioWorkflowDraft_.nodes.filter(
+        (_, candidate) => candidate !== index);
+    const edges = this.studioWorkflowDraft_.edges.filter(
+        edge => edge.from !== node.id && edge.to !== node.id);
+    const argsDrafts = {...this.studioWorkflowArgsDrafts_};
+    delete argsDrafts[node.id];
+    this.studioWorkflowArgsDrafts_ = argsDrafts;
+    this.studioWorkflowDraft_ = {
+      ...this.studioWorkflowDraft_,
+      nodes,
+      edges,
+    };
+  }
+
+  private updateWorkflowNode_(
+      index: number, patch: Partial<StudioWorkflowNodeDoc>) {
+    const current = this.studioWorkflowDraft_.nodes[index];
+    if (!current) return;
+    const replacement = {...current, ...patch};
+    const nodes = [...this.studioWorkflowDraft_.nodes];
+    nodes[index] = replacement;
+    let edges = this.studioWorkflowDraft_.edges;
+    if (patch.id && patch.id !== current.id) {
+      edges = edges.map(edge => ({
+        ...edge,
+        from: edge.from === current.id ? patch.id! : edge.from,
+        to: edge.to === current.id ? patch.id! : edge.to,
+      }));
+      const argsDrafts = {...this.studioWorkflowArgsDrafts_};
+      if (Object.prototype.hasOwnProperty.call(argsDrafts, current.id)) {
+        argsDrafts[patch.id] = argsDrafts[current.id]!;
+        delete argsDrafts[current.id];
+        this.studioWorkflowArgsDrafts_ = argsDrafts;
+      }
+    }
+    this.studioWorkflowDraft_ = {
+      ...this.studioWorkflowDraft_,
+      nodes,
+      edges,
+    };
+  }
+
+  private changeWorkflowNodeKind_(
+      index: number, kind: StudioWorkflowNodeDoc['kind']) {
+    const current = this.studioWorkflowDraft_.nodes[index];
+    if (!current) return;
+    const replacement: StudioWorkflowNodeDoc = {
+      id: current.id,
+      kind,
+      label: current.label,
+    };
+    if (kind === 'tool_step') {
+      replacement.tool = '';
+      replacement.args = {};
+      replacement.requires_approval = false;
+      this.studioWorkflowArgsDrafts_ = {
+        ...this.studioWorkflowArgsDrafts_,
+        [current.id]: '{}',
+      };
+    } else {
+      replacement.prompt = current.kind === 'tool_step' ? '' :
+          (current.prompt ?? '');
+    }
+    const nodes = [...this.studioWorkflowDraft_.nodes];
+    nodes[index] = replacement;
+    this.studioWorkflowDraft_ = {...this.studioWorkflowDraft_, nodes};
+  }
+
+  private updateWorkflowArgsDraft_(nodeId: string, value: string) {
+    this.studioWorkflowArgsDrafts_ = {
+      ...this.studioWorkflowArgsDrafts_,
+      [nodeId]: value,
+    };
+  }
+
+  private addWorkflowEdge_() {
+    const from = this.studioWorkflowEdgeFrom_;
+    const to = this.studioWorkflowEdgeTo_;
+    if (!from || !to || from === to) {
+      this.studioError_ = 'Choose two different steps for the edge.';
+      return;
+    }
+    if (this.studioWorkflowDraft_.edges.some(
+        edge => edge.from === from && edge.to === to)) {
+      this.studioError_ = 'That edge already exists.';
+      return;
+    }
+    let nodes = this.studioWorkflowDraft_.nodes;
+    if (this.studioWorkflowEdgeKind_ === 'loop_back') {
+      nodes = nodes.map(node => node.id === to && !node.max_iterations ?
+          {...node, max_iterations: 3} : node);
+    }
+    this.studioWorkflowDraft_ = {
+      ...this.studioWorkflowDraft_,
+      nodes,
+      edges: [...this.studioWorkflowDraft_.edges, {
+        from,
+        to,
+        kind: this.studioWorkflowEdgeKind_,
+      }],
+    };
+    this.studioWorkflowEdgeFrom_ = '';
+    this.studioWorkflowEdgeTo_ = '';
+    this.studioWorkflowEdgeKind_ = 'sequence';
+    this.studioError_ = '';
+  }
+
+  private removeWorkflowEdge_(index: number) {
+    const removed = this.studioWorkflowDraft_.edges[index];
+    const edges = this.studioWorkflowDraft_.edges.filter(
+        (_, candidate) => candidate !== index);
+    let nodes = this.studioWorkflowDraft_.nodes;
+    if (removed?.kind === 'loop_back' &&
+        !edges.some(edge => edge.kind === 'loop_back' &&
+            edge.to === removed.to)) {
+      nodes = nodes.map(node => node.id === removed.to ?
+          {...node, max_iterations: 0} : node);
+    }
+    this.studioWorkflowDraft_ = {
+      ...this.studioWorkflowDraft_,
+      nodes,
+      edges,
+    };
+  }
+
+  private routingMatchLabel_(rule: StudioRoutingRuleDoc): string {
+    const labels: Record<StudioRoutingRuleDoc['match_type'], string> = {
+      anything: 'Any link',
+      origin_exact: `Origin · ${rule.pattern}`,
+      url_prefix: `Prefix · ${rule.pattern}`,
+      url_glob: `Glob · ${rule.pattern}`,
+    };
+    return labels[rule.match_type];
+  }
+
+  private routingDispositionLabel_(rule: StudioRoutingRuleDoc): string {
+    const labels: Record<StudioRoutingRuleDoc['disposition'], string> = {
+      current_tab: 'Open in the current tab',
+      new_temporary_tab: 'Open as a temporary tab',
+      new_retained_tab: 'Open as a retained tab',
+      specific_workspace: 'Open in a specific workspace',
+      preview: 'Open as a preview',
+      split_pane: 'Open in a split pane',
+      external_application: 'Open in an external application',
+      ask_user: 'Ask every time',
+    };
+    return labels[rule.disposition];
+  }
+
+  private async runStudioMutation_(
+      operation: () => Promise<{snapshotJson: string}>,
+      successMessage: string): Promise<boolean> {
+    if (this.studioMutationBusy_) return false;
+    this.studioMutationBusy_ = true;
+    this.studioError_ = '';
+    this.studioProviderMessage_ = '';
+    try {
+      const response = await operation();
+      if (!this.applyStudioSnapshot_(response.snapshotJson)) {
+        return false;
+      }
+      this.studioProviderMessage_ = successMessage;
+      return true;
+    } catch {
+      this.studioError_ =
+          'Studio lost its browser connection. Nothing was changed.';
+      return false;
+    } finally {
+      this.studioMutationBusy_ = false;
+    }
+  }
+
+  private async saveTheme_() {
+    const theme = this.studioThemeDraft_;
+    if (!this.pageHandler_) return;
+    const saved = await this.runStudioMutation_(
+        () => this.pageHandler_!.upsertTheme({
+          id: theme.id.trim(),
+          name: theme.name.trim(),
+          scheme: theme.scheme,
+          background: theme.colors.background,
+          surface: theme.colors.surface,
+          text: theme.colors.text,
+          mutedText: theme.colors.muted_text,
+          accent: theme.colors.accent,
+          accentText: theme.colors.accent_text,
+          border: theme.colors.border,
+          error: theme.colors.error,
+          fontFamily: theme.typography.font_family.trim(),
+          baseSizePx: theme.typography.base_size_px,
+          scaleRatio: theme.typography.scale_ratio,
+          lineHeightPermille:
+              theme.typography.base_line_height_permille,
+          reducedMotion: theme.motion.reduced_motion,
+          reducedTransparency: theme.motion.reduced_transparency,
+          baseDurationMs: theme.motion.base_duration_ms,
+          cornerRadiusPx: theme.corner_radius_px,
+        }),
+        `Theme “${theme.name.trim()}” saved.`);
+    if (saved) this.closeStudioEditor_();
+  }
+
+  private async saveEssential_() {
+    if (!this.pageHandler_) return;
+    const name = this.studioEssentialName_.trim();
+    const rootUrl = safeHttpUrl(this.studioEssentialUrl_.trim());
+    if (!name || !rootUrl) {
+      this.studioError_ =
+          'Enter a name and a complete http:// or https:// address.';
+      return;
+    }
+    const saved = await this.runStudioMutation_(
+        () => this.pageHandler_!.upsertEssential(
+            this.studioEditingId_, name, rootUrl),
+        `Essential “${name}” saved for every workspace.`);
+    if (saved) this.closeStudioEditor_();
+  }
+
+  private async activateTheme_(themeId: string) {
+    if (!this.pageHandler_) return;
+    await this.runStudioMutation_(
+        () => this.pageHandler_!.activateTheme(themeId),
+        themeId ? 'Theme applied to this window.' :
+                  'This window now follows the system Theme.');
+  }
+
+  private async saveScene_() {
+    const scene = this.studioSceneDraft_;
+    if (!this.pageHandler_) return;
+    const saved = await this.runStudioMutation_(
+        () => this.pageHandler_!.upsertScene({
+          id: scene.id.trim(),
+          name: scene.name.trim(),
+          workspaceId: scene.workspace_id,
+          themeId: scene.theme_id,
+          siteLayerIds: scene.site_layer_ids,
+          routingRuleIds: scene.routing_rule_ids,
+          workflowShortcutIds: scene.workflow_shortcut_ids,
+          archiveTemporaryTabs:
+              scene.lifecycle.archive_temporary_tabs,
+          idleArchiveMinutes: scene.lifecycle.idle_archive_minutes,
+          restoreOnActivation: scene.lifecycle.restore_on_activation,
+          allowNetwork: scene.assistant.allow_network,
+          allowCloudModels: scene.assistant.allow_cloud_models,
+          maxSensitivity: scene.assistant.max_sensitivity,
+          defaultConnectors: scene.assistant.default_connectors,
+          preferCompact: scene.prefer_compact,
+        }),
+        `Scene “${scene.name.trim()}” saved.`);
+    if (saved) this.closeStudioEditor_();
+  }
+
+  private async activateScene_(sceneId: string) {
+    if (!this.pageHandler_) return;
+    await this.runStudioMutation_(
+        () => this.pageHandler_!.activateScene(sceneId),
+        sceneId ? 'Scene activated in this window.' :
+                  'Scene left; this window uses global profile settings.');
+  }
+
+  private async saveRoutingRule_() {
+    const rule = this.studioRoutingDraft_;
+    if (!this.pageHandler_) return;
+    const saved = await this.runStudioMutation_(
+        () => this.pageHandler_!.upsertRoutingRule({
+          id: rule.id,
+          priority: rule.priority,
+          matchType: rule.match_type,
+          pattern: rule.pattern.trim(),
+          sourceWorkspaceId: rule.source_workspace_id,
+          requireUserGesture: rule.require_user_gesture,
+          disposition: rule.disposition,
+          targetWorkspaceId: rule.target_workspace_id,
+          enabled: rule.enabled,
+        }),
+        'Routing rule saved.');
+    if (saved) this.closeStudioEditor_();
+  }
+
+  private async saveWorkflow_() {
+    if (!this.pageHandler_) return;
+    const nodes: StudioWorkflowNodeDoc[] = [];
+    try {
+      for (const node of this.studioWorkflowDraft_.nodes) {
+        if (node.kind !== 'tool_step') {
+          nodes.push({...node});
+          continue;
+        }
+        const parsed = JSON.parse(
+            this.studioWorkflowArgsDrafts_[node.id] ?? '{}') as unknown;
+        if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+          throw new Error(node.id);
+        }
+        nodes.push({
+          ...node,
+          args: parsed as Record<string, unknown>,
+        });
+      }
+    } catch (error) {
+      this.studioError_ =
+          `Arguments for ${error instanceof Error ? error.message : 'a step'} must be a valid JSON object.`;
+      return;
+    }
+    const now = Date.now();
+    const workflow: StudioWorkflowDoc = {
+      ...this.studioWorkflowDraft_,
+      name: this.studioWorkflowDraft_.name.trim(),
+      description: this.studioWorkflowDraft_.description.trim(),
+      nodes,
+      updated_at_ms: now,
+      created_at_ms: this.studioWorkflowDraft_.created_at_ms || now,
+    };
+    const saved = await this.runStudioMutation_(
+        () => this.pageHandler_!.upsertWorkflow(JSON.stringify(workflow)),
+        `Workflow “${workflow.name}” saved.`);
+    if (saved) this.closeStudioEditor_();
+  }
+
+  private async duplicateWorkflow_(workflowId: string) {
+    if (!this.pageHandler_) return;
+    await this.runStudioMutation_(
+        () => this.pageHandler_!.duplicateWorkflow(workflowId),
+        'Workflow duplicated with a new stable identity.');
+  }
+
+  private async runWorkflow_(workflowId: string) {
+    if (!this.pageHandler_ || this.studioMutationBusy_) return;
+    this.studioMutationBusy_ = true;
+    this.studioError_ = '';
+    try {
+      const response = await this.pageHandler_.runWorkflow(workflowId);
+      if (!response.taskId) {
+        this.studioError_ =
+            'The workflow could not compile for the current window.';
+        return;
+      }
+      this.studioProviderMessage_ =
+          'Workflow started. Progress is visible in Canvas and the Task Deck.';
+    } catch {
+      this.studioError_ = 'The workflow could not be started.';
+    } finally {
+      this.studioMutationBusy_ = false;
+    }
+  }
+
+  private async deleteStudioEntity_(
+      kind: 'essential'|'scene'|'theme'|'routing'|'workflow', id: string) {
+    if (!this.pageHandler_) return;
+    const operation = kind === 'essential' ?
+        () => this.pageHandler_!.deleteEssential(id) :
+        kind === 'scene' ?
+        () => this.pageHandler_!.deleteScene(id) :
+        kind === 'theme' ?
+        () => this.pageHandler_!.deleteTheme(id) :
+        kind === 'routing' ?
+        () => this.pageHandler_!.deleteRoutingRule(id) :
+        () => this.pageHandler_!.deleteWorkflow(id);
+    const deleted = await this.runStudioMutation_(
+        operation, `${kind[0]!.toUpperCase()}${kind.slice(1)} deleted.`);
+    if (deleted) {
+      this.studioPendingDelete_ = '';
+      if (this.studioEditingId_ === id) this.closeStudioEditor_();
+    }
+  }
+
   private applyStudioSnapshot_(snapshotJson: string): boolean {
     try {
       const snapshot = JSON.parse(snapshotJson) as StudioSnapshotDoc;
       if (snapshot.status === 'error') {
-        this.studioError_ = snapshot.detail || 'Studio is unavailable.';
+        this.studioError_ = studioErrorMessage(
+            snapshot.detail || 'studio_unavailable');
         return false;
       }
       this.studio_ = snapshot;
@@ -1872,11 +4158,54 @@ export class SeoulCanvasAppElement extends CrLitElement {
       this.voiceConfigured_ =
           snapshot.providers?.cloud?.voice_configured ??
           this.voiceConfigured_;
+      this.applyActiveTheme_();
       return true;
     } catch {
       this.studioError_ = 'Studio returned an unreadable snapshot.';
       return false;
     }
+  }
+
+  private applyActiveTheme_() {
+    const properties = [
+      '--ink', '--muted', '--panel', '--panel-solid', '--canvas', '--rule',
+      '--accent', '--accent-soft', '--danger',
+    ];
+    const theme = this.studio_.themes?.find(
+        candidate => candidate.id === this.studio_.active_theme_id);
+    if (!theme) {
+      for (const property of properties) this.style.removeProperty(property);
+      this.style.removeProperty('font-family');
+      this.style.removeProperty('font-size');
+      this.style.removeProperty('color-scheme');
+      this.removeAttribute('data-reduced-motion');
+      this.removeAttribute('data-reduced-transparency');
+      return;
+    }
+    this.style.setProperty('--ink', safeHexColor(theme.colors.text));
+    this.style.setProperty('--muted', safeHexColor(theme.colors.muted_text));
+    this.style.setProperty('--panel', safeHexColor(theme.colors.surface));
+    this.style.setProperty('--panel-solid', safeHexColor(theme.colors.surface));
+    this.style.setProperty('--canvas', safeHexColor(theme.colors.background));
+    this.style.setProperty('--rule', safeHexColor(theme.colors.border));
+    this.style.setProperty('--accent', safeHexColor(theme.colors.accent));
+    this.style.setProperty(
+        '--accent-soft',
+        `color-mix(in srgb, ${safeHexColor(theme.colors.accent)} 16%, ${safeHexColor(theme.colors.surface)})`);
+    this.style.setProperty('--danger', safeHexColor(theme.colors.error));
+    this.style.setProperty(
+        'font-family',
+        `${theme.typography.font_family}, ui-sans-serif, system-ui, sans-serif`);
+    this.style.setProperty(
+        'font-size', `${theme.typography.base_size_px}px`);
+    this.style.setProperty(
+        'color-scheme',
+        theme.scheme === 'system' ? 'light dark' : theme.scheme);
+    this.toggleAttribute(
+        'data-reduced-motion', theme.motion.reduced_motion);
+    this.toggleAttribute(
+        'data-reduced-transparency',
+        theme.motion.reduced_transparency);
   }
 
   private syncProviderDrafts_(snapshot: StudioSnapshotDoc = this.studio_) {
@@ -2124,6 +4453,14 @@ export class SeoulCanvasAppElement extends CrLitElement {
         // Malformed snapshots render nothing.
       }
     });
+    this.callbackRouter_.pushThreadSnapshot.addListener(
+        (snapshotJson: string) => {
+          this.applyThreadSnapshot_(snapshotJson);
+        });
+    this.callbackRouter_.pushLibrarySnapshot.addListener(
+        (snapshotJson: string) => {
+          this.applyLibrarySnapshot_(snapshotJson);
+        });
     this.callbackRouter_.setStatus.addListener((statusJson: string) => {
       try {
         const status = JSON.parse(statusJson) as Record<string, unknown>;
@@ -2163,6 +4500,13 @@ export class SeoulCanvasAppElement extends CrLitElement {
           customizable: false,
         };
       }
+    });
+    this.callbackRouter_.openBoostEditor.addListener(() => {
+      this.selectedView_ = 'boosts';
+      void (async () => {
+        await this.refreshSiteLayers_();
+        if (this.boosts_.active_page?.customizable) this.openNewBoost_();
+      })();
     });
   }
 

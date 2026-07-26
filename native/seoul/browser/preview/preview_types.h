@@ -66,6 +66,8 @@ enum class PreviewError {
   kInvalidState,
   kLimitExceeded,
   kNavigationLimitExceeded,
+  kRoutingRejected,
+  kPromotionFailed,
 };
 
 const char* PreviewErrorToString(PreviewError error);

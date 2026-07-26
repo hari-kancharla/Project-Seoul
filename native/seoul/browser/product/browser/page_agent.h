@@ -23,6 +23,7 @@
 #include "seoul/browser/semantic/semantic_types.h"
 
 namespace content {
+class ScopedAccessibilityMode;
 class WebContents;
 }
 
@@ -105,6 +106,8 @@ enum class PageActionStatus {
 // stays independent of the tab strip wiring.
 using WebContentsResolver =
     base::RepeatingCallback<content::WebContents*(const LiveTabKey&)>;
+using PageActionVerificationCallback =
+    base::OnceCallback<void(PageActionStatus status)>;
 
 class PageAgent {
  public:
@@ -124,6 +127,12 @@ class PageAgent {
   // touching the page; a stale handle is rejected, never coerced.
   PageActionStatus PerformAction(const LiveTabKey& tab,
                                  const PageActionRequest& request);
+  // Dispatches one validated AX action and resolves only after a fresh AX
+  // snapshot observes a document/focus/value change (or a committed
+  // navigation). A dispatch with no observable postcondition fails.
+  void PerformActionAndVerify(const LiveTabKey& tab,
+                              const PageActionRequest& request,
+                              PageActionVerificationCallback callback);
 
   // Invalidates all handles for a tab (called by the runtime on navigation or
   // document replacement so the next action re-observes).
@@ -146,6 +155,8 @@ class PageAgent {
     ~TabGeneration();
 
     uint64_t generation = 0;
+    uint64_t document_revision = 0;
+    uint64_t document_fingerprint = 0;
     std::map<std::string, NodeBinding> handles;  // handle -> node
   };
 
@@ -154,9 +165,27 @@ class PageAgent {
       uint64_t expected_generation,
       base::OnceCallback<void(std::optional<PageObservation>)> callback,
       /* ui::AXTreeUpdate */ void* update_ptr);
+  void RequestActionVerification(
+      LiveTabKey tab,
+      uint64_t expected_document_revision,
+      uint64_t before_fingerprint,
+      int attempt,
+      PageActionVerificationCallback callback);
+  void OnActionVerificationSnapshot(
+      LiveTabKey tab,
+      uint64_t expected_document_revision,
+      uint64_t before_fingerprint,
+      int attempt,
+      PageActionVerificationCallback callback,
+      /* ui::AXTreeUpdate */ void* update_ptr);
+  void ExpireHandles(LiveTabKey tab, uint64_t expected_generation);
 
   WebContentsResolver resolver_;
   std::map<LiveTabKey, TabGeneration> tabs_;
+  // A live scoped mode keeps renderer accessibility available between the
+  // one-shot observation and the later handle action.
+  std::map<LiveTabKey, std::unique_ptr<content::ScopedAccessibilityMode>>
+      accessibility_modes_;
   std::map<LiveTabKey, std::unique_ptr<PageAgentTabObserver>>
       navigation_observers_;
   base::WeakPtrFactory<PageAgent> weak_factory_{this};

@@ -1,0 +1,197 @@
+diff --git a/chrome/browser/search/search.cc b/chrome/browser/search/search.cc
+index eab18ff732..8c583b879f 100644
+--- a/chrome/browser/search/search.cc
++++ b/chrome/browser/search/search.cc
+@@ -175,6 +175,13 @@ struct NewTabURLDetails {
+ #if BUILDFLAG(IS_ANDROID)
+     const GURL local_url;
+ #else
++    // Seoul owns the normal-profile start surface. Keeping this decision in
++    // the canonical NTP rewrite path covers the new-tab command, startup tabs,
++    // and chrome://newtab without exposing the upstream Google/Chromium page.
++    if (profile->IsRegularProfile()) {
++      return NewTabURLDetails(GURL("chrome://seoul-canvas/"),
++                              NEW_TAB_URL_VALID);
++    }
+     const bool default_is_google = DefaultSearchProviderIsGoogle(profile);
+     const GURL local_url(default_is_google
+                              ? chrome::ChromeUINewTabPageURLAsGURL()
+diff --git a/chrome/browser/ui/browser.cc b/chrome/browser/ui/browser.cc
+index 98009e1085..ba3a1e3bd2 100644
+--- a/chrome/browser/ui/browser.cc
++++ b/chrome/browser/ui/browser.cc
+@@ -734,6 +734,11 @@ GURL Browser::GetNewTabURL() const {
+   if (auto* const app_browser_controller = app_controller()) {
+     return app_browser_controller->GetAppNewTabUrl();
+   }
++  // Seoul's first-party Canvas is the product start surface. Incognito,
++  // guest, and non-normal windows retain Chromium's constrained NTP.
++  if (is_type_normal() && profile()->IsRegularProfile()) {
++    return GURL("chrome://seoul-canvas/");
++  }
+   return chrome::ChromeUINewTabURLAsGURL();
+ }
+ 
+diff --git a/chrome/browser/ui/tabs/vertical_tab_strip_state.h b/chrome/browser/ui/tabs/vertical_tab_strip_state.h
+index b46ad7ecdf..340acf966f 100644
+--- a/chrome/browser/ui/tabs/vertical_tab_strip_state.h
++++ b/chrome/browser/ui/tabs/vertical_tab_strip_state.h
+@@ -7,7 +7,7 @@
+ 
+ namespace tabs {
+ 
+-inline constexpr int kVerticalTabStripDefaultUncollapsedWidth = 240;
++inline constexpr int kVerticalTabStripDefaultUncollapsedWidth = 276;
+ 
+ // Per-window state for the vertical tab strip.
+ struct VerticalTabStripState {
+diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/views/frame/browser_view.cc
+index bcb1930a86..bfd016a009 100644
+--- a/chrome/browser/ui/views/frame/browser_view.cc
++++ b/chrome/browser/ui/views/frame/browser_view.cc
+@@ -324,6 +324,7 @@
+ #include "ui/gfx/animation/animation_runner.h"
+ #include "ui/gfx/canvas.h"
+ #include "ui/gfx/color_utils.h"
++#include "ui/gfx/geometry/insets.h"
+ #include "ui/gfx/geometry/outsets.h"
+ #include "ui/gfx/geometry/point.h"
+ #include "ui/gfx/geometry/rect.h"
+@@ -964,6 +965,19 @@ BrowserView::BrowserView(Browser* browser)
+     vertical_tab_strip_region_view_ =
+         AddChildView(std::move(vertical_tab_strip_container));
+ 
++    // A Seoul window uses one integrated vertical toolbar: the real omnibox
++    // remains fully native and functional, but lives in the sidebar instead of
++    // exposing Chromium's generic full-width top row. BrowserView keeps the
++    // raw ToolbarView pointer, so command/focus/security plumbing is unchanged.
++    toolbar_ = vertical_tab_strip_region_view_->AddChildViewAt(
++        top_container_->RemoveChildViewT(toolbar_), 0);
++    toolbar_->SetProperty(views::kMarginsKey,
++                          gfx::Insets::TLBR(8, 8, 4, 8));
++    toolbar_->SetProperty(
++        views::kFlexBehaviorKey,
++        views::FlexSpecification(views::MinimumFlexSizeRule::kPreferred,
++                                 views::MaximumFlexSizeRule::kPreferred));
++
+     vertical_tab_strip_top_corner_ =
+         AddChildView(std::make_unique<CustomFloatingCorner>(
+             *this, CustomFloatingCorner::CornerOrientation::kTopLeading,
+diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.cc b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+index 9bdbc454ec..2ca1cf8947 100644
+--- a/chrome/browser/ui/views/toolbar/toolbar_view.cc
++++ b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+@@ -671,6 +671,50 @@ void ToolbarView::Init() {
+   }
+ 
+   initialized_ = true;
++  ApplySeoulSidebarPresentation();
++}
++
++void ToolbarView::SetSeoulSidebarPresentation(bool collapsed) {
++  if (display_mode_ != DisplayMode::kNormal) {
++    return;
++  }
++  seoul_sidebar_mode_ = true;
++  seoul_sidebar_collapsed_ = collapsed;
++  if (initialized_) {
++    ApplySeoulSidebarPresentation();
++  } else {
++    SetVisible(!collapsed);
++  }
++  InvalidateLayout();
++  PreferredSizeChanged();
++}
++
++void ToolbarView::ApplySeoulSidebarPresentation() {
++  if (!seoul_sidebar_mode_ || display_mode_ != DisplayMode::kNormal) {
++    return;
++  }
++  SetVisible(!seoul_sidebar_collapsed_);
++  if (seoul_sidebar_collapsed_ || !initialized_) {
++    return;
++  }
++
++  // Keep core navigation beside the address field. Secondary browser actions
++  // remain available from Commands/More instead of crowding the narrow rail.
++  for (views::View* child : children()) {
++    const bool should_show =
++        child == back_ || child == forward_ || child == reload_ ||
++        child == location_bar_view_ || child == toolbar_webview_ ||
++        child == app_menu_button_;
++    if (child->GetVisible() != should_show) {
++      child->SetVisible(should_show);
++    }
++  }
++  if (overflow_button_) {
++    overflow_button_->SetVisible(false);
++  }
++  if (layout_manager_) {
++    layout_manager_->SetInteriorMargin(gfx::Insets::TLBR(4, 8, 4, 8));
++  }
+ }
+ 
+ void ToolbarView::InitGlicContainer() {
+@@ -1432,6 +1477,11 @@ void ToolbarView::Layout(PassKey) {
+     return;
+   }
+ 
++  ApplySeoulSidebarPresentation();
++  if (seoul_sidebar_mode_ && seoul_sidebar_collapsed_) {
++    return;
++  }
++
+   if (display_mode_ == DisplayMode::kCustomTab) {
+     custom_tab_bar_->SetBounds(0, 0, width(),
+                                custom_tab_bar_->GetPreferredSize().height());
+@@ -1445,7 +1495,7 @@ void ToolbarView::Layout(PassKey) {
+     LayoutCommon();
+   }
+ 
+-  if (toolbar_controller_) {
++  if (toolbar_controller_ && !seoul_sidebar_mode_) {
+     // Need to determine whether the overflow button should be visible, and only
+     // update it if the visibility changes.
+     const bool was_overflow_button_visible =
+@@ -1475,6 +1525,7 @@ void ToolbarView::OnThemeChanged() {
+ 
+   if (display_mode_ == DisplayMode::kNormal) {
+     LoadImages();
++    ApplySeoulSidebarPresentation();
+   }
+ 
+   SchedulePaint();
+diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.h b/chrome/browser/ui/views/toolbar/toolbar_view.h
+index 58ef785117..b4b37f7595 100644
+--- a/chrome/browser/ui/views/toolbar/toolbar_view.h
++++ b/chrome/browser/ui/views/toolbar/toolbar_view.h
+@@ -119,6 +119,12 @@ class ToolbarView : public views::AccessiblePaneView,
+   // Create the contents of the Browser Toolbar.
+   void Init();
+ 
++  // Configures the normal toolbar as Seoul's sidebar address row. In this
++  // mode the omnibox remains fully native and functional, while Chrome's
++  // duplicate navigation/action strip is moved to the command surface. The
++  // row disappears in collapsed presentation and returns on hover reveal.
++  void SetSeoulSidebarPresentation(bool collapsed);
++
+   // Forces the toolbar (and transitively the location bar) to update its
+   // current state.  If |tab| is non-NULL, we're switching (back?) to this tab
+   // and should restore any previous location bar state (such as user editing)
+@@ -277,6 +283,7 @@ class ToolbarView : public views::AccessiblePaneView,
+ 
+   // Logic that must be done on initialization and then on layout.
+   void LayoutCommon();
++  void ApplySeoulSidebarPresentation();
+ 
+   // AppMenuIconController::Delegate:
+   void UpdateTypeAndSeverity(
+@@ -454,6 +461,8 @@ class ToolbarView : public views::AccessiblePaneView,
+ 
+   // Whether this toolbar has been initialized.
+   bool initialized_ = false;
++  bool seoul_sidebar_mode_ = false;
++  bool seoul_sidebar_collapsed_ = false;
+ 
+   // A chevron button that indicates some toolbar elements have overflowed
+   // due to small toolbar view width. Visibility controlled by

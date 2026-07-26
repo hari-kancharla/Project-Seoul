@@ -36,8 +36,13 @@ enum class CommandKind {
   kOpenNewTab,  // open Chromium's normal New Tab Page (no URL navigation)
   kOpenTemporaryTab,
   kOpenRetainedTab,
+  kNavigateTab,
+  kOpenSplitTab,
+  kOpenExternal,
   kActivateTab,
   kCloseTab,
+  kArchiveTab,
+  kRestoreArchivedTab,
   kPinTab,
   kUnpinTab,
   kMoveTabWithinWindow,

@@ -1,0 +1,35 @@
+diff --git a/chrome/browser/ui/tabs/vertical_tab_strip_state_controller.cc b/chrome/browser/ui/tabs/vertical_tab_strip_state_controller.cc
+index 9919d3a042..35d92dfde8 100644
+--- a/chrome/browser/ui/tabs/vertical_tab_strip_state_controller.cc
++++ b/chrome/browser/ui/tabs/vertical_tab_strip_state_controller.cc
+@@ -238,6 +238,15 @@ void VerticalTabStripStateController::SetExpandOnHoverEnabled(bool enabled) {
+   pref_service_->SetBoolean(prefs::kVerticalTabsExpandOnHoverEnabled, enabled);
+ }
+ 
++void VerticalTabStripStateController::SetExpandOnHoverEnabledForWindow(
++    bool enabled) {
++  if (is_expand_on_hover_enabled_ == enabled) {
++    return;
++  }
++  is_expand_on_hover_enabled_ = enabled;
++  NotifyExpandOnHoverEnabledChanged();
++}
++
+ base::CallbackListSubscription
+ VerticalTabStripStateController::RegisterOnCollapseChanged(
+     CollapseChangeCallback callback) {
+diff --git a/chrome/browser/ui/tabs/vertical_tab_strip_state_controller.h b/chrome/browser/ui/tabs/vertical_tab_strip_state_controller.h
+index ae53c9d95a..9720008006 100644
+--- a/chrome/browser/ui/tabs/vertical_tab_strip_state_controller.h
++++ b/chrome/browser/ui/tabs/vertical_tab_strip_state_controller.h
+@@ -103,6 +103,10 @@ class VerticalTabStripStateController : public SessionServiceBaseObserver,
+ 
+   bool IsExpandOnHoverEnabled() const;
+   void SetExpandOnHoverEnabled(bool enabled);
++  // Applies reveal-on-hover to this browser window without changing the
++  // profile preference used by Chromium's stock global setting. Product
++  // surfaces with durable per-window policy use this entry point.
++  void SetExpandOnHoverEnabledForWindow(bool enabled);
+ 
+   const VerticalTabStripState& GetState() const { return state_; }
+ 

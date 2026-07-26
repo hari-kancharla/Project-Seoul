@@ -67,7 +67,12 @@ CommandResult<CommandStatus> CommandExecutor::ValidateCommand(
   }
   switch (command.kind) {
     case CommandKind::kOpenTemporaryTab:
-    case CommandKind::kOpenRetainedTab: {
+    case CommandKind::kOpenRetainedTab:
+    case CommandKind::kNavigateTab:
+    case CommandKind::kOpenSplitTab:
+    case CommandKind::kOpenExternal:
+    case CommandKind::kArchiveTab:
+    case CommandKind::kRestoreArchivedTab: {
       CommandStatusResult url = UrlPolicy::ValidateNavigationUrl(command.url);
       if (!url.has_value()) {
         return base::unexpected(url.error());
@@ -103,6 +108,27 @@ CommandResult<CommandStatus> CommandExecutor::DispatchChromiumCommand(
     return base::unexpected(CommandError::kDispatchFailure);
   }
 
+  // These mutations have no matching tab-strip lifecycle event: current-tab
+  // navigation keeps the same tab identity, and external handoff leaves the
+  // browser. Their concrete adapters validate the live target and dispatch
+  // synchronously, so a successful dispatch is the truthful terminal state.
+  if (command.kind == CommandKind::kNavigateTab) {
+    auto tab = resolver_->ResolveTab(profile_, command.window, command.tab);
+    if (!tab.has_value()) {
+      return base::unexpected(CommandError::kTabNotFound);
+    }
+    if (!adapter_->NavigateTab(profile_, tab.value(), command.url).has_value()) {
+      return base::unexpected(CommandError::kDispatchFailure);
+    }
+    return base::ok(CommandStatus::kApplied);
+  }
+  if (command.kind == CommandKind::kOpenExternal) {
+    if (!adapter_->OpenExternal(profile_, command.url).has_value()) {
+      return base::unexpected(CommandError::kDispatchFailure);
+    }
+    return base::ok(CommandStatus::kApplied);
+  }
+
   ExpectedObservation observation = BuildObservation(command);
   if (!registry_.Register(observation).has_value()) {
     return base::unexpected(CommandError::kDuplicateCommandId);
@@ -136,6 +162,38 @@ CommandResult<CommandStatus> CommandExecutor::DispatchChromiumCommand(
                                    command.foreground, &inserted);
       break;
     }
+    case CommandKind::kRestoreArchivedTab: {
+      if (!command.membership_id.has_value() ||
+          !model_->FindArchivedTab(command.membership_id.value())) {
+        registry_.Consume(command.id);
+        pending_commands_.erase(command.id);
+        return base::unexpected(CommandError::kInvalidCommand);
+      }
+      auto window = resolver_->ResolveWindow(profile_, command.window);
+      if (!window.has_value()) {
+        registry_.Consume(command.id);
+        pending_commands_.erase(command.id);
+        return base::unexpected(CommandError::kWindowNotFound);
+      }
+      LiveTabKey inserted;
+      dispatch = adapter_->OpenTab(profile_, window.value(), command.url,
+                                   command.foreground, &inserted);
+      break;
+    }
+    case CommandKind::kOpenSplitTab: {
+      auto window = resolver_->ResolveWindow(profile_, command.window);
+      if (!window.has_value() || !command.tab.is_valid()) {
+        registry_.Consume(command.id);
+        pending_commands_.erase(command.id);
+        return base::unexpected(CommandError::kSplitPreconditionFailure);
+      }
+      LiveTabKey inserted;
+      std::string token;
+      dispatch = adapter_->OpenTabInSplit(
+          profile_, window.value(), command.tab, command.url,
+          command.split_ratio, &inserted, &token);
+      break;
+    }
     case CommandKind::kActivateTab: {
       auto tab = resolver_->ResolveTab(profile_, command.window, command.tab);
       if (!tab.has_value()) {
@@ -157,6 +215,25 @@ CommandResult<CommandStatus> CommandExecutor::DispatchChromiumCommand(
         registry_.Consume(command.id);
         pending_commands_.erase(command.id);
         return base::unexpected(CommandError::kTabNotFound);
+      }
+      dispatch = adapter_->CloseTab(profile_, tab.value());
+      break;
+    }
+    case CommandKind::kArchiveTab: {
+      auto tab = resolver_->ResolveTab(profile_, command.window, command.tab);
+      const TabMembershipId membership =
+          model_->FindMembershipIdByTabKey(command.tab.value());
+      const TabMembershipRecord* record =
+          membership.is_valid() ? model_->FindMembership(membership) : nullptr;
+      if (!tab.has_value() || !record ||
+          record->role != TabRole::kTemporary ||
+          !command.membership_id.has_value() ||
+          command.membership_id.value() != membership || !lifecycle_ ||
+          !lifecycle_->ExpectTabArchival(
+              command.window, command.tab, command.url.spec(), command.name)) {
+        registry_.Consume(command.id);
+        pending_commands_.erase(command.id);
+        return base::unexpected(CommandError::kInvalidCommand);
       }
       dispatch = adapter_->CloseTab(profile_, tab.value());
       break;
@@ -232,6 +309,9 @@ CommandResult<CommandStatus> CommandExecutor::DispatchChromiumCommand(
   }
 
   if (!dispatch.has_value()) {
+    if (command.kind == CommandKind::kArchiveTab && lifecycle_) {
+      lifecycle_->CancelExpectedTabArchival(command.tab);
+    }
     registry_.Consume(command.id);
     pending_commands_.erase(command.id);
     return base::unexpected(CommandError::kDispatchFailure);
@@ -253,12 +333,17 @@ ExpectedObservation CommandExecutor::BuildObservation(
     case CommandKind::kOpenNewTab:
     case CommandKind::kOpenTemporaryTab:
     case CommandKind::kOpenRetainedTab:
+    case CommandKind::kRestoreArchivedTab:
       obs.expected_event = NormalizedEventType::kTabInserted;
+      break;
+    case CommandKind::kOpenSplitTab:
+      obs.expected_event = NormalizedEventType::kSplitAdded;
       break;
     case CommandKind::kActivateTab:
       obs.expected_event = NormalizedEventType::kActiveTabChanged;
       break;
     case CommandKind::kCloseTab:
+    case CommandKind::kArchiveTab:
       obs.expected_event = NormalizedEventType::kTabRemoved;
       break;
     case CommandKind::kPinTab:
@@ -292,6 +377,9 @@ void CommandExecutor::OnNormalizedLifecycleEvent(const NormalizedEvent& event) {
     registry_.Consume(id);
     auto cmd_it = pending_commands_.find(id);
     if (cmd_it != pending_commands_.end()) {
+      if (cmd_it->second.kind == CommandKind::kArchiveTab && lifecycle_) {
+        lifecycle_->CancelExpectedTabArchival(cmd_it->second.tab);
+      }
       outcome_unknown_commands_[id] = CommandStatus::kOutcomeUnknown;
       NotifyCommandCompleted(id, cmd_it->second,
                              CommandStatus::kOutcomeUnknown);
@@ -366,6 +454,18 @@ void CommandExecutor::OnNormalizedLifecycleEvent(const NormalizedEvent& event) {
         std::ignore = model_->UnpinTab(membership);
       }
     }
+    if (cmd_it->second.kind == CommandKind::kRestoreArchivedTab &&
+        event.tab.is_valid() && cmd_it->second.membership_id.has_value()) {
+      const TabMembershipId live_membership =
+          model_->FindMembershipIdByTabKey(event.tab.value());
+      if (!live_membership.is_valid() ||
+          !model_
+               ->AdoptRestoredTab(cmd_it->second.membership_id.value(),
+                                  live_membership)
+               .has_value()) {
+        final_status = CommandStatus::kRejected;
+      }
+    }
     completed.push_back(id);
     NotifyCommandCompleted(id, cmd_it->second, final_status);
   }
@@ -409,9 +509,14 @@ void CommandExecutor::ReconcileLateObservation(const NormalizedEvent& event) {
 
 void CommandExecutor::OnCloseCancelled(LiveTabKey tab) {
   for (auto it = pending_commands_.begin(); it != pending_commands_.end();) {
-    if (it->second.kind == CommandKind::kCloseTab && it->second.tab == tab) {
+    if ((it->second.kind == CommandKind::kCloseTab ||
+         it->second.kind == CommandKind::kArchiveTab) &&
+        it->second.tab == tab) {
       const BrowserCommand command = it->second;
       const CommandId id = it->first;
+      if (command.kind == CommandKind::kArchiveTab && lifecycle_) {
+        lifecycle_->CancelExpectedTabArchival(tab);
+      }
       registry_.Consume(id);
       it = pending_commands_.erase(it);
       NotifyCommandCompleted(id, command, CommandStatus::kCancelled);
@@ -429,11 +534,19 @@ bool CommandExecutor::VerifyPostcondition(const BrowserCommand& command) const {
     case CommandKind::kOpenNewTab:
     case CommandKind::kOpenTemporaryTab:
     case CommandKind::kOpenRetainedTab:
+    case CommandKind::kOpenSplitTab:
+    case CommandKind::kNavigateTab:
+    case CommandKind::kOpenExternal:
+    case CommandKind::kRestoreArchivedTab:
       return true;
     case CommandKind::kActivateTab:
       return model_->FindMembershipIdByTabKey(command.tab.value()).is_valid();
     case CommandKind::kCloseTab:
       return !model_->FindMembershipIdByTabKey(command.tab.value()).is_valid();
+    case CommandKind::kArchiveTab:
+      return command.membership_id.has_value() &&
+             !model_->FindMembershipIdByTabKey(command.tab.value()).is_valid() &&
+             model_->FindArchivedTab(command.membership_id.value());
     case CommandKind::kPinTab:
     case CommandKind::kUnpinTab: {
       const TabMembershipId id =
@@ -455,6 +568,9 @@ bool CommandExecutor::VerifyPostcondition(const BrowserCommand& command) const {
 void CommandExecutor::Shutdown() {
   shutting_down_ = true;
   for (const auto& [id, command] : pending_commands_) {
+    if (command.kind == CommandKind::kArchiveTab && lifecycle_) {
+      lifecycle_->CancelExpectedTabArchival(command.tab);
+    }
     outcome_unknown_commands_[id] = CommandStatus::kOutcomeUnknown;
   }
   pending_commands_.clear();

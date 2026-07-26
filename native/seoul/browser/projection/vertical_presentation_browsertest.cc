@@ -11,6 +11,7 @@
 
 #include "base/run_loop.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/sessions/core/session_id.h"
@@ -26,8 +27,16 @@
 namespace seoul {
 
 class VerticalPresentationBrowserTest : public InProcessBrowserTest {
- protected:
-  SeoulOrganizationService* service() {
+protected:
+  void SetUpOnMainThread() override {
+    InProcessBrowserTest::SetUpOnMainThread();
+    if (browser() && browser()->window()) {
+      browser()->window()->Hide();
+      browser()->window()->ShowInactive();
+    }
+  }
+
+  SeoulOrganizationService *service() {
     return SeoulOrganizationServiceFactory::GetForProfile(browser()->profile());
   }
 
@@ -41,9 +50,9 @@ class VerticalPresentationBrowserTest : public InProcessBrowserTest {
 // for this real window.
 IN_PROC_BROWSER_TEST_F(VerticalPresentationBrowserTest,
                        ProjectionServiceManagesRealWindow) {
-  SeoulOrganizationService* svc = service();
+  SeoulOrganizationService *svc = service();
   ASSERT_TRUE(svc);
-  ProjectionService* projection = svc->projection_service();
+  ProjectionService *projection = svc->projection_service();
   ASSERT_TRUE(projection);
 
   // Trigger a live snapshot for this window (the startup snapshot predates the
@@ -60,9 +69,9 @@ IN_PROC_BROWSER_TEST_F(VerticalPresentationBrowserTest,
 // never observed: an unknown window key yields no controller.
 IN_PROC_BROWSER_TEST_F(VerticalPresentationBrowserTest,
                        UnknownWindowIsNotProjected) {
-  SeoulOrganizationService* svc = service();
+  SeoulOrganizationService *svc = service();
   ASSERT_TRUE(svc);
-  ProjectionService* projection = svc->projection_service();
+  ProjectionService *projection = svc->projection_service();
   ASSERT_TRUE(projection);
 
   const LiveWindowKey unknown =
@@ -71,4 +80,4 @@ IN_PROC_BROWSER_TEST_F(VerticalPresentationBrowserTest,
   EXPECT_FALSE(projection->GetSwitcher(unknown));
 }
 
-}  // namespace seoul
+} // namespace seoul

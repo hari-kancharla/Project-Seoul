@@ -31,15 +31,16 @@ namespace seoul {
 
 class LifecycleCoordinator;
 class LiveWindowStateProvider;
+class OrganizationModel;
 class TabStripBridge;
 
 class WindowWatcher : public BrowserCollectionObserver {
- public:
-  // `profile` and `coordinator` must outlive this watcher (the service owns
-  // both).
-  WindowWatcher(Profile* profile, LifecycleCoordinator* coordinator);
-  WindowWatcher(const WindowWatcher&) = delete;
-  WindowWatcher& operator=(const WindowWatcher&) = delete;
+public:
+  // All arguments must outlive this watcher (the service owns them).
+  WindowWatcher(Profile *profile, LifecycleCoordinator *coordinator,
+                OrganizationModel *organization);
+  WindowWatcher(const WindowWatcher &) = delete;
+  WindowWatcher &operator=(const WindowWatcher &) = delete;
   ~WindowWatcher() override;
 
   // Begin observing and discover windows already open at startup. Idempotent.
@@ -47,31 +48,32 @@ class WindowWatcher : public BrowserCollectionObserver {
   // Rescan tabs and splits for every tracked window (session-restore
   // completion).
   void RescanExistingWindows();
-  LiveWindowStateProvider* live_state_provider() {
+  LiveWindowStateProvider *live_state_provider() {
     return live_state_provider_.get();
   }
 
   // BrowserCollectionObserver:
-  void OnBrowserCreated(BrowserWindowInterface* browser) override;
-  void OnBrowserClosed(BrowserWindowInterface* browser) override;
+  void OnBrowserCreated(BrowserWindowInterface *browser) override;
+  void OnBrowserClosed(BrowserWindowInterface *browser) override;
 
   size_t tracked_window_count() const { return bridges_.size(); }
 
- private:
+private:
   // Eligibility policy: normal tabbed windows only (popup, app, app-popup,
   // devtools, and picture-in-picture windows are not organized in v0).
-  static bool IsEligible(BrowserWindowInterface* browser);
-  void Track(BrowserWindowInterface* browser);
-  void Untrack(BrowserWindowInterface* browser);
+  static bool IsEligible(BrowserWindowInterface *browser);
+  void Track(BrowserWindowInterface *browser);
+  void Untrack(BrowserWindowInterface *browser);
 
   raw_ptr<Profile> profile_;
   raw_ptr<LifecycleCoordinator> coordinator_;
+  raw_ptr<OrganizationModel> organization_;
   std::unique_ptr<LiveWindowStateProvider> live_state_provider_;
   std::map<LiveWindowKey, std::unique_ptr<TabStripBridge>> bridges_;
   base::ScopedObservation<BrowserCollection, BrowserCollectionObserver>
       observation_{this};
 };
 
-}  // namespace seoul
+} // namespace seoul
 
-#endif  // SEOUL_BROWSER_LIFECYCLE_WINDOW_WATCHER_H_
+#endif // SEOUL_BROWSER_LIFECYCLE_WINDOW_WATCHER_H_

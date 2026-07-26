@@ -1,0 +1,39 @@
+diff --git a/chrome/browser/ui/browser_live_tab_context.cc b/chrome/browser/ui/browser_live_tab_context.cc
+--- a/chrome/browser/ui/browser_live_tab_context.cc
++++ b/chrome/browser/ui/browser_live_tab_context.cc
+@@ -50,6 +50,7 @@
+ #include "content/public/browser/navigation_controller.h"
+ #include "content/public/browser/session_storage_namespace.h"
+ #include "content/public/browser/web_contents.h"
++#include "seoul/browser/lifecycle/session_restore_metadata.h"
+ #include "ui/base/mojom/window_show_state.mojom.h"
+ #include "ui/base/window_open_disposition.h"
+ 
+@@ -156,6 +157,8 @@ std::map<std::string, std::string> BrowserLiveTabContext::GetExtraDataForTab(
+ 
+   glic::PopulateGlicExtraData(tab_strip_model_->GetTabAtIndex(index),
+                               &extra_data);
++  seoul::PopulateSeoulSessionMetadata(
++      tab_strip_model_->GetWebContentsAt(index), &extra_data);
+ 
+   return extra_data;
+ }
+diff --git a/chrome/browser/ui/browser_tabrestore.cc b/chrome/browser/ui/browser_tabrestore.cc
+--- a/chrome/browser/ui/browser_tabrestore.cc
++++ b/chrome/browser/ui/browser_tabrestore.cc
+@@ -34,6 +34,7 @@
+ #include "content/public/browser/restore_type.h"
+ #include "content/public/browser/session_storage_namespace.h"
+ #include "content/public/browser/web_contents.h"
++#include "seoul/browser/lifecycle/session_restore_metadata.h"
+ #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
+ #include "ui/gfx/geometry/size.h"
+ #include "ui/gfx/range/range.h"
+@@ -82,6 +83,7 @@ std::unique_ptr<WebContents> CreateRestoredTab(
+                                extension_app_id);
+ 
+   glic::RestoreGlicStateFromExtraData(web_contents.get(), extra_data);
++  seoul::RestoreSeoulSessionMetadata(web_contents.get(), extra_data);
+ 
+   std::vector<std::unique_ptr<NavigationEntry>> entries =
+       ContentSerializedNavigationBuilder::ToNavigationEntries(

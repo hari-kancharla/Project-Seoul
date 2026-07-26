@@ -8,7 +8,7 @@ namespace seoul {
 
 namespace {
 
-SchemaField RequiredString(const char* name, const char* description) {
+SchemaField RequiredString(const char *name, const char *description) {
   SchemaField field;
   field.name = name;
   field.kind = SchemaFieldKind::kString;
@@ -17,20 +17,9 @@ SchemaField RequiredString(const char* name, const char* description) {
   return field;
 }
 
-SchemaField OptionalString(const char* name, const char* description) {
-  SchemaField field;
-  field.name = name;
-  field.kind = SchemaFieldKind::kString;
-  field.description = description;
-  return field;
-}
-
-ToolDescriptor Base(const char* id,
-                    const char* name,
-                    const char* description,
-                    RiskCategory risk,
-                    DataSensitivity sensitivity,
-                    const char* observation) {
+ToolDescriptor Base(const char *id, const char *name, const char *description,
+                    RiskCategory risk, DataSensitivity sensitivity,
+                    const char *observation) {
   ToolDescriptor descriptor;
   descriptor.id = ToolId::FromString(id);
   descriptor.name = name;
@@ -45,7 +34,7 @@ ToolDescriptor Base(const char* id,
   return descriptor;
 }
 
-}  // namespace
+} // namespace
 
 std::vector<ToolDescriptor> BuildInformationCapabilities() {
   std::vector<ToolDescriptor> capabilities;
@@ -105,6 +94,10 @@ std::vector<ToolDescriptor> BuildBrowserCapabilities() {
     retained.kind = SchemaFieldKind::kBoolean;
     retained.description = "Keep the tab out of temporary auto-archive.";
     open.input_schema.fields.push_back(std::move(retained));
+    // The exact destination origin/window grant is reusable for ordinary
+    // reversible opens. Runtime routing can strengthen this to always-required
+    // for ask-user and external-application rules.
+    open.approval = ApprovalPolicy::kFirstUsePerScope;
     capabilities.push_back(std::move(open));
   }
   {
@@ -113,8 +106,7 @@ std::vector<ToolDescriptor> BuildBrowserCapabilities() {
              "Opens a URL in an ephemeral overlay bound to an exact parent "
              "tab. It remains outside the tab strip until the user explicitly "
              "promotes it to a tab or split.",
-             RiskCategory::kReversibleMutation,
-             DataSensitivity::kPageContent,
+             RiskCategory::kReversibleMutation, DataSensitivity::kPageContent,
              "window-bound Preview overlay exists outside the tab strip");
     SchemaField url;
     url.name = "url";
@@ -174,6 +166,23 @@ std::vector<ToolDescriptor> BuildBrowserCapabilities() {
     capabilities.push_back(std::move(activate_scene));
   }
   {
+    ToolDescriptor compact =
+        Base("browser.compact.set", "Set compact mode",
+             "Enters or exits compact browser chrome for the current "
+             "Workspace. Compact state is remembered per Workspace and "
+             "remains keyboard-accessible.",
+             RiskCategory::kReversibleMutation, DataSensitivity::kOrganization,
+             "native vertical chrome reaches the requested collapse and "
+             "reveal-on-hover state");
+    SchemaField enabled;
+    enabled.name = "enabled";
+    enabled.kind = SchemaFieldKind::kBoolean;
+    enabled.required = true;
+    enabled.description = "True to enter compact mode; false to exit.";
+    compact.input_schema.fields.push_back(std::move(enabled));
+    capabilities.push_back(std::move(compact));
+  }
+  {
     // Operates on the active tab of the task's window and returns each visible
     // control with a stable, generation-scoped `handle`; page.act.* consume
     // those handles. There is no free-text element selector anywhere in the
@@ -215,14 +224,13 @@ std::vector<ToolDescriptor> BuildBrowserCapabilities() {
   {
     ToolDescriptor submit =
         Base("page.act.submit", "Submit form",
-             "Submits a form on one open page. Always approval-gated.",
+             "Activates a submit control identified by a handle from a prior "
+             "page observation. Always approval-gated.",
              RiskCategory::kExternalSideEffect, DataSensitivity::kPageContent,
              "navigation or confirmation state observed after submit");
     submit.approval = ApprovalPolicy::kAlwaysRequired;
-    submit.input_schema.fields.push_back(
-        RequiredString("tab_key", "Stable key of the tab."));
-    submit.input_schema.fields.push_back(
-        OptionalString("target", "Semantic description of the form."));
+    submit.input_schema.fields.push_back(RequiredString(
+        "handle", "Submit-control handle from a prior page observation."));
     capabilities.push_back(std::move(submit));
   }
   {
@@ -247,8 +255,18 @@ std::vector<ToolDescriptor> BuildBrowserCapabilities() {
         RequiredString("tab_key", "Stable key of the tab."));
     capabilities.push_back(std::move(archive));
   }
+  {
+    ToolDescriptor restore =
+        Base("browser.tabs.restore", "Restore archived tab",
+             "Reopens one recoverable archived tab in its original workspace.",
+             RiskCategory::kReversibleMutation, DataSensitivity::kOrganization,
+             "tab reopened and archive record consumed");
+    restore.input_schema.fields.push_back(
+        RequiredString("archive_id", "Stable id of the archived tab."));
+    capabilities.push_back(std::move(restore));
+  }
 
   return capabilities;
 }
 
-}  // namespace seoul
+} // namespace seoul

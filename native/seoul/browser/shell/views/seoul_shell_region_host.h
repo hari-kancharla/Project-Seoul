@@ -29,6 +29,7 @@ class SeoulShellRegionHost {
   // Attaches header/footer views for `controller` into `region`. Re-attaching
   // to the same region rebinds the controller without duplicating views.
   void Attach(VerticalTabStripRegionView* region, ShellController* controller);
+  void SetPresentationCollapsed(bool collapsed);
   // Removes the shell child views from the region. Idempotent.
   void Detach();
 

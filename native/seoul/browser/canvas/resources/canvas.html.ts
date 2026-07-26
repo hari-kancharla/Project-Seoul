@@ -17,6 +17,8 @@ export function getHtml(this: SeoulCanvasAppElement) {
         <div><span class="eyebrow">SEOUL CANVAS</span>
           <h1>${this.selectedView_ === 'canvas' ?
               this.surface_?.title || 'Ask, act, understand.' :
+          this.selectedView_ === 'chat' ?
+              this.thread_.name || 'Project chat' :
           this.selectedView_ === 'boosts' ? 'Make the web fit you.' :
           this.selectedView_ === 'studio' ? 'Shape how Seoul works.' :
               'Your thinking space'}</h1></div>
@@ -25,7 +27,11 @@ export function getHtml(this: SeoulCanvasAppElement) {
       </header>
 
       <nav class="view-switcher" aria-label="Canvas views">
-        ${(['canvas', 'boosts', 'library', 'boards', 'studio'] as const).map(view => html`
+        ${([
+          'canvas',
+          ...(this.activeThreadId_ ? ['chat'] as const : []),
+          'boosts', 'library', 'boards', 'studio',
+        ] as const).map(view => html`
           <button type="button" aria-current="${this.selectedView_ === view ? 'page' : 'false'}"
               @click="${() => this.selectView_(view)}">${view[0]!.toUpperCase() + view.slice(1)}</button>`)}
       </nav>
@@ -57,7 +63,8 @@ export function getHtml(this: SeoulCanvasAppElement) {
       </section>` : nothing}
 
       <section class="canvas-content" aria-label="Result surface">
-        ${this.selectedView_ === 'boosts' ? this.renderBoosts_() :
+        ${this.selectedView_ === 'chat' ? this.renderThread_() :
+          this.selectedView_ === 'boosts' ? this.renderBoosts_() :
           this.selectedView_ === 'library' ? this.renderLibrary_() :
           this.selectedView_ === 'boards' ? this.renderBoards_() :
           this.selectedView_ === 'studio' ? this.renderStudio_() :

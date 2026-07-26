@@ -41,6 +41,7 @@ source_set("preview_chromium") {
     "//components/split_tabs",
     "//content/public/browser",
     "//seoul/browser/lifecycle:lifecycle_core",
+    "//seoul/browser/organization:organization_model",
     "//ui/accessibility:ax_enums_mojo",
     "//ui/base",
     "//ui/gfx",

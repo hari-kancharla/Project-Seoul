@@ -2,8 +2,7 @@
 // Plain-old-data records and enums for the organization domain model. These
 // hold ONLY organization metadata. They never hold page content, navigation
 // history, form values, credentials, tokens, or model prompts. Live tab state
-// is owned by Chromium and is referenced here by an opaque tab key set by the
-// future bridge.
+// is owned by Chromium and is referenced here by opaque bridge-assigned keys.
 
 #ifndef SEOUL_BROWSER_ORGANIZATION_ORGANIZATION_TYPES_H_
 #define SEOUL_BROWSER_ORGANIZATION_ORGANIZATION_TYPES_H_
@@ -93,9 +92,9 @@ struct TabMembershipRecord {
   ~TabMembershipRecord();
   TabMembershipId id;
   WorkspaceId workspace_id;
-  // Opaque, stable handle to the Chromium tab, assigned by the future bridge
-  // from a tabs::TabInterface handle or a session-restore id. The pure model
-  // treats it as an identity string and never interprets it.
+  // Opaque, stable handle assigned by the lifecycle bridge from Chromium's
+  // session tab identity. The pure model treats it as a string and never
+  // interprets it.
   std::string tab_key;
   TabRole role = TabRole::kTemporary;
   std::string saved_root_url;  // pinned reset target; empty for non-pinned
@@ -209,6 +208,8 @@ struct ArchivedTabRecord {
   TabMembershipId original_id;
   WorkspaceId workspace_id;
   TabRole original_role = TabRole::kTemporary;
+  // Exact URL used to recover the archived tab. The persisted wire key keeps
+  // its original name for schema compatibility.
   std::string saved_root_url;
   std::string title;  // last known title, bounded; optional
   base::Time archived_at;
@@ -249,6 +250,7 @@ enum class OrganizationChangeType {
   kMembershipAdded,
   kMembershipRemoved,
   kMembershipMoved,
+  kMembershipRebound,
   kMembershipRoleChanged,
   kMembershipReordered,
   kTabActivated,

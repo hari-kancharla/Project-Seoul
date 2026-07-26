@@ -105,10 +105,17 @@ permitted tools.
 
 The implemented native subsystems, organization/projection/command/shell
 layers, and first-party Lit Canvas are compiled and covered by the native test
-suites recorded in the readiness report. Studio is currently a read-only
-runtime index. Remaining product and release work includes the unimplemented
-Studio editing/activation paths, real-device STT/TTS and configured-model
-evaluation, distribution branding, a non-component release build, signing, and
-notarization. The ordered Chromium patch series applies and reverses cleanly
-against the pinned checkout. See the readiness report for the exact per-feature
-status and verdict.
+suites recorded in the readiness report. Studio edits local/cloud provider
+routes, global Essentials, Themes, Scenes, routing rules, and workflows; Boosts edits and
+immediately applies validated Site Layers. Scene activation owns real workspace,
+Theme, compact, lifecycle, routing, and workflow behavior with exact baseline
+restoration, including Workspace-scoped Scene/Theme and durable tab-membership
+recovery across relaunch. Standalone compact mode is also implemented through
+the native command launcher, `Command+Shift+C`, and the typed AI/voice
+capability; its preference follows the Workspace and survives relaunch.
+Remaining product and release work includes
+real-device configured-provider evaluation, multi-window same-Workspace
+presentation policy, distribution branding, a non-component release build,
+signing, and notarization. The ordered Chromium patch series applies and
+reverses cleanly against the pinned checkout. See the readiness report for
+exact status.

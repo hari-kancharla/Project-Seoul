@@ -11,8 +11,8 @@ namespace seoul {
 namespace {
 
 class StubExecutor : public CapabilityExecutor {
- public:
-  StubExecutor(const std::string& id, int version)
+public:
+  StubExecutor(const std::string &id, int version)
       : id_(ToolId::FromString(id)), version_(version) {}
 
   ToolId capability_id() const override { return id_; }
@@ -25,12 +25,12 @@ class StubExecutor : public CapabilityExecutor {
     std::move(callback).Run(std::move(outcome));
   }
 
- private:
+private:
   ToolId id_;
   int version_;
 };
 
-ToolDescriptor Descriptor(const std::string& id, int version) {
+ToolDescriptor Descriptor(const std::string &id, int version) {
   ToolDescriptor descriptor;
   descriptor.id = ToolId::FromString(id);
   descriptor.version = version;
@@ -61,6 +61,16 @@ TEST(CapabilityExecutorRegistryTest, RejectsDuplicatesAndInvalid) {
   EXPECT_FALSE(registry.Register(std::make_unique<StubExecutor>("", 1)));
   EXPECT_FALSE(registry.Register(nullptr));
   EXPECT_EQ(registry.size(), 1u);
+}
+
+TEST(CapabilityExecutorRegistryTest, ClearDestroysRegisteredExecutors) {
+  CapabilityExecutorRegistry registry;
+  ASSERT_TRUE(registry.Register(
+      std::make_unique<StubExecutor>("browser.tabs.open", 1)));
+  ASSERT_EQ(registry.size(), 1u);
+  registry.Clear();
+  EXPECT_EQ(registry.size(), 0u);
+  EXPECT_FALSE(registry.Find(ToolId::FromString("browser.tabs.open"), 1));
 }
 
 TEST(CapabilityExecutorRegistryTest, CompletenessReportsBothDirections) {
@@ -96,5 +106,5 @@ TEST(CapabilityExecutorRegistryTest, VersionMismatchIsIncomplete) {
   EXPECT_EQ(report.executors_without_descriptor.size(), 1u);
 }
 
-}  // namespace
-}  // namespace seoul
+} // namespace
+} // namespace seoul

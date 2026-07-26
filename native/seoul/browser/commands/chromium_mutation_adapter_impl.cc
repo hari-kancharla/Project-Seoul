@@ -5,7 +5,9 @@
 #include <optional>
 #include <vector>
 
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/platform_util.h"
 // nogncheck: //chrome/browser/ui reaches this target through the side-panel
 // Canvas registration, so a declared dep would be a dependency cycle; the
 // symbols link through //chrome/browser like the other circular includes.
@@ -96,6 +98,99 @@ CommandStatusResult ChromiumMutationAdapterImpl::OpenTab(
     *out_tab =
         TabStripBridge::KeyForContents(params.navigated_or_inserted_contents);
   }
+  return CommandOk();
+}
+
+CommandStatusResult ChromiumMutationAdapterImpl::NavigateTab(
+    Profile* profile,
+    const ResolvedTabTarget& tab,
+    const GURL& url) {
+  BrowserWindowInterface* browser = FindBrowser(profile, tab.window);
+  TabStripModel* strip = browser ? browser->GetTabStripModel() : nullptr;
+  if (!strip || !strip->ContainsIndex(tab.current_index)) {
+    return CommandErr(CommandError::kTargetDisappeared);
+  }
+  content::WebContents* contents =
+      strip->GetWebContentsAt(tab.current_index);
+  if (!contents || TabStripBridge::KeyForContents(contents) != tab.tab) {
+    return CommandErr(CommandError::kStaleTabReference);
+  }
+  NavigateParams params(browser, url, ui::PAGE_TRANSITION_TYPED);
+  params.disposition = WindowOpenDisposition::CURRENT_TAB;
+  params.source_contents = contents;
+  params.user_gesture = true;
+  params.original_user_gesture = true;
+  base::WeakPtr<content::NavigationHandle> handle = Navigate(&params);
+  return handle || params.navigated_or_inserted_contents
+             ? CommandOk()
+             : CommandErr(CommandError::kDispatchFailure);
+}
+
+CommandStatusResult ChromiumMutationAdapterImpl::OpenTabInSplit(
+    Profile* profile,
+    const ResolvedWindowTarget& window,
+    LiveTabKey existing_tab,
+    const GURL& url,
+    double ratio,
+    LiveTabKey* out_tab,
+    std::string* upstream_token) {
+  BrowserWindowInterface* browser = FindBrowser(profile, window.window);
+  TabStripModel* strip = browser ? browser->GetTabStripModel() : nullptr;
+  if (!strip || !existing_tab.is_valid()) {
+    return CommandErr(CommandError::kSplitPreconditionFailure);
+  }
+  auto find_index = [&](LiveTabKey key) {
+    for (int index = 0; index < strip->count(); ++index) {
+      if (TabStripBridge::KeyForTab(strip->GetTabAtIndex(index)) == key) {
+        return index;
+      }
+    }
+    return -1;
+  };
+  const int existing_index = find_index(existing_tab);
+  if (!strip->ContainsIndex(existing_index) ||
+      strip->GetTabAtIndex(existing_index)->IsSplit()) {
+    return CommandErr(CommandError::kSplitPreconditionFailure);
+  }
+  LiveTabKey inserted;
+  CommandStatusResult opened =
+      OpenTab(profile, window, url, CommandForegroundDisposition::kForeground,
+              &inserted);
+  if (!opened.has_value() || !inserted.is_valid()) {
+    return opened;
+  }
+  ResolvedSplitTarget split;
+  split.window = window.window;
+  split.pane_a = existing_tab;
+  split.pane_b = inserted;
+  split.pane_a_index = find_index(existing_tab);
+  split.pane_b_index = find_index(inserted);
+  CommandStatusResult created =
+      CreateSplit(profile, split, ratio, upstream_token);
+  if (!created.has_value()) {
+    const int inserted_index = find_index(inserted);
+    if (strip->ContainsIndex(inserted_index)) {
+      strip->CloseWebContentsAt(inserted_index, TabCloseTypes::CLOSE_NONE);
+    }
+    return created;
+  }
+  if (out_tab) {
+    *out_tab = inserted;
+  }
+  return CommandOk();
+}
+
+CommandStatusResult ChromiumMutationAdapterImpl::OpenExternal(
+    Profile* profile,
+    const GURL& url) {
+  if (!profile || !url.is_valid() || !url.SchemeIsHTTPOrHTTPS()) {
+    return CommandErr(CommandError::kInvalidUrl);
+  }
+#if BUILDFLAG(IS_CHROMEOS)
+  platform_util::OpenExternal(profile, url);
+#else
+  platform_util::OpenExternal(url);
+#endif
   return CommandOk();
 }
 

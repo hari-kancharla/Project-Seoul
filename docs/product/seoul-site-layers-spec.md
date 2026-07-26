@@ -1,9 +1,10 @@
 # Seoul Site Layers Specification
 
-Status: Compiler/registry source complete with durable validated round-tripping
-and visible in Studio's read-only index; editing, mutation scheduling, and
-live-page application are not user-reachable, compiled, or runtime-verified on
-the authoring host.
+Status: Compiler, registry, persistence, Canvas editing, runtime scheduling,
+and live-page application are compiled and browser-verified. The Boosts view
+can create, edit, pause, resume, and delete typed adjustments for the active
+HTTP(S) page. Browser coverage verifies strict-CSP application, navigation
+survival, rollback, and persisted add/delete state.
 
 A Site Layer is a declarative, per-site visual customization that compiles to
 safe scoped CSS and never carries or generates JavaScript. This spec describes
@@ -81,5 +82,19 @@ compiled. `SiteLayerToValue` and `SiteLayerFromValue` form the round trip.
 and resolves CSS for a page origin plus optional Scene id. Disabled layers are
 ignored. A layer with no `scene_scope` applies globally to matching origins; a
 layer with `scene_scope` applies only when that Scene is active. Matching is
-deterministic: exact `https://host[:port]` patterns require the same host and
-port, while `*.host` matches the host and its subdomains.
+deterministic: exact `http(s)://host[:port]` patterns require the same
+normalized origin, while `*.host` matches the host and its subdomains on the
+default HTTP and HTTPS ports.
+
+## Live page application
+
+`SiteLayerApplicator` observes each eligible tab and resolves enabled layers for
+its current origin. It installs the compiled CSS as a constructable stylesheet
+in an isolated browser world, so a page's inline-style CSP does not turn a saved
+Boost into a silent no-op. A stable isolated-world slot identifies only Seoul's
+own prior stylesheet; updates and deletion replace or remove that sheet without
+touching page-owned styles.
+
+`SeoulRuntimeService` owns applicators per live tab, refreshes them after
+navigation and registry mutation, and persists registry state in profile
+preferences. Internal and opaque pages are marked non-customizable in Canvas.

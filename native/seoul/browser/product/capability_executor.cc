@@ -9,16 +9,16 @@ namespace seoul {
 namespace {
 // A runaway registration is a bug, not a configuration.
 constexpr size_t kMaxExecutors = 2048;
-}  // namespace
+} // namespace
 
 CapabilityRequest::CapabilityRequest() = default;
-CapabilityRequest::CapabilityRequest(CapabilityRequest&&) = default;
-CapabilityRequest& CapabilityRequest::operator=(CapabilityRequest&&) = default;
+CapabilityRequest::CapabilityRequest(CapabilityRequest &&) = default;
+CapabilityRequest &CapabilityRequest::operator=(CapabilityRequest &&) = default;
 CapabilityRequest::~CapabilityRequest() = default;
 
 CapabilityOutcome::CapabilityOutcome() = default;
-CapabilityOutcome::CapabilityOutcome(CapabilityOutcome&&) = default;
-CapabilityOutcome& CapabilityOutcome::operator=(CapabilityOutcome&&) = default;
+CapabilityOutcome::CapabilityOutcome(CapabilityOutcome &&) = default;
+CapabilityOutcome &CapabilityOutcome::operator=(CapabilityOutcome &&) = default;
 CapabilityOutcome::~CapabilityOutcome() = default;
 
 CapabilityExecutorRegistry::CapabilityExecutorRegistry() = default;
@@ -39,17 +39,19 @@ bool CapabilityExecutorRegistry::Register(
   return true;
 }
 
-CapabilityExecutor* CapabilityExecutorRegistry::Find(const ToolId& id,
+CapabilityExecutor *CapabilityExecutorRegistry::Find(const ToolId &id,
                                                      int version) const {
   auto it = executors_.find({id.value(), version});
   return it != executors_.end() ? it->second.get() : nullptr;
 }
 
+void CapabilityExecutorRegistry::Clear() { executors_.clear(); }
+
 std::vector<std::pair<ToolId, int>>
 CapabilityExecutorRegistry::RegisteredCapabilities() const {
   std::vector<std::pair<ToolId, int>> out;
   out.reserve(executors_.size());
-  for (const auto& [key, executor] : executors_) {
+  for (const auto &[key, executor] : executors_) {
     out.emplace_back(ToolId::FromString(key.first), key.second);
   }
   return out;
@@ -57,16 +59,16 @@ CapabilityExecutorRegistry::RegisteredCapabilities() const {
 
 CapabilityExecutorRegistry::CompletenessReport
 CapabilityExecutorRegistry::CheckCompleteness(
-    const std::vector<ToolDescriptor>& descriptors) const {
+    const std::vector<ToolDescriptor> &descriptors) const {
   CompletenessReport report;
   std::map<std::pair<std::string, int>, bool> descriptor_keys;
-  for (const ToolDescriptor& descriptor : descriptors) {
+  for (const ToolDescriptor &descriptor : descriptors) {
     descriptor_keys[{descriptor.id.value(), descriptor.version}] = true;
     if (!executors_.count({descriptor.id.value(), descriptor.version})) {
       report.descriptors_without_executor.push_back(descriptor.id);
     }
   }
-  for (const auto& [key, executor] : executors_) {
+  for (const auto &[key, executor] : executors_) {
     if (!descriptor_keys.count(key)) {
       report.executors_without_descriptor.push_back(
           ToolId::FromString(key.first));
@@ -75,21 +77,19 @@ CapabilityExecutorRegistry::CheckCompleteness(
   return report;
 }
 
-int CapabilityExecutor::version() const {
-  return 1;
-}
+int CapabilityExecutor::version() const { return 1; }
 
 CapabilityExecutorRegistry::CompletenessReport::CompletenessReport() = default;
 CapabilityExecutorRegistry::CompletenessReport::CompletenessReport(
-    const CompletenessReport&) = default;
+    const CompletenessReport &) = default;
 CapabilityExecutorRegistry::CompletenessReport::CompletenessReport(
-    CompletenessReport&&) = default;
-CapabilityExecutorRegistry::CompletenessReport&
+    CompletenessReport &&) = default;
+CapabilityExecutorRegistry::CompletenessReport &
 CapabilityExecutorRegistry::CompletenessReport::operator=(
-    const CompletenessReport&) = default;
-CapabilityExecutorRegistry::CompletenessReport&
-CapabilityExecutorRegistry::CompletenessReport::operator=(CompletenessReport&&) =
-    default;
+    const CompletenessReport &) = default;
+CapabilityExecutorRegistry::CompletenessReport &
+CapabilityExecutorRegistry::CompletenessReport::operator=(
+    CompletenessReport &&) = default;
 CapabilityExecutorRegistry::CompletenessReport::~CompletenessReport() = default;
 
-}  // namespace seoul
+} // namespace seoul

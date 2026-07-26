@@ -30,10 +30,10 @@ namespace seoul {
 // reject anything malformed rather than guessing.
 struct CapabilityRequest {
   CapabilityRequest();
-  CapabilityRequest(const CapabilityRequest&) = delete;
-  CapabilityRequest& operator=(const CapabilityRequest&) = delete;
-  CapabilityRequest(CapabilityRequest&&);
-  CapabilityRequest& operator=(CapabilityRequest&&);
+  CapabilityRequest(const CapabilityRequest &) = delete;
+  CapabilityRequest &operator=(const CapabilityRequest &) = delete;
+  CapabilityRequest(CapabilityRequest &&);
+  CapabilityRequest &operator=(CapabilityRequest &&);
   ~CapabilityRequest();
 
   ToolId capability;
@@ -43,6 +43,10 @@ struct CapabilityRequest {
   std::string step_id;
   // The window the task was started from; window-scoped capabilities act here.
   LiveWindowKey window;
+  // True only for an explicit user-started turn/run. Automated triggers carry
+  // false, so routing rules that require a gesture cannot launch external
+  // effects from background automation.
+  bool user_gesture = false;
 };
 
 // The observed, verified result of one capability run. `semantic` is present
@@ -50,10 +54,10 @@ struct CapabilityRequest {
 // interface compiler. StepOutcome carries the receipt fields.
 struct CapabilityOutcome {
   CapabilityOutcome();
-  CapabilityOutcome(const CapabilityOutcome&) = delete;
-  CapabilityOutcome& operator=(const CapabilityOutcome&) = delete;
-  CapabilityOutcome(CapabilityOutcome&&);
-  CapabilityOutcome& operator=(CapabilityOutcome&&);
+  CapabilityOutcome(const CapabilityOutcome &) = delete;
+  CapabilityOutcome &operator=(const CapabilityOutcome &) = delete;
+  CapabilityOutcome(CapabilityOutcome &&);
+  CapabilityOutcome &operator=(CapabilityOutcome &&);
   ~CapabilityOutcome();
 
   StepOutcome step;
@@ -63,7 +67,7 @@ struct CapabilityOutcome {
 using CapabilityCallback = base::OnceCallback<void(CapabilityOutcome)>;
 
 class CapabilityExecutor {
- public:
+public:
   virtual ~CapabilityExecutor() = default;
 
   // The capability this executor implements. Must match a registered
@@ -81,22 +85,27 @@ class CapabilityExecutor {
   // Best-effort cancellation of the in-progress invocation for `task_id` +
   // `step_id`. A mutation already dispatched reports kOutcomeUnknown rather
   // than pretending it was stopped.
-  virtual void Cancel(const TaskId& task_id, const std::string& step_id) {}
+  virtual void Cancel(const TaskId &task_id, const std::string &step_id) {}
 };
 
 // Registry keyed by (capability id, version). Bounded; rejects duplicates.
 class CapabilityExecutorRegistry {
- public:
+public:
   CapabilityExecutorRegistry();
-  CapabilityExecutorRegistry(const CapabilityExecutorRegistry&) = delete;
-  CapabilityExecutorRegistry& operator=(const CapabilityExecutorRegistry&) =
-      delete;
+  CapabilityExecutorRegistry(const CapabilityExecutorRegistry &) = delete;
+  CapabilityExecutorRegistry &
+  operator=(const CapabilityExecutorRegistry &) = delete;
   ~CapabilityExecutorRegistry();
 
   // False on duplicate (id, version) or invalid id.
   bool Register(std::unique_ptr<CapabilityExecutor> executor);
 
-  CapabilityExecutor* Find(const ToolId& id, int version) const;
+  CapabilityExecutor *Find(const ToolId &id, int version) const;
+
+  // Destroys executors immediately. Owners call this during orderly shutdown
+  // while any external services observed by concrete executors are still
+  // alive; relying on member destruction can cross keyed-service lifetimes.
+  void Clear();
 
   // Every registered executor's (id, version).
   std::vector<std::pair<ToolId, int>> RegisteredCapabilities() const;
@@ -106,25 +115,25 @@ class CapabilityExecutorRegistry {
   // executors with no descriptor (an architecture violation).
   struct CompletenessReport {
     CompletenessReport();
-    CompletenessReport(const CompletenessReport&);
-    CompletenessReport(CompletenessReport&&);
-    CompletenessReport& operator=(const CompletenessReport&);
-    CompletenessReport& operator=(CompletenessReport&&);
+    CompletenessReport(const CompletenessReport &);
+    CompletenessReport(CompletenessReport &&);
+    CompletenessReport &operator=(const CompletenessReport &);
+    CompletenessReport &operator=(CompletenessReport &&);
     ~CompletenessReport();
 
     std::vector<ToolId> descriptors_without_executor;
     std::vector<ToolId> executors_without_descriptor;
   };
-  CompletenessReport CheckCompleteness(
-      const std::vector<ToolDescriptor>& descriptors) const;
+  CompletenessReport
+  CheckCompleteness(const std::vector<ToolDescriptor> &descriptors) const;
 
   size_t size() const { return executors_.size(); }
 
- private:
+private:
   std::map<std::pair<std::string, int>, std::unique_ptr<CapabilityExecutor>>
       executors_;
 };
 
-}  // namespace seoul
+} // namespace seoul
 
-#endif  // SEOUL_BROWSER_PRODUCT_CAPABILITY_EXECUTOR_H_
+#endif // SEOUL_BROWSER_PRODUCT_CAPABILITY_EXECUTOR_H_

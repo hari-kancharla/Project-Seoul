@@ -43,6 +43,21 @@ Risky mutations still go through Seoul's task approval and receipt path. Voice
 may ask for the task, but native execution remains typed, window-bound, and
 auditable.
 
+Canvas follows the provider's Realtime event lifecycle rather than displaying a
+generic active state: microphone request, listening, hearing, thinking,
+speaking, browser-task work, and failure are distinct visible states. Completed
+function calls are accepted from the canonical `response.done` output as well
+as incremental events, and call ids are de-duplicated before native execution.
+Verified task completion, failure, cancellation, pause, and approval state can
+flow back into the conversation; page identity is refreshed after navigation
+and is explicitly labeled untrusted metadata.
+
+Session setup is cancellable. Canvas accepts only the exact official HTTPS
+Realtime endpoint, rejects redirects and oversized SDP/provider events, and
+stops microphone tracks, WebRTC, audio, and pending network work together.
+Provider and data-channel failures are visible rather than collapsing silently
+to an idle microphone button.
+
 ## Session states
 
 `native/seoul/browser/voice/voice_types.h` defines `VoiceSessionState` with 14

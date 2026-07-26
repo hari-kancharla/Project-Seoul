@@ -288,16 +288,26 @@ void Planner::BuildPlan(const std::string& goal,
                         const ToolPermissionContext& context,
                         bool use_model,
                         bool prefer_local,
+                        bool allow_cloud_models,
                         base::OnceCallback<void(PlannerResult)> callback) {
   if (use_model && model_requester_) {
     model_requester_.Run(
         BuildPlanningPrompt(goal, registry_->ListAvailable(context)),
-        prefer_local,
+        prefer_local, allow_cloud_models,
         base::BindOnce(&Planner::OnModelOutput, weak_factory_.GetWeakPtr(),
                        goal, context, std::move(callback)));
     return;
   }
   std::move(callback).Run(BuildDeterministic(goal, context));
+}
+
+void Planner::BuildPlan(const std::string& goal,
+                        const ToolPermissionContext& context,
+                        bool use_model,
+                        bool prefer_local,
+                        base::OnceCallback<void(PlannerResult)> callback) {
+  BuildPlan(goal, context, use_model, prefer_local,
+            /*allow_cloud_models=*/true, std::move(callback));
 }
 
 void Planner::OnModelOutput(const std::string& goal,

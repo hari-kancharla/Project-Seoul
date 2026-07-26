@@ -36,6 +36,10 @@ const char* PreviewErrorToString(PreviewError error) {
       return "limit_exceeded";
     case PreviewError::kNavigationLimitExceeded:
       return "navigation_limit_exceeded";
+    case PreviewError::kRoutingRejected:
+      return "routing_rejected";
+    case PreviewError::kPromotionFailed:
+      return "promotion_failed";
   }
   return "invalid_state";
 }

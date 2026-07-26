@@ -389,6 +389,8 @@ if (fs.existsSync(canvasMojomPath)) {
     'SetBoardArchived',
     'DeleteBoard',
     'GetStudioSnapshot',
+    'UpsertEssential',
+    'DeleteEssential',
   ]) {
     if (!mojomText.includes(method)) {
       problems.push(`Canvas Mojo is missing ${method}; Library/Boards are unreachable.`);
@@ -399,8 +401,34 @@ if (fs.existsSync(canvasHandlerPath) &&
     !fs.readFileSync(canvasHandlerPath, 'utf8').includes('runtime_->library()')) {
   problems.push('Canvas page handler does not connect its Library/Board Mojo methods.');
 }
+const libraryServicePath = path.join(
+  seoulRoot, 'browser/library/library_service.cc');
+if (fs.existsSync(libraryServicePath)) {
+  const libraryService = fs.readFileSync(libraryServicePath, 'utf8');
+  const archivedGuards = (
+    libraryService.match(
+      /return base::unexpected\(LibraryError::kBoardArchived\)/g,
+    ) ?? []
+  ).length;
+  if (archivedGuards < 4) {
+    problems.push(
+      'Archived Boards are not read-only across rename/add/update/remove.',
+    );
+  }
+  if (!libraryService.includes('revision_ =') ||
+      !libraryService.includes('revision_ + 1')) {
+    problems.push(
+      'Library mutations do not advance a profile-owned snapshot revision.',
+    );
+  }
+}
 if (fs.existsSync(canvasHandlerPath)) {
   const handler = fs.readFileSync(canvasHandlerPath, 'utf8');
+  if (!handler.includes('runtime_->library()->revision()')) {
+    problems.push(
+      'Canvas Library snapshots omit the authoritative revision; late replies can regress Board state.',
+    );
+  }
   for (const runtimeProjection of [
     'runtime_->providers()->Snapshot()',
     'runtime_->scenes()->List()',
@@ -410,6 +438,17 @@ if (fs.existsSync(canvasHandlerPath)) {
     if (!handler.includes(runtimeProjection)) {
       problems.push(
         `Canvas Studio is missing live runtime projection ${runtimeProjection}.`,
+      );
+    }
+  }
+  for (const essentialMutation of [
+    'runtime_->UpsertEssential',
+    'runtime_->RemoveEssential',
+    'OrganizationErrorToString',
+  ]) {
+    if (!handler.includes(essentialMutation)) {
+      problems.push(
+        `Canvas Studio Essentials are missing native hook ${essentialMutation}.`,
       );
     }
   }
@@ -616,12 +655,17 @@ const shellFooterViewPath = path.join(
 if (fs.existsSync(shellHeaderViewPath) && fs.existsSync(shellFooterViewPath)) {
   const compactShell = fs.readFileSync(shellHeaderViewPath, 'utf8') +
       fs.readFileSync(shellFooterViewPath, 'utf8');
+  const normalizedCompactShell = compactShell.replace(/\s+/g, ' ');
   for (const required of [
-    'ShellMode::kCollapsed',
+    'SetPresentationCollapsed',
+    'presentation_collapsed_',
     'Orientation::kVertical',
     'workspace.icon',
-    'collapsed ? u"+"',
-    'collapsed ? u"↔"',
+    'SetVisible(!collapsed)',
+    'ShellUtilityAction::kOpenBoost',
+    'OnSplitPressed',
+    'ToggleCompactMode',
+    'essentials_container_->SetVisible(!snapshot.essentials.empty())',
     'SetTooltipText',
     'LiveRegionStatus::kPolite',
     'button_row_layout_->SetOrientation',
@@ -630,7 +674,18 @@ if (fs.existsSync(shellHeaderViewPath) && fs.existsSync(shellFooterViewPath)) {
     'workspace_accessible_name',
   ]) {
     if (!compactShell.includes(required)) {
-      problems.push(`Collapsed native shell is missing compact-mode hook "${required}".`);
+      problems.push(`Native project shell is missing compact/project hook "${required}".`);
+    }
+  }
+  for (const forbidden of [
+    'new_tab_button_->SetText(collapsed',
+    'split_button_->SetText(collapsed',
+    'task_button_->SetVisible(collapsed',
+  ]) {
+    if (compactShell.includes(forbidden)) {
+      problems.push(
+        `Collapsed native shell still renders the legacy glyph rail "${forbidden}".`,
+      );
     }
   }
   for (const acceleratorHook of [
@@ -639,7 +694,7 @@ if (fs.existsSync(shellHeaderViewPath) && fs.existsSync(shellFooterViewPath)) {
     'AcceleratorPressed',
     'OnCommandLauncherPressed();',
   ]) {
-    if (!compactShell.includes(acceleratorHook)) {
+    if (!normalizedCompactShell.includes(acceleratorHook)) {
       problems.push(`Window-scoped launcher accelerator is missing hook "${acceleratorHook}".`);
     }
   }
@@ -709,9 +764,12 @@ if (fs.existsSync(liveWindowStatePath) && fs.existsSync(tabStripBridgePath) &&
       'ShellController ignores other-window snapshot changes and can retain stale Essential routing.',
     );
   }
-  if (!tabStripBridge.includes('OnTabChangedAt') ||
-      !tabStripBridge.includes('PublishLiveSnapshot();') ||
-      !tabStripBridge.includes('change_type != TabChangeType::kAll')) {
+  const tabChangeHandler = tabStripBridge.match(
+    /void TabStripBridge::OnTabChangedAt[\s\S]*?(?=\nvoid TabStripBridge::OnTabPinnedStateChanged)/,
+  )?.[0] ?? '';
+  if (!tabChangeHandler.includes('PublishLiveSnapshot();') ||
+      !/change_type\s*!=\s*TabChangeType::kAll\s*&&\s*change_type\s*!=\s*TabChangeType::kLoadingOnly/
+        .test(tabChangeHandler)) {
     problems.push('Live tab origin/title metadata is not refreshed after navigation changes.');
   }
 }
@@ -825,6 +883,22 @@ for (const requiredPath of [
 }
 if (fs.existsSync(canvasEntryPath)) {
   const canvasEntry = fs.readFileSync(canvasEntryPath, 'utf8');
+  for (const essentialUiHook of [
+    'openEssentialEditor_',
+    'saveEssential_',
+    'upsertEssential(',
+    'deleteEssential(',
+    'pageContext_.origin',
+  ]) {
+    if (!canvasEntry.includes(essentialUiHook)) {
+      problems.push(
+        `Canvas Studio Essentials are missing UI hook ${essentialUiHook}.`,
+      );
+    }
+  }
+}
+if (fs.existsSync(canvasEntryPath)) {
+  const canvasEntry = fs.readFileSync(canvasEntryPath, 'utf8');
   if (!/extends\s+CrLitElement/.test(canvasEntry)) {
     problems.push('Shipping Canvas app does not extend CrLitElement.');
   }
@@ -849,6 +923,23 @@ if (fs.existsSync(canvasEntryPath)) {
   ]) {
     if (!canvasEntry.includes(view)) {
       problems.push(`Shipping Canvas is missing reachable ${view} Library/Board UI wiring.`);
+    }
+  }
+  for (const boardEditorHook of [
+    'olderRevision(',
+    'flushBoardKeyboard_',
+    'enqueueBoardElementCommit_',
+    'boardPendingLayouts_',
+    'event.altKey',
+    'aria-keyshortcuts',
+    'data-history-action="undo"',
+    'data-history-action="redo"',
+    'role="region"',
+  ]) {
+    if (!canvasEntry.includes(boardEditorHook)) {
+      problems.push(
+        `Shipping Board editor is missing production interaction hook ${boardEditorHook}.`,
+      );
     }
   }
   const canvasRendererText = canvasEntry +
@@ -1109,6 +1200,96 @@ if (!fs.existsSync(runtimeBrowserTestPath) ||
   );
 }
 
+// --- 15: Live Collections remain executable, observable, and tested ---------
+// A persisted card without the coordinator, Canvas controls, or a real-browser
+// execution test is a misleading placeholder. Keep the whole vertical slice
+// wired through typed, read-only capability execution.
+const liveCollectionHeaderPath = path.join(
+  productRoot, 'live_collection_coordinator.h');
+const liveCollectionSourcePath = path.join(
+  productRoot, 'live_collection_coordinator.cc');
+const liveCollectionTestPath = path.join(
+  productRoot, 'live_collection_coordinator_unittest.cc');
+const canvasHandlerHeaderPath = path.join(
+  seoulRoot, 'browser/canvas/seoul_canvas_page_handler.h');
+for (const requiredPath of [
+  liveCollectionHeaderPath,
+  liveCollectionSourcePath,
+  liveCollectionTestPath,
+]) {
+  if (!fs.existsSync(requiredPath)) {
+    problems.push(
+      `${path.relative(repoRoot, requiredPath)}: executable Live Collections ` +
+        'runtime source is missing.',
+    );
+  }
+}
+if (fs.existsSync(productCoreBuildPath)) {
+  const productBuild = fs.readFileSync(productCoreBuildPath, 'utf8');
+  for (const source of [
+    'live_collection_coordinator.cc',
+    'live_collection_coordinator.h',
+    'live_collection_coordinator_unittest.cc',
+  ]) {
+    if (!productBuild.includes(source)) {
+      problems.push(`Product GN graph does not compile ${source}.`);
+    }
+  }
+}
+if (fs.existsSync(runtimeServicePath)) {
+  const runtimeSource = fs.readFileSync(runtimeServicePath, 'utf8');
+  for (const hook of [
+    'std::make_unique<LiveCollectionCoordinator>',
+    'RunLiveCollectionMaintenance',
+    'live_collection_coordinator_->CancelForWindow',
+    'live_collection_coordinator_->Shutdown',
+  ]) {
+    if (!runtimeSource.includes(hook)) {
+      problems.push(`Live Collections runtime is missing lifecycle hook ${hook}.`);
+    }
+  }
+}
+if (fs.existsSync(canvasMojomPath)) {
+  const mojom = fs.readFileSync(canvasMojomPath, 'utf8');
+  for (const method of [
+    'UpsertLiveCollection',
+    'SetLiveCollectionEnabled',
+    'RefreshLiveCollection',
+    'DeleteLiveCollection',
+    'OpenLiveCollectionItem',
+    'PushLibrarySnapshot',
+  ]) {
+    if (!mojom.includes(method)) {
+      problems.push(`Canvas Mojo is missing Live Collections method ${method}.`);
+    }
+  }
+}
+if (fs.existsSync(canvasHandlerPath)) {
+  const handler = fs.readFileSync(canvasHandlerPath, 'utf8');
+  for (const hook of [
+    'OnLibraryChanged',
+    'runtime_->live_collections()->Refresh',
+  ]) {
+    if (!handler.includes(hook)) {
+      problems.push(`Canvas Live Collections bridge is missing hook ${hook}.`);
+    }
+  }
+}
+if (!fs.existsSync(canvasHandlerHeaderPath) ||
+    !fs.readFileSync(canvasHandlerHeaderPath, 'utf8')
+      .includes('public LibraryServiceObserver')) {
+  problems.push(
+    'Canvas PageHandler does not observe shared Library mutations.',
+  );
+}
+if (!fs.existsSync(runtimeBrowserTestPath) ||
+    !fs.readFileSync(runtimeBrowserTestPath, 'utf8')
+      .includes('CanvasLiveCollectionsExecutePersistAndManageRealSource')) {
+  problems.push(
+    'Live Collections have no real-browser execution and persistence test.',
+  );
+}
+
 // M149 builds the sessions implementation and SessionID from the root BUILD;
 // the historical /content and /core labels are header directories only.
 for (const file of walk(seoulRoot, (f) => f.endsWith('BUILD.gn'))) {
@@ -1132,7 +1313,9 @@ console.log(
     `realtime Canvas voice wired, ${executorNames.size} executors all ` +
     `registered, capability arg names consistent, task-to-surface bridge ` +
     `wired, Canvas side-panel entry reachable, Lit visual catalog complete, ` +
-    `Library/Boards and read-only Studio reachable, authoritative Scene references, ` +
+    `Library/Boards and Studio provider routes reachable, navigation-fresh ` +
+    `live metadata, authoritative Scene references, ` +
+    `executable observable Live Collections, ` +
     `exact-scope agent permissions enforced, ` +
     `typed task input replans, searchable typed-action launcher, explicit ` +
     `split chooser, persistent shell Task Deck status, exact cross-window ` +

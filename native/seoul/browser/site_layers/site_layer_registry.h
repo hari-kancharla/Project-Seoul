@@ -17,34 +17,42 @@
 namespace seoul {
 
 class SiteLayerRegistry {
- public:
+public:
   SiteLayerRegistry();
-  SiteLayerRegistry(const SiteLayerRegistry&) = delete;
-  SiteLayerRegistry& operator=(const SiteLayerRegistry&) = delete;
+  SiteLayerRegistry(const SiteLayerRegistry &) = delete;
+  SiteLayerRegistry &operator=(const SiteLayerRegistry &) = delete;
   ~SiteLayerRegistry();
 
   SiteLayerStatusResult Upsert(SiteLayer layer);
-  SiteLayerStatusResult Remove(const std::string& layer_id);
-  const SiteLayer* Find(const std::string& layer_id) const;
-  bool Exists(const std::string& layer_id) const;
-  std::vector<const SiteLayer*> List() const;  // id-ordered
+  SiteLayerStatusResult Remove(const std::string &layer_id);
+  const SiteLayer *Find(const std::string &layer_id) const;
+  bool Exists(const std::string &layer_id) const;
+  std::vector<const SiteLayer *> List() const; // id-ordered
   size_t size() const { return layers_.size(); }
 
   base::DictValue TakePersistedState() const;
-  void RestorePersistedState(const base::DictValue& state);
+  void RestorePersistedState(const base::DictValue &state);
 
   // Compiles all enabled layers matching `origin` and either no Scene scope or
-  // exactly `scene_id`. `origin` is the page origin, e.g. "https://example.com".
-  SiteLayerResult<std::string> CompileForOrigin(
-      const std::string& origin,
-      const std::string& scene_id) const;
+  // exactly `scene_id`. `origin` is the page origin, e.g.
+  // "https://example.com".
+  SiteLayerResult<std::string>
+  CompileForOrigin(const std::string &origin,
+                   const std::string &scene_id) const;
 
- private:
+  // True when any enabled layer that resolves for this origin/Scene contains
+  // `kind`. Used for native behaviors such as automatic dark mode that cannot
+  // be represented faithfully as scoped CSS.
+  bool HasEnabledAdjustmentForOrigin(const std::string &origin,
+                                     const std::string &scene_id,
+                                     SiteAdjustmentKind kind) const;
+
+private:
   std::map<std::string, SiteLayer> layers_;
 };
 
-bool SiteLayerMatchesOrigin(const SiteLayer& layer, const std::string& origin);
+bool SiteLayerMatchesOrigin(const SiteLayer &layer, const std::string &origin);
 
-}  // namespace seoul
+} // namespace seoul
 
-#endif  // SEOUL_BROWSER_SITE_LAYERS_SITE_LAYER_REGISTRY_H_
+#endif // SEOUL_BROWSER_SITE_LAYERS_SITE_LAYER_REGISTRY_H_

@@ -180,10 +180,12 @@ TEST(TaskServicePlanningStateTest, PublishesWhileModelPlanningIsInFlight) {
       registry, base::BindLambdaForTesting(
                     [&pending_plan](
                         const std::string& prompt, bool prefer_local,
+                        bool allow_cloud_models,
                         base::OnceCallback<void(std::optional<base::DictValue>,
                                                 PlanOrigin)> callback) {
                       (void)prompt;
                       (void)prefer_local;
+                      (void)allow_cloud_models;
                       pending_plan = std::move(callback);
                     }));
   TaskService service(&registry, &executors, &planner, base::BindRepeating([] {
@@ -208,6 +210,32 @@ TEST(TaskServicePlanningStateTest, PublishesWhileModelPlanningIsInFlight) {
 
   std::move(pending_plan).Run(std::nullopt, PlanOrigin::kLocalModel);
   service.RemoveObserver(&observer);
+}
+
+TEST_F(TaskServiceTest, DirectPlanCannotOmitFirstUseApproval) {
+  ToolDescriptor descriptor = Descriptor("info.read.inventory");
+  descriptor.approval = ApprovalPolicy::kFirstUsePerScope;
+  ASSERT_TRUE(registry_.Register(std::move(descriptor)).has_value());
+  auto executor = std::make_unique<ManualExecutor>("info.read.inventory",
+                                                   StepStatus::kSucceeded);
+  ASSERT_TRUE(executors_.Register(std::move(executor)));
+  Plan plan;
+  PlanStep step;
+  step.id = "read";
+  step.kind = PlanStepKind::kToolCall;
+  step.tool = ToolId::FromString("info.read.inventory");
+  step.args.Set("query", "fixture");
+  plan.steps.push_back(std::move(step));
+  const TaskId id = service_.StartTaskWithPlan(
+      "read", std::move(plan), PlanOrigin::kDeterministic,
+      LiveWindowKey::FromSessionId(7), AllowAll());
+  ASSERT_TRUE(id.is_valid());
+  const std::optional<Plan> enforced = service_.PlanOf(id);
+  ASSERT_TRUE(enforced.has_value());
+  EXPECT_TRUE(enforced->steps.front().requires_approval);
+  const std::optional<TaskSnapshot> snapshot = service_.Snapshot(id);
+  ASSERT_TRUE(snapshot.has_value());
+  EXPECT_EQ(snapshot->state, TaskState::kAwaitingApproval);
 }
 
 TEST_F(TaskServiceTest, SynchronousMultiStepPlanDrivesOnceAndFinishesOnce) {
@@ -342,7 +370,9 @@ TEST(TaskServicePermissionTest,
   TaskService service(&registry, &executors, &planner, clock, &permissions,
                       base::BindRepeating([](const LiveWindowKey& window,
                                              const ToolDescriptor& descriptor,
-                                             const base::DictValue& args) {
+                                             const base::DictValue& args,
+                                             bool user_gesture) {
+                        (void)user_gesture;
                         AgentPermissionRequest request;
                         request.capability = descriptor.id;
                         request.approval = descriptor.approval;

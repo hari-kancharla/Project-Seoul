@@ -34,12 +34,12 @@ struct ThemeColor {
   uint8_t b = 0;
   uint8_t a = 255;
 
-  friend bool operator==(const ThemeColor&, const ThemeColor&) = default;
+  friend bool operator==(const ThemeColor &, const ThemeColor &) = default;
 };
 
 // Parses "#rgb", "#rrggbb", or "#rrggbbaa" (leading '#', hex only).
-bool ParseHexColor(const std::string& hex, ThemeColor* out);
-std::string ColorToHex(const ThemeColor& color);
+bool ParseHexColor(const std::string &hex, ThemeColor *out);
+std::string ColorToHex(const ThemeColor &color);
 
 // The required color roles every theme must define. Custom tokens extend but
 // never replace these.
@@ -49,29 +49,29 @@ struct ThemeColorRoles {
   ThemeColor text;
   ThemeColor muted_text;
   ThemeColor accent;
-  ThemeColor accent_text;  // text drawn on accent
+  ThemeColor accent_text; // text drawn on accent
   ThemeColor border;
   ThemeColor error;
 
-  friend bool operator==(const ThemeColorRoles&,
-                         const ThemeColorRoles&) = default;
+  friend bool operator==(const ThemeColorRoles &,
+                         const ThemeColorRoles &) = default;
 };
 
 struct ThemeTypography {
   ThemeTypography();
-  ThemeTypography(const ThemeTypography&);
-  ThemeTypography(ThemeTypography&&);
-  ThemeTypography& operator=(const ThemeTypography&);
-  ThemeTypography& operator=(ThemeTypography&&);
+  ThemeTypography(const ThemeTypography &);
+  ThemeTypography(ThemeTypography &&);
+  ThemeTypography &operator=(const ThemeTypography &);
+  ThemeTypography &operator=(ThemeTypography &&);
   ~ThemeTypography();
 
-  std::string font_family;  // family name only; never a URL or @font-face
+  std::string font_family; // family name only; never a URL or @font-face
   int base_size_px = 14;
-  double scale_ratio = 1.2;              // modular scale for headings
-  int base_line_height_permille = 1500;  // 1.5 as parts-per-thousand
+  double scale_ratio = 1.2;             // modular scale for headings
+  int base_line_height_permille = 1500; // 1.5 as parts-per-thousand
 
-  friend bool operator==(const ThemeTypography&,
-                         const ThemeTypography&) = default;
+  friend bool operator==(const ThemeTypography &,
+                         const ThemeTypography &) = default;
 };
 
 struct ThemeMotion {
@@ -79,28 +79,28 @@ struct ThemeMotion {
   bool reduced_transparency = false;
   int base_duration_ms = 150;
 
-  friend bool operator==(const ThemeMotion&, const ThemeMotion&) = default;
+  friend bool operator==(const ThemeMotion &, const ThemeMotion &) = default;
 };
 
 struct Theme {
   Theme();
-  Theme(const Theme&);
-  Theme(Theme&&);
-  Theme& operator=(const Theme&);
-  Theme& operator=(Theme&&);
+  Theme(const Theme &);
+  Theme(Theme &&);
+  Theme &operator=(const Theme &);
+  Theme &operator=(Theme &&);
   ~Theme();
 
   int schema_version = kThemeSchemaVersion;
-  std::string id;  // stable slug
+  std::string id; // stable slug
   std::string name;
   ColorScheme scheme = ColorScheme::kSystem;
   ThemeColorRoles colors;
   ThemeTypography typography;
   ThemeMotion motion;
   int corner_radius_px = 8;
-  std::map<std::string, ThemeColor> custom_colors;  // name -> color
+  std::map<std::string, ThemeColor> custom_colors; // name -> color
 
-  friend bool operator==(const Theme&, const Theme&) = default;
+  friend bool operator==(const Theme &, const Theme &) = default;
 };
 
 enum class ThemeError {
@@ -113,15 +113,15 @@ enum class ThemeError {
   kInvalidTypography,
   kUnknownTheme,
   kLimitExceeded,
+  kInUse,
 };
 
-const char* ThemeErrorToString(ThemeError error);
+const char *ThemeErrorToString(ThemeError error);
 
-template <typename T>
-using ThemeResult = base::expected<T, ThemeError>;
+template <typename T> using ThemeResult = base::expected<T, ThemeError>;
 
 using ThemeStatusResult = base::expected<void, ThemeError>;
 
-}  // namespace seoul
+} // namespace seoul
 
-#endif  // SEOUL_BROWSER_THEMES_THEME_TYPES_H_
+#endif // SEOUL_BROWSER_THEMES_THEME_TYPES_H_

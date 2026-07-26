@@ -17,15 +17,15 @@ namespace seoul {
 namespace {
 
 class RecordingObserver : public OrganizationModelObserver {
- public:
-  void OnOrganizationChanged(const OrganizationChange& change) override {
+public:
+  void OnOrganizationChanged(const OrganizationChange &change) override {
     changes.push_back(change.type);
   }
   std::vector<OrganizationChangeType> changes;
 };
 
 class OrganizationModelTest : public testing::Test {
- protected:
+protected:
   OrganizationModelTest()
       : model_(base::BindLambdaForTesting([this]() { return clock_; })) {}
 
@@ -46,7 +46,7 @@ TEST_F(OrganizationModelTest, FirstRunCreatesExactlyOneDefault) {
   EXPECT_EQ(model_.workspace_count(), 1u);
   WorkspaceId def = model_.default_workspace();
   ASSERT_TRUE(def.is_valid());
-  const WorkspaceRecord* w = model_.FindWorkspace(def);
+  const WorkspaceRecord *w = model_.FindWorkspace(def);
   ASSERT_TRUE(w);
   EXPECT_TRUE(w->is_default);
   EXPECT_FALSE(w->archived);
@@ -149,6 +149,48 @@ TEST_F(OrganizationModelTest, MembershipAddDuplicateRemoveMove) {
             OrganizationError::kTabMembershipNotFound);
 }
 
+TEST_F(OrganizationModelTest,
+       SessionRebindPreservesDurableMembershipAndSplitReferences) {
+  const WorkspaceId workspace = InitDefault();
+  const TabMembershipId restored =
+      model_.AddTabMembership(workspace, "old-session-tab", TabRole::kTemporary)
+          .value();
+  ASSERT_TRUE(model_.PinTab(restored, "https://example.test/root").has_value());
+  ASSERT_TRUE(model_.ReorderTabMembership(restored, 7).has_value());
+  const TabMembershipId sibling =
+      model_.AddTabMembership(workspace, "sibling-tab", TabRole::kRetained)
+          .value();
+  const SplitGroupId split =
+      model_
+          .CreateSplitGroup(workspace, {"old-session-tab", "sibling-tab"}, 0.35,
+                            "split-token")
+          .value();
+  const TabMembershipRecord before = *model_.FindMembership(restored);
+
+  // A collision is rejected before either the membership or its split changes.
+  EXPECT_EQ(model_.RebindTabMembership(restored, "sibling-tab").error(),
+            OrganizationError::kDuplicateMembership);
+  EXPECT_EQ(model_.FindMembership(restored)->tab_key, "old-session-tab");
+  EXPECT_EQ(model_.FindSplit(split)->pane_tab_keys[0], "old-session-tab");
+
+  ASSERT_TRUE(
+      model_.RebindTabMembership(restored, "new-session-tab").has_value());
+  EXPECT_EQ(model_.membership_count(), 2u);
+  EXPECT_FALSE(model_.FindMembershipIdByTabKey("old-session-tab").is_valid());
+  EXPECT_EQ(model_.FindMembershipIdByTabKey("new-session-tab"), restored);
+  const TabMembershipRecord *after = model_.FindMembership(restored);
+  ASSERT_TRUE(after);
+  EXPECT_EQ(after->workspace_id, before.workspace_id);
+  EXPECT_EQ(after->role, before.role);
+  EXPECT_EQ(after->saved_root_url, before.saved_root_url);
+  EXPECT_EQ(after->order, before.order);
+  EXPECT_EQ(after->created_at, before.created_at);
+  EXPECT_EQ(after->last_active_at, before.last_active_at);
+  ASSERT_EQ(model_.FindSplit(split)->pane_tab_keys.size(), 2u);
+  EXPECT_EQ(model_.FindSplit(split)->pane_tab_keys[0], "new-session-tab");
+  EXPECT_EQ(model_.FindSplit(split)->pane_tab_keys[1], "sibling-tab");
+}
+
 TEST_F(OrganizationModelTest, TabRoleTransitions) {
   WorkspaceId def = InitDefault();
   auto m = model_.AddTabMembership(def, "tab-a", TabRole::kTemporary).value();
@@ -190,8 +232,38 @@ TEST_F(OrganizationModelTest, EssentialsAreGlobalAndSingleIdentity) {
                                          "https://x.test/")
                 .error(),
             OrganizationError::kEssentialNotFound);
+  EXPECT_EQ(model_
+                .CreateOrUpdateEssential(EssentialId::GenerateNew(), "x",
+                                         "https://mail.test/settings")
+                .error(),
+            OrganizationError::kEssentialNotFound);
+  EXPECT_EQ(model_
+                .CreateOrUpdateEssential(EssentialId(), "Duplicate mailbox",
+                                         "https://mail.test/another-path")
+                .error(),
+            OrganizationError::kDuplicateEssential);
 
   ASSERT_TRUE(model_.RemoveEssential(e.value()).has_value());
+  EXPECT_EQ(model_.essential_count(), 0u);
+}
+
+TEST_F(OrganizationModelTest, EssentialsRejectUnsafeOrMalformedDestinations) {
+  InitDefault();
+  EXPECT_EQ(model_
+                .CreateOrUpdateEssential(EssentialId(), "Local file",
+                                         "file:///tmp/private")
+                .error(),
+            OrganizationError::kInvalidUrl);
+  EXPECT_EQ(model_
+                .CreateOrUpdateEssential(EssentialId(), "Script",
+                                         "javascript:alert(1)")
+                .error(),
+            OrganizationError::kInvalidUrl);
+  EXPECT_EQ(model_
+                .CreateOrUpdateEssential(EssentialId(), "Broken",
+                                         "not a valid URL")
+                .error(),
+            OrganizationError::kInvalidUrl);
   EXPECT_EQ(model_.essential_count(), 0u);
 }
 
@@ -232,15 +304,39 @@ TEST_F(OrganizationModelTest, ArchiveAndRestoreTab) {
   WorkspaceId def = InitDefault();
   auto m = model_.AddTabMembership(def, "tab-a", TabRole::kTemporary).value();
 
-  ASSERT_TRUE(model_.ArchiveTab(m).has_value());
-  EXPECT_EQ(model_.membership_count(), 0u);  // not live anymore
+  ASSERT_TRUE(model_.ArchiveTab(m, "https://example.test/article", "Article")
+                  .has_value());
+  EXPECT_EQ(model_.membership_count(), 0u); // not live anymore
   EXPECT_EQ(model_.archived_count(), 1u);
+  const ArchivedTabRecord *archived = model_.FindArchivedTab(m);
+  ASSERT_TRUE(archived);
+  EXPECT_EQ(archived->saved_root_url, "https://example.test/article");
+  EXPECT_EQ(archived->title, "Article");
 
   auto restored = model_.RestoreArchivedTab(m, "tab-a-restored");
   ASSERT_TRUE(restored.has_value());
   EXPECT_EQ(model_.membership_count(), 1u);
   EXPECT_EQ(model_.archived_count(), 0u);
   EXPECT_EQ(model_.FindMembership(restored.value())->role, TabRole::kTemporary);
+}
+
+TEST_F(OrganizationModelTest, AdoptsConfirmedLiveTabFromArchive) {
+  WorkspaceId def = InitDefault();
+  const WorkspaceId other = model_.CreateWorkspace("Other").value();
+  const TabMembershipId archived =
+      model_.AddTabMembership(other, "tab-old", TabRole::kRetained).value();
+  ASSERT_TRUE(model_.ArchiveTab(archived, "https://example.test", "Example")
+                  .has_value());
+  const TabMembershipId inserted =
+      model_.AddTabMembership(def, "tab-new", TabRole::kTemporary).value();
+
+  ASSERT_TRUE(model_.AdoptRestoredTab(archived, inserted).has_value());
+  EXPECT_FALSE(model_.FindArchivedTab(archived));
+  const TabMembershipRecord *restored = model_.FindMembership(inserted);
+  ASSERT_TRUE(restored);
+  EXPECT_EQ(restored->workspace_id, other);
+  EXPECT_EQ(restored->role, TabRole::kRetained);
+  EXPECT_EQ(model_.FindMembershipIdByTabKey("tab-new"), inserted);
 }
 
 TEST_F(OrganizationModelTest, ObserversOrderedOncePerCommitNoneOnFailure) {
@@ -259,7 +355,7 @@ TEST_F(OrganizationModelTest, ObserversOrderedOncePerCommitNoneOnFailure) {
 
   model_.RemoveObserver(&obs);
   ASSERT_TRUE(model_.CreateWorkspace("Another").has_value());
-  EXPECT_EQ(obs.changes.size(), 2u);  // no more after removal
+  EXPECT_EQ(obs.changes.size(), 2u); // no more after removal
 }
 
 TEST_F(OrganizationModelTest, SnapshotRoundTripThroughModel) {
@@ -283,5 +379,5 @@ TEST_F(OrganizationModelTest, SnapshotRoundTripThroughModel) {
   (void)work;
 }
 
-}  // namespace
-}  // namespace seoul
+} // namespace
+} // namespace seoul

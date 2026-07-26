@@ -1,8 +1,9 @@
 # Seoul Library, Boards, and Live Collections
 
-Status: native core and the first production Lit index surfaces are implemented
-in source; Chromium compilation and runtime verification remain blocked by the
-build-host gate.
+Status: the native core, persistent Board editor, and production Lit
+Library/Boards surfaces are implemented and runtime-verified. Browser-owned
+capture storage, Live Collection executors, and browser-state projections
+remain.
 
 ## Product contract
 
@@ -53,6 +54,16 @@ and element counts are bounded. Updates validate a complete proposed element
 before replacing the existing value, so an invalid resize, URL, or reference
 cannot partially corrupt a board. Deleting a board removes only its layout and
 references; referenced browser-owned artifacts are not silently deleted.
+Archived Boards reject rename and element mutations until restored. Every
+accepted mutation advances a monotonic revision, and Canvas ignores late older
+snapshots so delayed replies cannot roll visible state backward.
+
+The production editor supports typed text and link creation, editing,
+confirmation-gated removal, drag and keyboard movement, pointer and keyboard
+resize, bounded undo/redo, archive/restore, reduced-motion styling, and
+screen-reader spatial descriptions. Rapid keyboard changes are coalesced into
+one history step. Independent layout saves are serialized and optimistic
+layouts remain visible across slow native replies.
 
 ## Live refresh correctness
 
@@ -88,12 +99,11 @@ The following are required before this feature is runtime-complete:
 1. Browser-owned capture/file storage and region/full-page capture adapter.
 2. GitHub, RSS, and calendar refresh executors over the connector permission
    system, including cancellation, backoff, auth-expiry, and offline behavior.
-3. Complete the Board spatial editor. The production Canvas now has reachable
-   Library/Boards views, bounded metadata snapshots, board creation,
-   archive/restore, and confirmation-gated deletion over typed Mojo. Drag,
-   resize, element editing, keyboard spatial movement, screen-reader semantics,
-   reduced-motion behavior, and undo/redo remain.
-4. Archive/download/workspace projection adapters that index existing browser
+3. Archive/download/workspace projection adapters that index existing browser
    state without duplicating it.
-5. A capable-host compile, native unit tests, WebUI tests, browser tests, relaunch
-   recovery tests, and network-failure tests.
+4. Credentialed provider acceptance, relaunch recovery for fetched collection
+   items, and offline/auth-expiry/network-failure integration tests.
+
+The capable host passed the RAM, storage, Xcode, SDK, architecture, and
+checkout gates. Native compilation, unit tests, WebUI checks, isolated browser
+tests, and product smoke pass without bypassing a host gate.

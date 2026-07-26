@@ -1,6 +1,6 @@
 # Seoul product readiness
 
-Last verified: 2026-07-23 on macOS arm64.
+Last verified: 2026-07-25 on macOS arm64.
 
 This report is the source of truth for the current product build. It separates
 working product behavior from public-distribution work. A passing development
@@ -29,7 +29,7 @@ notarization, an installer, or production update infrastructure.
 | Output | `out/SeoulBaseline/Chromium.app` |
 | Build mode | release component build, `symbol_level=0` |
 | Seoul overlay | `native/seoul/` materialized to `src/seoul/` |
-| Integration | 2 ordered, hash-verified patches |
+| Integration | 4 ordered, hash-verified patches |
 | First-party Canvas | `chrome://seoul-canvas` |
 
 The build host passed the RAM, storage, Xcode, SDK, architecture, and checkout
@@ -44,34 +44,85 @@ above.
 | Suite | Result |
 |---|---|
 | Native unit executables | 24 passed |
-| Native unit tests | 514 passed |
-| Focused Chromium browser tests | 20 passed |
+| Native unit tests | 562 passed |
+| Focused Chromium browser tests | 45 passed |
 | Protocol conformance | 8 passed |
-| Canvas and renderer tests | 30 passed |
-| Native syntax audit | 173 parsed, 36 generated-header files deferred to the native compiler |
+| Canvas and renderer tests | 31 passed |
+| Native syntax audit | 173 parsed, 40 generated-header files deferred to the native compiler |
 | TypeScript and JSON checks | passed |
 | Patch manifest, apply, and reverse verification | passed |
 | GN header dependency check | passed |
 | Architecture, boundary, and domain-neutrality gates | passed |
 
-The 36 syntax-audit skips are not uncompiled gaps. They depend on GN-generated
+The 40 syntax-audit skips are not uncompiled gaps. They depend on GN-generated
 Chromium headers and were compiled through their native build targets. The
 focused browser suite also exercised their runtime integration.
 
 ### Focused browser coverage
 
-The 20 passing in-process browser cases cover:
+The 45 passing in-process browser cases run with explicit headless flags. Each
+fixture releases the macOS key window before exercising native layout, so the
+suite does not intercept input from an interactive desktop session. The runner
+disables Chromium's unrelated experimental `InitialWebUI` toolbar
+in the explicit headless backend because its pre-test paint-metrics callback
+can wait forever before a test body starts. Seoul's native vertical Shell and
+`chrome://seoul-canvas` remain enabled and are exercised by the suite.
+
+The cases cover:
 
 - regular-profile runtime and service wiring;
 - the invariant that every available capability has an executor;
+- an availability gate for 16 core interaction capabilities, including Scene
+  activation, native split creation, standalone compact control, structured
+  extraction, and typed page actions;
 - text goals producing bound native tasks;
+- Scene activation through the capability path, exact Theme/compact baseline
+  restoration, matching workflow triggers, and stale-Scene reconciliation;
+- standalone compact chrome through the native launcher and keyboard command,
+  per-Workspace switching, observed AI-capability completion, Scene ownership,
+  durable preference storage, and two-process relaunch restoration;
+- a real two-process browser relaunch that preserves the durable tab-membership
+  UUID without a stale duplicate, restores retained role/workspace ownership,
+  resumes the active Scene/Theme and compact presentation, and restores the
+  exact pre-Scene vertical-tab baseline when the Scene is cleared;
+- Scene-owned link routing into current, temporary, retained, workspace,
+  Preview, split, external, and approval-gated destinations;
+- transactional tab archive and recovery, including real idle temporary-tab
+  lifecycle archiving and background restore on Scene activation;
+- canonical structured page extraction followed by an approval-gated submit
+  action whose success requires an observed accessibility-tree or navigation
+  change;
+- native two-tab split creation with observed lifecycle confirmation;
 - sensitive field redaction and model-write refusal;
 - exact per-window bindings;
-- ephemeral preview lifecycle outside the tab strip;
+- Canvas Studio Essential creation, editing, duplicate-origin refusal,
+  persistence, native Shell opening, live-tab reuse, and non-destructive
+  deletion;
+- ephemeral Preview lifecycle outside the tab strip, routing rejection without
+  state loss, routed retained promotion across Workspaces, and native split
+  promotion of the same live WebContents;
 - first-party Canvas registration, Lit rendering, and starter-command focus;
+- exact contextual page prompts producing approval-gated semantic surfaces;
+- live HTTP(S) Boost application under strict CSP, navigation survival,
+  pause/resume/delete rollback, and profile persistence;
+- Canvas-to-native Boost mutation through Mojo, including fresh page identity
+  after a navigation loading transition;
+- Realtime speech-state events, nested function-call execution,
+  de-duplication, verified task results, provider errors, and bounded SDP;
+- persistent Board creation and editing, keyboard movement and resize,
+  coalesced undo/redo, confirmation-gated removal, screen-reader semantics,
+  stale-snapshot rejection, slow-save serialization without visual rollback,
+  and exact layout restoration after reload;
+- provider-neutral Live Collection authoring, typed read-only execution,
+  verified semantic mapping, refresh/pause/resume/delete controls, safe item
+  opening, last-good preservation, and reload persistence;
+- persistent local/cloud Studio provider-route configuration;
+- Studio Theme, Scene, routing-rule, and workflow authoring, activation,
+  dependency guards, execution, duplication, and persisted catalog state;
 - real tab open, activate, pin, and move mutations plus unknown-window refusal;
 - live vertical projection;
 - default-on vertical shell behavior;
+- exact command-palette activation plus rejection of a tab closed after search;
 - continued Chromium ownership of the tab strip;
 - reachable Seoul organization state.
 
@@ -80,17 +131,19 @@ The 20 passing in-process browser cases cover:
 The isolated smoke test launched only the explicit local Seoul binary with a
 new disposable profile. It did not discover or launch an installed browser.
 
-Observed on 2026-07-23:
+Observed on 2026-07-25:
 
 | Check | Result |
 |---|---|
-| Isolated launch | 1248 ms |
-| Local navigation | 507 ms |
-| Total smoke | 3067 ms |
+| Isolated launch | 5279 ms |
+| Local navigation | 898 ms |
+| Canvas interactive | 626 ms |
+| 25 Canvas view switches | 417 ms |
+| Total smoke | 10073 ms |
 | JavaScript and DOM | passed |
 | Second tab open and activation | passed |
 | Canvas product heading | passed |
-| Four Canvas views | passed |
+| Five Canvas views | passed |
 | Voice default-off | passed |
 | Empty-send refusal | passed |
 | Canvas console errors | 0 |
@@ -111,11 +164,25 @@ Verified behavior:
 - a distinctive first-run command surface;
 - the Observe, Plan, Approve, Verify control model;
 - real starter commands that populate and focus the native composer;
-- Canvas, Library, Boards, and Studio views;
+- Canvas, Boosts, Library, Boards, and Studio views;
+- live active-page identity with contextual Understand, Actions, and Boost
+  entry points;
+- typed Boost creation, editing, enable/disable, deletion, and live rollback;
+- persistent Board creation, editing, pointer/keyboard arrangement, bounded
+  history, archive/restore, and confirmation-gated delete controls;
+- executable Live Collections backed by eligible typed read-only capabilities,
+  with source editing, scheduled/manual refresh, pause/resume, truthful errors,
+  safe item actions, and last-good data preservation;
+- local/cloud provider route editing with credentials kept behind the browser
+  boundary;
+- full typed Studio authoring for global Essentials, Themes, Scenes, routing
+  rules, and workflow graphs, including activation, run, duplicate, delete,
+  origin uniqueness, and dependency guards;
 - task state, approval, input, pause, resume, reject, and cancel controls;
 - validated SAUI component rendering with escaped payloads;
 - bounded chart and table rendering;
-- voice explicit and off by default;
+- Realtime voice explicit and off by default, with truthful activity/error
+  states and a de-duplicated native browser-task bridge;
 - no remote script, inline script, or eval permission in the WebUI CSP;
 - zero console errors in both preview capture and product smoke.
 
@@ -135,24 +202,47 @@ is not used as evidence that the shipping Canvas works.
 - browser mutation confirmation and postcondition observation;
 - ephemeral previews that do not silently become retained tabs;
 - vertical workspace projection and default-on vertical product shell;
-- Library and Boards persistence paths;
-- read-only Studio inventory;
+- fuzzy native command navigation across live tabs, workspaces, Essentials,
+  and typed utilities, with stale-target rejection;
+- standalone compact mode from the native command launcher,
+  `Command+Shift+C`, or the typed AI/voice capability, with per-Workspace
+  persistence and observed native completion;
+- Library, Boards, and Live Collections persistence and execution paths;
+- editable Studio provider routes, global Essentials, Themes, Scenes, routing
+  rules, and workflow graphs;
+- workspace-scoped relaunch restoration for durable tab membership, active
+  Scene/Theme selection, standalone compact preference, and exact Scene
+  compact-mode baseline;
+- live, persistent per-site Boosts with declarative CSS only;
 - adaptive SAUI compilation and stable patches;
 - semantic data, provenance, and chart-honesty validation;
 - exact-scope agent permissions and sensitive-field refusal;
 - workflow, scene, theme, Site Layer, connector, context, and voice core models;
 - local and cloud provider routing with injected transports;
-- realtime voice session plumbing and tool-call bridge.
+- realtime voice session plumbing, lifecycle/error handling, task-result
+  feedback, and tool-call bridge.
+
+The headless product smoke also exercises every Canvas view repeatedly. The
+current local run reached interactive Canvas in 626 ms and completed 25 rapid
+view switches in 417 ms with zero console errors; the smoke enforces generous
+5-second ceilings to remain stable on slower supported development hosts.
 
 ### Deliberately bounded
 
-- Studio exposes a read-only runtime inventory; it is not a complete editor.
+- Studio authoring is intentionally typed and bounded: Themes use validated
+  design tokens, routing uses enumerated match/disposition rules, and workflows
+  use the validated graph vocabulary rather than arbitrary scripts.
+- Relaunch presentation intent is keyed to a durable Workspace and binds to at
+  most one matching live window. Persisting distinct simultaneous
+  presentations for multiple windows showing the same Workspace remains a
+  deliberate multi-window extension; it is not guessed from regenerated
+  Chromium window ids.
 - Live microphone, external model, and connected-tool behavior requires user
   credentials, real endpoints, permissions, and hardware. The code paths are
   compiled and deterministically tested, but this report does not claim a
   successful production-account session.
-- Scene, Theme, Site Layer, and workflow core models are present and tested.
-  Their full end-user creation and editing surfaces are not release-complete.
+- Scene lifecycle recovery deliberately refuses unsafe tabs and non-HTTP(S)
+  recovery records rather than claiming it can preserve unsupported state.
 
 ## Reproducible commands
 
