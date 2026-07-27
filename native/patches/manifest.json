@@ -50,7 +50,7 @@
         "ui/webui/resources/tools/build_webui.gni"
       ],
       "dependencies": [],
-      "sha256": "77d7b72a0216e37d87d013041b6656276412ce1edbb6453f232c41b80f1a0c25",
+      "sha256": "e2fceaad723f67e2e066d77c517b82d73a3eb60c74bf4ebcc569b70eb00439bf",
       "applyVerify": "materialize.sh apply; git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0001-seoul-native-core.patch",
       "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R native/patches/chromium/0001-seoul-native-core.patch",
       "reviewable": true
@@ -137,16 +137,16 @@
     },
     {
       "id": "seoul-integrated-vertical-shell",
-      "description": "Move Chromium's real native omnibox and core navigation controls into Seoul's vertical rail, hide the duplicate stock action strip, set a balanced expanded width for the workspace/Essentials/tab hierarchy, hide the address row in collapsed presentation, and route every regular-profile new-tab rewrite to the first-party Seoul Canvas.",
+      "description": "Move Chromium's real native omnibox and core navigation into Seoul's vertical rail as a two-row address block, hide stock organizer/tab-search chrome, flush page contents against the visible rail width (no invented seam), suppress the integrated-rail trailing outline, clear Mac traffic-light band above the address row, and route regular-profile NTP rewrites to chrome://seoul-canvas/.",
       "rationale": "Keeping a full-width Chromium toolbar, responsive icon overflow, and Google NTP beside a custom vertical shell leaves the product visually and structurally Chromium-first. Reusing the native location bar preserves security and focus behavior while Commands owns secondary browser actions; placing the NTP decision in Chromium's canonical rewrite path covers startup and chrome://newtab rather than only one Browser call site.",
       "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
       "order": 6,
       "file": "0006-seoul-integrated-vertical-shell.patch",
       "affectedPaths": [
         "chrome/browser/search/search.cc",
-        "chrome/browser/ui/browser.cc",
         "chrome/browser/ui/tabs/vertical_tab_strip_state.h",
         "chrome/browser/ui/views/frame/browser_view.cc",
+        "chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc",
         "chrome/browser/ui/views/toolbar/toolbar_view.cc",
         "chrome/browser/ui/views/toolbar/toolbar_view.h"
       ],
@@ -154,9 +154,270 @@
         "seoul-native-core",
         "seoul-product-defaults"
       ],
-      "sha256": "7e4c6871acd8d026b31e0dbefa43d7242ef9da4cc95cbbad4fee61f9e4f0b6fb",
+      "sha256": "924e6aa7f5f57c7bab92b5127e65a350851c1a24012dbfea11c4cdc9c2cfc8b2",
       "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0006-seoul-integrated-vertical-shell.patch after applying patches 0001 through 0005",
       "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0006-seoul-integrated-vertical-shell.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-hide-stock-rail-chrome",
+      "description": "Hide Chromium VerticalTabStripTopContainer (View Organizer / Tab Search) and its separator at construction time so stock rail chrome never paints above Seoul's product shell.",
+      "rationale": "UpdateSeoulSidebarPresentation can reinforce the hide, but construction-time visibility is required so organizer/tab-search never flash or consume flex space before the first Seoul presentation update.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 7,
+      "file": "0007-seoul-hide-stock-rail-chrome.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc"
+      ],
+      "dependencies": [
+        "seoul-native-core",
+        "seoul-integrated-vertical-shell"
+      ],
+      "sha256": "d7403de767ffb058835ebd461caa3e21f98d14c36220e973d034309b06c6d040",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0007-seoul-hide-stock-rail-chrome.patch after applying patches 0001 through 0006",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0007-seoul-hide-stock-rail-chrome.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-zen-product-surface",
+      "description": "Match Zen's Chromium-hosted product surface: 60px collapsed and 500px maximum rail geometry, an active Space row between pinned and regular tabs, transparent labeled New Tab control, 8px content separation with rounded web surfaces, a centered native floating omnibox while editing, and restoration of Chromium's normal New Tab routing instead of forcing Canvas.",
+      "rationale": "The product must feel like Zen without replacing Chromium's browser semantics. Reusing and temporarily reparenting Chromium's native LocationBarView preserves security state, autocomplete, focus, and navigation; extending the existing vertical-tab layout preserves native tabs and drag behavior; content insets and rounded WebView holders create Zen's separated page surface without a web-shell approximation.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 8,
+      "file": "0008-seoul-zen-product-surface.patch",
+      "affectedPaths": [
+        "chrome/browser/search/search.cc",
+        "chrome/browser/ui/views/frame/browser_view.cc",
+        "chrome/browser/ui/views/frame/browser_view.h",
+        "chrome/browser/ui/views/frame/contents_container_view.cc",
+        "chrome/browser/ui/views/frame/contents_container_view.h",
+        "chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc",
+        "chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc",
+        "chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h",
+        "chrome/browser/ui/views/location_bar/location_bar_view.cc",
+        "chrome/browser/ui/views/location_bar/location_bar_view.h",
+        "chrome/browser/ui/views/tabs/shared/tab_strip_flat_edge_button.cc",
+        "chrome/browser/ui/views/tabs/shared/tab_strip_flat_edge_button.h",
+        "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_bottom_container.cc",
+        "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.cc",
+        "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.h",
+        "chrome/browser/ui/views/toolbar/toolbar_view.cc",
+        "chrome/browser/ui/views/toolbar/toolbar_view.h"
+      ],
+      "dependencies": [
+        "seoul-native-core",
+        "seoul-integrated-vertical-shell",
+        "seoul-hide-stock-rail-chrome"
+      ],
+      "sha256": "5e37c952ebdd0b0d59c8af012de67efa36cf476d065e6e2ed4ff72c95973a417",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0008-seoul-zen-product-surface.patch after applying patches 0001 through 0007",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0008-seoul-zen-product-surface.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-product-identity-and-palette",
+      "description": "Replace remaining Chromium product identity with Seoul, establish a cohesive light/dark rail and canvas palette across frame, tabs, toolbar, omnibox, and New Tab surfaces, retain a visible Zen-style resting address pill, strip Google furniture from the fallback New Tab document, suppress Chromium's missing-Google-API-key warning, and keep the command bar focused on local history and navigation rather than remote trends or Gemini promotion.",
+      "rationale": "Layout parity alone still reads as Chromium when stock branding, blue/system control colors, Google New Tab furniture, API-key warnings, or editorial search content remains visible. A final product mixer preserves Chromium's platform plumbing while giving Seoul authoritative styling, and provider-level filtering prevents server experiments from reintroducing foreign product content.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 9,
+      "file": "0009-seoul-product-identity-and-palette.patch",
+      "affectedPaths": [
+        "chrome/app/theme/chromium/BRANDING",
+        "chrome/browser/autocomplete/chrome_autocomplete_provider_client.cc",
+        "chrome/browser/resources/new_tab_page/app.css",
+        "chrome/browser/ui/color/chrome_color_mixers.cc",
+        "chrome/browser/ui/startup/infobar_utils.cc",
+        "chrome/browser/ui/views/location_bar/location_bar_view.cc",
+        "components/omnibox/browser/autocomplete_grouper_sections.cc"
+      ],
+      "dependencies": [
+        "seoul-native-core",
+        "seoul-zen-product-surface"
+      ],
+      "sha256": "a718181d9ca25e6672e83211999a7f7f4ed674b68ab69544d0c6e2626efed50c",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0009-seoul-product-identity-and-palette.patch after applying patches 0001 through 0008",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0009-seoul-product-identity-and-palette.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-product-iconography",
+      "description": "Replace Chromium's app-bundle, default-favicon, browser-resource, shortcut, authentication-dialog, Linux launcher, ChromeOS, and updater icons with Seoul's deterministic native product mark; ensure macOS reads Seoul's ICNS instead of the inherited Chromium asset catalog.",
+      "rationale": "A renamed app still reads as Chromium when its Dock icon and New Tab favicon retain the blue Chromium mark. Seoul-owned vector, PNG, and ICNS assets remove those last high-salience identity leaks while preserving Chromium's favicon and bundle-loading behavior.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 10,
+      "file": "0010-seoul-product-iconography.patch",
+      "affectedPaths": [
+        "chrome/BUILD.gn",
+        "chrome/app/app-Info.plist",
+        "chrome/app/helper-alerts-Info.plist",
+        "chrome/app/theme/chrome_unscaled_resources.grd",
+        "chrome/app/theme/theme_resources.grd",
+        "chrome/browser/app_controller_mac.mm",
+        "chrome/updater/branding.gni",
+        "chrome/updater/mac/Info.plist",
+        "ui/resources/ui_resources.grd"
+      ],
+      "dependencies": [
+        "seoul-product-identity-and-palette"
+      ],
+      "sha256": "008c513c11649a921cf46ab25c579376a34db7a270b1502afad8f24d4d41a1d3",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0010-seoul-product-iconography.patch after applying patches 0001 through 0009 and materializing native/seoul",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0010-seoul-product-iconography.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-neutral-address-prompt",
+      "description": "Replace the default-search-provider advertising in Seoul's resting address pill with the neutral localized prompt “Search or enter an address,” while preserving keyword, AI-mode, and contextual-task placeholders.",
+      "rationale": "The integrated rail must not display “Search Google” as product chrome. A dedicated localized Seoul string keeps the command/address field provider-neutral without changing the user's configured search engine or URL/search behavior.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 11,
+      "file": "0011-seoul-neutral-address-prompt.patch",
+      "affectedPaths": [
+        "chrome/app/generated_resources.grd",
+        "chrome/browser/ui/views/omnibox/omnibox_view_views.cc",
+        "chrome/browser/ui/views/omnibox/omnibox_view_views.h",
+        "chrome/browser/ui/views/omnibox/omnibox_view_views_browsertest.cc"
+      ],
+      "dependencies": [
+        "seoul-product-identity-and-palette"
+      ],
+      "sha256": "1204e148080124276644d05d3ba76e3814cae2f6f8f0c1e5ae9609ade42e8551",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0011-seoul-neutral-address-prompt.patch after applying patches 0001 through 0010",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0011-seoul-neutral-address-prompt.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-zen-compact-hover-timing",
+      "description": "Keep Seoul's revealed compact sidebar open for one second after pointer exit, while still canceling an uncommitted reveal immediately when the pointer leaves before expansion.",
+      "rationale": "Zen's compact-mode sidebar deliberately lingers after hover so users can cross small gaps without the rail snapping shut. Chromium collapses its stock hover rail immediately; a Seoul-only delay matches the current Zen interaction cadence without changing stock vertical-tab behavior.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 12,
+      "file": "0012-seoul-zen-compact-hover-timing.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc"
+      ],
+      "dependencies": [
+        "seoul-window-local-compact-hover",
+        "seoul-integrated-vertical-shell",
+        "seoul-zen-product-surface"
+      ],
+      "sha256": "6f687dc5b50b67a85cf67b0bae8fca3e75c24d56926130f025b564b3c97fbe04",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0012-seoul-zen-compact-hover-timing.patch after applying patches 0001 through 0011",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0012-seoul-zen-compact-hover-timing.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-arc-command-surface",
+      "description": "Replace the permanent rail address pill with an Arc-style transient command surface; integrate macOS traffic lights and navigation into one 38px header row; center and animate Zen's 62px floating omnibox over the page canvas; preserve visible prompts, unclipped suggestions, one-Escape dismissal, first-tab Cmd+L behavior, and Seoul's Cmd+Shift+K command palette routing; and finish Seoul product identity on native window titles and the version surface.",
+      "rationale": "A permanently visible Chromium address field, detached search glyph, oversized caption-button band, clipped popup cutout, or Chromium wordmark breaks the Arc/Zen product composition. Reparenting Chromium's native LocationBarView only while focused retains its security, autocomplete, accessibility, and navigation semantics while Seoul owns the command-surface geometry and interaction cadence.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 13,
+      "file": "0013-seoul-arc-command-surface.patch",
+      "affectedPaths": [
+        "chrome/app/chromium_strings.grd",
+        "chrome/browser/ui/color/chrome_color_mixers.cc",
+        "chrome/browser/ui/views/frame/browser_view.cc",
+        "chrome/browser/ui/views/frame/browser_view.h",
+        "chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc",
+        "chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc",
+        "chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h",
+        "chrome/browser/ui/views/location_bar/location_bar_view.cc",
+        "chrome/browser/ui/views/location_bar/location_bar_view.h",
+        "chrome/browser/ui/views/omnibox/omnibox_popup_view_views.cc",
+        "chrome/browser/ui/views/omnibox/omnibox_view_views.cc",
+        "chrome/browser/ui/views/omnibox/rounded_omnibox_results_frame.cc",
+        "chrome/browser/ui/views/omnibox/rounded_omnibox_results_frame.h",
+        "chrome/browser/ui/views/toolbar/toolbar_view.cc",
+        "chrome/browser/ui/views/toolbar/toolbar_view.h",
+        "components/webui/version/resources/about_version.css",
+        "components/webui/version/resources/about_version.html"
+      ],
+      "dependencies": [
+        "seoul-integrated-vertical-shell",
+        "seoul-zen-product-surface",
+        "seoul-product-identity-and-palette",
+        "seoul-neutral-address-prompt"
+      ],
+      "sha256": "a19fa7edbed553d206cf25df1307b263106d8f1c0e4e1a5408dcffc7aceaf0ce",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0013-seoul-arc-command-surface.patch after applying patches 0001 through 0012",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0013-seoul-arc-command-surface.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-zen-layout-branding-and-migration",
+      "description": "Finish the Zen/Arc native surface by aligning macOS traffic lights and navigation on one compact row, removing the floating address identity artifact, capping the unified action surface at 750px, keeping compact hover expansion overlay-only, and completing Seoul identity in settings, WebUI logos, document UTIs, and an independently owned macOS Safe Storage item that never probes Chromium credentials.",
+      "rationale": "The product cannot ship with a duplicated caption inset, a raised search glyph, page reflow on compact hover, Chromium labels in user-facing surfaces, or keychain access to another application's credential. These changes preserve Chromium's native security and navigation behavior while keeping the visible shell and credential ownership consistently Seoul; a recording fake regression test locks the keychain path to one Seoul lookup and a Seoul-only write.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 14,
+      "file": "0014-seoul-zen-layout-branding-and-migration.patch",
+      "affectedPaths": [
+        "chrome/app/app-Info.plist",
+        "chrome/app/chromium_strings.grd",
+        "chrome/app/password_manager_ui_strings.grdp",
+        "chrome/app/settings_chromium_strings.grdp",
+        "chrome/app/settings_strings.grdp",
+        "chrome/browser/ui/views/frame/browser_view.cc",
+        "chrome/browser/ui/views/frame/browser_view.h",
+        "chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc",
+        "chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h",
+        "chrome/browser/ui/views/location_bar/location_bar_view.cc",
+        "chrome/browser/ui/views/location_bar/location_bar_view.h",
+        "chrome/browser/ui/views/omnibox/omnibox_view_views.cc",
+        "chrome/browser/ui/views/toolbar/toolbar_view.cc",
+        "components/os_crypt/common/keychain_password_mac.h",
+        "components/os_crypt/common/keychain_password_mac.mm",
+        "components/os_crypt/common/keychain_password_mac_unittest.mm",
+        "ui/webui/resources/cr_elements/cr_toolbar/cr_toolbar.html.ts"
+      ],
+      "dependencies": [
+        "seoul-arc-command-surface",
+        "seoul-product-iconography"
+      ],
+      "sha256": "f360401c3a661cbbf6c6b83bf16b9f34c609443f1257bdd08641c0ffd112fe23",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0014-seoul-zen-layout-branding-and-migration.patch after applying patches 0001 through 0013",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0014-seoul-zen-layout-branding-and-migration.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-native-material-and-state-colors",
+      "description": "Enable Chromium's native macOS glass frame by default for Seoul, remove the integrated rail toolbar's opaque background slab, and replace opaque green interaction fills with Zen-derived active, hover, and selected-tab layers precomposited over their native backgrounds plus contrast-aware text and URL recipes.",
+      "rationale": "Zen's macOS surface lets native under-window material carry the frame and composes interaction states from low-alpha currentColor layers. Chromium also consumes its shared background tokens in contrast recipes, so Seoul precomposites those layers to opaque token values while preserving their rendered appearance; keeping raw alpha there violates the color-provider contract, while disabling glass or painting a CustomCornersBackground behind the integrated navigation row blocks the native material.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 15,
+      "file": "0015-seoul-native-material-and-state-colors.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/color/chrome_color_mixers.cc",
+        "chrome/browser/ui/color/chrome_color_provider_utils_unittest.cc",
+        "chrome/browser/ui/views/toolbar/toolbar_view.cc",
+        "ui/base/ui_base_features.cc"
+      ],
+      "dependencies": [
+        "seoul-product-identity-and-palette",
+        "seoul-zen-layout-branding-and-migration"
+      ],
+      "sha256": "8fd1af2f40a76cd1b3ccbc5269b84be4ed636d9007b10118ad52f4d420c7aa4d",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0015-seoul-native-material-and-state-colors.patch after applying patches 0001 through 0014",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0015-seoul-native-material-and-state-colors.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-platform-content-and-tab-radii",
+      "description": "Resolve Seoul's inner content radius at runtime to 10 DIP on macOS 26 and newer, 6 DIP on older macOS, 5 DIP on Windows and Linux, and 6 DIP on other platforms; apply that value consistently to content, DevTools, scrims, footer, overlays, and split corner masks; and use a 12 DIP vertical-tab radius on macOS while retaining Chromium's 8 DIP value elsewhere.",
+      "rationale": "Zen's content canvas and vertical tabs use platform-specific geometry. One resolved content radius must feed every docked DevTools and split-view corner combination so adjacent surfaces stay flush rather than exposing mismatched clipping or square gaps.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 16,
+      "file": "0016-seoul-platform-content-and-tab-radii.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/layout_constants.cc",
+        "chrome/browser/ui/views/frame/contents_container_view.cc"
+      ],
+      "dependencies": [
+        "seoul-zen-product-surface",
+        "seoul-native-material-and-state-colors"
+      ],
+      "sha256": "a298c4af77c8a54e345690165fb3eab375a90a3f0aad1a7e46411a8074c06227",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0016-seoul-platform-content-and-tab-radii.patch after applying patches 0001 through 0015",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0016-seoul-platform-content-and-tab-radii.patch",
       "reviewable": true
     }
   ]

@@ -5,6 +5,9 @@
 #import <Foundation/Foundation.h>
 #import <Security/Security.h>
 
+#include "base/command_line.h"
+#include "components/os_crypt/common/os_crypt_switches.h"
+
 namespace seoul {
 
 namespace {
@@ -31,7 +34,11 @@ NSMutableDictionary* BaseQuery(const std::string& account) {
 
 KeychainCredentialStore::KeychainCredentialStore(
     const std::string& profile_namespace)
-    : profile_namespace_(profile_namespace) {}
+    : profile_namespace_(profile_namespace),
+      use_mock_keychain_(
+          base::CommandLine::InitializedForCurrentProcess() &&
+          base::CommandLine::ForCurrentProcess()->HasSwitch(
+              os_crypt::switches::kUseMockKeychain)) {}
 
 KeychainCredentialStore::~KeychainCredentialStore() = default;
 
@@ -45,6 +52,15 @@ std::optional<std::string> KeychainCredentialStore::Get(
   if (account_key.empty()) {
     last_status_ = StoreStatus::kNotFound;
     return std::nullopt;
+  }
+  if (use_mock_keychain_) {
+    const auto found = mock_secrets_.find(account_key);
+    if (found == mock_secrets_.end()) {
+      last_status_ = StoreStatus::kNotFound;
+      return std::nullopt;
+    }
+    last_status_ = StoreStatus::kOk;
+    return found->second;
   }
   NSMutableDictionary* query = BaseQuery(QualifiedAccount(account_key));
   query[(__bridge id)kSecReturnData] = @YES;
@@ -74,6 +90,11 @@ bool KeychainCredentialStore::Set(const std::string& account_key,
                                   const std::string& secret) {
   if (account_key.empty() || secret.empty()) {
     return false;
+  }
+  if (use_mock_keychain_) {
+    mock_secrets_.insert_or_assign(account_key, secret);
+    last_status_ = StoreStatus::kOk;
+    return true;
   }
   NSData* secret_data = [NSData dataWithBytes:secret.data()
                                        length:secret.size()];
@@ -105,6 +126,14 @@ bool KeychainCredentialStore::Set(const std::string& account_key,
 bool KeychainCredentialStore::Delete(const std::string& account_key) {
   if (account_key.empty()) {
     return false;
+  }
+  if (use_mock_keychain_) {
+    if (mock_secrets_.erase(account_key) == 0) {
+      last_status_ = StoreStatus::kNotFound;
+      return false;
+    }
+    last_status_ = StoreStatus::kOk;
+    return true;
   }
   NSMutableDictionary* query = BaseQuery(QualifiedAccount(account_key));
   const OSStatus status = SecItemDelete((__bridge CFDictionaryRef)query);

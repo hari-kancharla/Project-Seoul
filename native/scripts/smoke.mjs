@@ -23,7 +23,7 @@ const root = (process.env.SEOUL_CHROMIUM_ROOT || '').trim()
   : (siblingRoot ?? path.resolve(repoRoot, '..', 'seoul-chromium.noindex'));
 const binary = (process.env.SEOUL_CHROMIUM_BINARY || '').trim()
   ? path.resolve(process.env.SEOUL_CHROMIUM_BINARY)
-  : path.join(root, 'src', 'out', 'SeoulBaseline', 'Chromium.app', 'Contents', 'MacOS', 'Chromium');
+  : path.join(root, 'src', 'out', 'SeoulBaseline', 'Seoul.app', 'Contents', 'MacOS', 'Seoul');
 const maxLaunchMs = 15000;
 const maxLocalNavigationMs = 5000;
 const maxCanvasReadyMs = 5000;
@@ -46,7 +46,7 @@ try {
 }
 
 if (!existsSync(binary)) {
-  fail(`built Chromium not found at:\n  ${binary}\nBuild it first (native/scripts/build.sh), or set SEOUL_CHROMIUM_BINARY.`);
+  fail(`built Seoul browser not found at:\n  ${binary}\nBuild it first (native/scripts/build.sh), or set SEOUL_CHROMIUM_BINARY.`);
 }
 
 const profile = mkdtempSync(path.join(os.tmpdir(), 'seoul-smoke-profile-'));

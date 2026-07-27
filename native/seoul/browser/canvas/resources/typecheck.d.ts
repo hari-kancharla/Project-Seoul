@@ -42,8 +42,9 @@ declare module '*canvas.mojom-webui.js' {
     getLibrarySnapshot(): Promise<{snapshotJson: string}>;
     getSiteLayerSnapshot(): Promise<{snapshotJson: string}>;
     upsertSiteLayer(
-        layerId: string, name: string, originPattern: string,
-        sceneScope: string, enabled: boolean,
+        layerId: string, expectedTabId: string, expectedPageOrigin: string,
+        name: string, originPattern: string, sceneScope: string,
+        enabled: boolean,
         adjustments: Array<{
           kind: string;
           selectors: string[];
@@ -55,7 +56,9 @@ declare module '*canvas.mojom-webui.js' {
         layerId: string, enabled: boolean): Promise<{snapshotJson: string}>;
     deleteSiteLayer(layerId: string): Promise<{snapshotJson: string}>;
     zapSiteLayer(
-        layerId: string): Promise<{snapshotJson: string, changed: boolean}>;
+        layerId: string, expectedTabId: string, expectedPageOrigin: string,
+        removeLayerOnCancel: boolean):
+        Promise<{snapshotJson: string, changed: boolean}>;
     cancelSiteLayerZap(): void;
     getStudioSnapshot(): Promise<{snapshotJson: string}>;
     saveLocalProvider(

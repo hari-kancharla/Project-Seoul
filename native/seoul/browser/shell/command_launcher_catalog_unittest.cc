@@ -9,9 +9,9 @@
 namespace seoul {
 namespace {
 
-const CommandLauncherEntry *
-FindEntry(const std::vector<CommandLauncherEntry> &entries,
-          std::string_view id) {
+const CommandLauncherEntry* FindEntry(
+    const std::vector<CommandLauncherEntry>& entries,
+    std::string_view id) {
   const auto found = std::ranges::find(entries, id, &CommandLauncherEntry::id);
   return found == entries.end() ? nullptr : &*found;
 }
@@ -40,7 +40,11 @@ TEST(CommandLauncherCatalogTest, EveryEntryIsExecutableAndSearchable) {
            ShellUtilityAction::kNewTemporaryTab,
            ShellUtilityAction::kCreateSplit,
            ShellUtilityAction::kOpenCanvas,
+           ShellUtilityAction::kOpenBoost,
            ShellUtilityAction::kOpenTaskDeck,
+           ShellUtilityAction::kSetAppearanceSingle,
+           ShellUtilityAction::kSetAppearanceMultiple,
+           ShellUtilityAction::kSetAppearanceCollapsed,
            ShellUtilityAction::kToggleCompactMode,
            ShellUtilityAction::kReconcile,
        }) {
@@ -51,8 +55,8 @@ TEST(CommandLauncherCatalogTest, EveryEntryIsExecutableAndSearchable) {
   }
   const auto entries = CommandLauncherCatalog::BuildEntries(
       snapshot, OrganizationSnapshot(), {});
-  ASSERT_EQ(entries.size(), 6u);
-  for (const CommandLauncherEntry &entry : entries) {
+  ASSERT_EQ(entries.size(), 10u);
+  for (const CommandLauncherEntry& entry : entries) {
     EXPECT_EQ(entry.kind, CommandLauncherEntryKind::kUtility);
     EXPECT_NE(entry.action, ShellUtilityAction::kCommandLauncher);
     const auto found = CommandLauncherCatalog::Filter(entries, entry.label);
@@ -112,35 +116,35 @@ TEST(CommandLauncherCatalogTest,
 
   const auto entries = CommandLauncherCatalog::BuildEntries(
       shell, organization, {current_window, other_window});
-  EXPECT_EQ(entries.size(), 12u);
+  EXPECT_EQ(entries.size(), 16u);
 
-  const auto *current_entry =
+  const auto* current_entry =
       FindEntry(entries, "workspace:" + current.id.value());
   ASSERT_TRUE(current_entry);
   EXPECT_EQ(current_entry->kind, CommandLauncherEntryKind::kWorkspace);
   EXPECT_TRUE(current_entry->enabled);
   EXPECT_EQ(current_entry->workspace_id, current.id);
 
-  const auto *research_entry =
+  const auto* research_entry =
       FindEntry(entries, "workspace:" + research.id.value());
   ASSERT_TRUE(research_entry);
   EXPECT_TRUE(research_entry->enabled);
   EXPECT_EQ(research_entry->workspace_id, research.id);
   EXPECT_FALSE(FindEntry(entries, "workspace:" + archived.id.value()));
 
-  const auto *mail_entry = FindEntry(entries, "essential:" + mail.id.value());
+  const auto* mail_entry = FindEntry(entries, "essential:" + mail.id.value());
   ASSERT_TRUE(mail_entry);
   EXPECT_EQ(mail_entry->kind, CommandLauncherEntryKind::kEssential);
   EXPECT_EQ(mail_entry->essential_id, mail.id);
 
-  const auto *active_entry = FindEntry(entries, "tab:w-1:t-10");
+  const auto* active_entry = FindEntry(entries, "tab:w-1:t-10");
   ASSERT_TRUE(active_entry);
   EXPECT_TRUE(active_entry->enabled);
   EXPECT_EQ(active_entry->label, "Current tab — Inbox");
   EXPECT_EQ(active_entry->live_window, current_window.window);
   EXPECT_EQ(active_entry->live_tab, active.tab);
 
-  const auto *other_entry = FindEntry(entries, "tab:w-2:t-20");
+  const auto* other_entry = FindEntry(entries, "tab:w-2:t-20");
   ASSERT_TRUE(other_entry);
   EXPECT_TRUE(other_entry->enabled);
   EXPECT_EQ(other_entry->kind, CommandLauncherEntryKind::kTab);
@@ -219,7 +223,60 @@ TEST(CommandLauncherCatalogTest, SkipsIneligibleAndInvalidLiveTargets) {
 
   const auto entries = CommandLauncherCatalog::BuildEntries(
       shell, organization, {ineligible, invalid});
-  EXPECT_EQ(entries.size(), 6u);
+  EXPECT_EQ(entries.size(), 10u);
+}
+
+TEST(CommandLauncherCatalogTest,
+     AppearanceEntriesCarryTypedTargetsAndMarkCurrentMode) {
+  ShellSnapshot shell;
+  shell.appearance_layout.available = true;
+  shell.appearance_layout.mode = ShellAppearanceLayoutMode::kMultiple;
+  for (ShellUtilityAction action :
+       {ShellUtilityAction::kSetAppearanceSingle,
+        ShellUtilityAction::kSetAppearanceMultiple,
+        ShellUtilityAction::kSetAppearanceCollapsed}) {
+    ShellActionEnablement enabled;
+    enabled.action = action;
+    enabled.enabled = true;
+    shell.actions.push_back(enabled);
+  }
+
+  const auto entries =
+      CommandLauncherCatalog::BuildEntries(shell, OrganizationSnapshot(), {});
+  struct Expected {
+    std::string_view id;
+    ShellUtilityAction action;
+    ShellAppearanceLayoutMode mode;
+    bool current;
+  };
+  for (const Expected& expected : {
+           Expected{"appearance_single",
+                    ShellUtilityAction::kSetAppearanceSingle,
+                    ShellAppearanceLayoutMode::kSingle, false},
+           Expected{"appearance_multiple",
+                    ShellUtilityAction::kSetAppearanceMultiple,
+                    ShellAppearanceLayoutMode::kMultiple, true},
+           Expected{"appearance_collapsed",
+                    ShellUtilityAction::kSetAppearanceCollapsed,
+                    ShellAppearanceLayoutMode::kCollapsed, false},
+       }) {
+    const CommandLauncherEntry* entry = FindEntry(entries, expected.id);
+    ASSERT_TRUE(entry);
+    EXPECT_TRUE(entry->enabled);
+    EXPECT_EQ(entry->kind, CommandLauncherEntryKind::kUtility);
+    EXPECT_EQ(entry->action, expected.action);
+    EXPECT_EQ(AppearanceLayoutModeForAction(entry->action), expected.mode);
+    EXPECT_EQ(entry->shortcut == "Current", expected.current);
+  }
+  EXPECT_FALSE(
+      AppearanceLayoutModeForAction(ShellUtilityAction::kToggleCompactMode)
+          .has_value());
+
+  const auto matches = CommandLauncherCatalog::Filter(entries, "appearance");
+  ASSERT_EQ(matches.size(), 3u);
+  EXPECT_EQ(matches[0].id, "appearance_single");
+  EXPECT_EQ(matches[1].id, "appearance_multiple");
+  EXPECT_EQ(matches[2].id, "appearance_collapsed");
 }
 
 TEST(CommandLauncherCatalogTest, CompactEntryReflectsLiveModeAndAvailability) {
@@ -231,7 +288,7 @@ TEST(CommandLauncherCatalogTest, CompactEntryReflectsLiveModeAndAvailability) {
 
   auto entries =
       CommandLauncherCatalog::BuildEntries(shell, OrganizationSnapshot(), {});
-  const CommandLauncherEntry *entry = FindEntry(entries, "toggle_compact");
+  const CommandLauncherEntry* entry = FindEntry(entries, "toggle_compact");
   ASSERT_TRUE(entry);
   EXPECT_TRUE(entry->enabled);
   EXPECT_EQ(entry->label, "Enter Compact Mode");
@@ -247,5 +304,5 @@ TEST(CommandLauncherCatalogTest, CompactEntryReflectsLiveModeAndAvailability) {
   EXPECT_EQ(matches.front().id, "toggle_compact");
 }
 
-} // namespace
-} // namespace seoul
+}  // namespace
+}  // namespace seoul

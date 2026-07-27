@@ -12,9 +12,8 @@ namespace seoul {
 // Shared gate for the site-controls button and omnibox action.
 bool CanBoostWebContents(content::WebContents *web_contents);
 
-// Opens Seoul Canvas on Boosts for the current tab. HTTP(S) pages open a fresh
-// live editor; internal pages open the explicit "open a website" state instead
-// of silently falling through to a search/navigation.
+// Opens Seoul Canvas on Boosts for the current HTTP(S) tab. Unsupported and
+// internal pages are rejected without opening an editor on a different site.
 bool OpenBoostEditorForWebContents(content::WebContents *web_contents);
 
 } // namespace seoul

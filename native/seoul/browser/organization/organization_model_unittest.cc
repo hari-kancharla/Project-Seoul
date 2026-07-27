@@ -6,10 +6,13 @@
 #include "seoul/browser/organization/organization_model.h"
 
 #include <map>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "base/test/bind.h"
 #include "base/time/time.h"
+#include "seoul/browser/organization/organization_limits.h"
 #include "seoul/browser/organization/organization_observer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -265,6 +268,48 @@ TEST_F(OrganizationModelTest, EssentialsRejectUnsafeOrMalformedDestinations) {
                 .error(),
             OrganizationError::kInvalidUrl);
   EXPECT_EQ(model_.essential_count(), 0u);
+}
+
+TEST_F(OrganizationModelTest, UserCreationCapsEssentialsAtTwelve) {
+  std::vector<EssentialId> ids;
+  for (size_t index = 0; index < kMaxUserEssentials; ++index) {
+    auto created = model_.CreateOrUpdateEssential(
+        EssentialId(), "Essential " + std::to_string(index),
+        "https://essential-" + std::to_string(index) + ".test/");
+    ASSERT_TRUE(created.has_value()) << "index " << index;
+    ids.push_back(created.value());
+  }
+  EXPECT_EQ(model_.essential_count(), kMaxUserEssentials);
+  EXPECT_EQ(model_
+                .CreateOrUpdateEssential(EssentialId(), "One too many",
+                                         "https://essential-overflow.test/")
+                .error(),
+            OrganizationError::kLimitExceeded);
+
+  // Editing an existing Essential remains valid while the deck is full.
+  auto updated = model_.CreateOrUpdateEssential(
+      ids.front(), "Updated Essential", "https://essential-0.test/inbox");
+  ASSERT_TRUE(updated.has_value());
+  EXPECT_EQ(updated.value(), ids.front());
+  EXPECT_EQ(model_.essential_count(), kMaxUserEssentials);
+}
+
+TEST_F(OrganizationModelTest, LegacySnapshotCanStillLoadOneHundredEssentials) {
+  OrganizationSnapshot snapshot;
+  snapshot.schema_version = kOrganizationSchemaVersion;
+  for (size_t index = 0; index < kMaxEssentials; ++index) {
+    EssentialRecord essential;
+    essential.id = EssentialId::GenerateNew();
+    essential.name = "Legacy Essential " + std::to_string(index);
+    essential.root_url =
+        "https://legacy-essential-" + std::to_string(index) + ".test/";
+    essential.order = static_cast<int>(index);
+    essential.created_at = clock_;
+    snapshot.essentials.push_back(std::move(essential));
+  }
+
+  ASSERT_TRUE(model_.LoadSnapshot(snapshot).has_value());
+  EXPECT_EQ(model_.essential_count(), kMaxEssentials);
 }
 
 TEST_F(OrganizationModelTest, AutoArchiveProtectionRules) {

@@ -3,6 +3,7 @@
 #include "seoul/browser/shell/views/seoul_workspace_menu.h"
 
 #include <tuple>
+#include <utility>
 
 #include "base/functional/bind.h"
 #include "base/strings/utf_string_conversions.h"
@@ -18,7 +19,6 @@
 #include "ui/views/widget/widget.h"
 
 namespace seoul {
-namespace {
 
 constexpr int kCreateWorkspace = 1000;
 constexpr int kRenameWorkspace = 1001;
@@ -48,9 +48,9 @@ class WorkspaceMenuModel : public ui::SimpleMenuModel,
               base::UTF8ToUTF16(workspace.name));
     }
     AddSeparator(ui::NORMAL_SEPARATOR);
-    AddItem(kCreateWorkspace, u"Create Workspace");
-    AddItem(kRenameWorkspace, u"Rename Workspace");
-    AddItem(kArchiveWorkspace, u"Archive Workspace");
+    AddItem(kCreateWorkspace, u"Create Space");
+    AddItem(kRenameWorkspace, u"Rename Space");
+    AddItem(kArchiveWorkspace, u"Archive Space");
   }
 
   void ExecuteCommand(int command_id, int event_flags) override {
@@ -70,14 +70,15 @@ class WorkspaceMenuModel : public ui::SimpleMenuModel,
         // Real name input: create with exactly what the user typed.
         ShellController* controller = controller_;
         ShowWorkspaceNameDialog(
-            parent_, u"Create workspace", std::u16string(),
+            parent_, u"Create Space", std::u16string(),
             base::BindOnce(
                 [](ShellController* controller, std::string name) {
                   BrowserCommand command;
                   command.id = CommandId::Next();
                   command.kind = CommandKind::kCreateWorkspace;
                   command.name = std::move(name);
-                  std::ignore = controller->DispatchModelCommand(std::move(command));
+                  std::ignore =
+                      controller->DispatchModelCommand(std::move(command));
                 },
                 controller));
         return;
@@ -86,7 +87,7 @@ class WorkspaceMenuModel : public ui::SimpleMenuModel,
         ShellController* controller = controller_;
         const WorkspaceId id = controller_->snapshot().workspace.workspace_id;
         ShowWorkspaceNameDialog(
-            parent_, u"Rename workspace",
+            parent_, u"Rename Space",
             base::UTF8ToUTF16(controller_->snapshot().workspace.name),
             base::BindOnce(
                 [](ShellController* controller, WorkspaceId id,
@@ -96,7 +97,8 @@ class WorkspaceMenuModel : public ui::SimpleMenuModel,
                   command.kind = CommandKind::kRenameWorkspace;
                   command.workspace_id = id;
                   command.name = std::move(name);
-                  std::ignore = controller->DispatchModelCommand(std::move(command));
+                  std::ignore =
+                      controller->DispatchModelCommand(std::move(command));
                 },
                 controller, id));
         return;
@@ -120,20 +122,30 @@ class WorkspaceMenuModel : public ui::SimpleMenuModel,
   std::vector<WorkspaceId> workspace_ids_;
 };
 
-}  // namespace
+SeoulWorkspaceMenu::SeoulWorkspaceMenu(gfx::NativeWindow parent,
+                                       views::View* anchor,
+                                       ShellController* controller)
+    : parent_(parent), anchor_(anchor), controller_(controller) {}
 
-void SeoulWorkspaceMenu::Show(gfx::NativeWindow parent,
-                              views::View* anchor,
-                              ShellController* controller) {
-  (void)parent;
-  if (!anchor || !controller) {
-    return;
+SeoulWorkspaceMenu::~SeoulWorkspaceMenu() = default;
+
+bool SeoulWorkspaceMenu::Show(base::RepeatingClosure on_menu_closed) {
+  if (!anchor_ || !controller_ || !anchor_->GetWidget()) {
+    return false;
   }
-  WorkspaceMenuModel model(controller, parent, {});
-  views::MenuRunner menu_runner(&model, views::MenuRunner::HAS_MNEMONICS);
-  menu_runner.RunMenuAt(
-      anchor->GetWidget(), nullptr, anchor->GetAnchorBoundsInScreen(),
+
+  // MenuRunner may run asynchronously (and its API explicitly forbids
+  // stack-local ownership), so keep both it and the backing model alive for
+  // the lifetime of this menu controller.
+  model_ = std::make_unique<WorkspaceMenuModel>(controller_, parent_,
+                                                std::vector<WorkspaceId>());
+  menu_runner_ = std::make_unique<views::MenuRunner>(
+      model_.get(), views::MenuRunner::HAS_MNEMONICS,
+      std::move(on_menu_closed));
+  menu_runner_->RunMenuAt(
+      anchor_->GetWidget(), nullptr, anchor_->GetAnchorBoundsInScreen(),
       views::MenuAnchorPosition::kTopLeft, ui::mojom::MenuSourceType::kMouse);
+  return true;
 }
 
 }  // namespace seoul

@@ -1,0 +1,233 @@
+diff --git a/chrome/BUILD.gn b/chrome/BUILD.gn
+index e00f78b4eb..0c33b53f7d 100644
+--- a/chrome/BUILD.gn
++++ b/chrome/BUILD.gn
+@@ -637,7 +637,7 @@ if (is_win) {
+   }
+ 
+   bundle_data("chrome_app_icon") {
+-    sources = [ "app/theme/$branding_path_component/mac/app.icns" ]
++    sources = [ "//seoul/resources/branding/mac/app.icns" ]
+     outputs = [ "{{bundle_resources_dir}}/{{source_file_part}}" ]
+   }
+ 
+@@ -957,7 +957,7 @@ if (is_win) {
+       # Authorization Services uses.  Also, Authorization Services
+       # can't deal with .icns files.
+       "$root_gen_dir/chrome/browser/mac/install.sh",
+-      "app/theme/default_100_percent/$branding_path_component/product_logo_32.png",
++      "//seoul/resources/branding/product_logo_32.png",
+     ]
+ 
+     outputs = [ "{{bundle_resources_dir}}/{{source_file_part}}" ]
+@@ -1815,11 +1815,10 @@ if (is_linux || is_chromeos) {
+     sources = [ "//chrome/tools/build/linux/chrome-wrapper" ]
+     if (is_linux) {
+       sources += [
+-        "//chrome/app/theme/$branding_path_component/linux/product_logo_48.png",
++        "//seoul/resources/branding/linux/product_logo_48.png",
+       ]
+     } else {
+-      sources +=
+-          [ "//chrome/app/theme/$branding_path_component/product_logo_48.png" ]
++      sources += [ "//seoul/resources/branding/product_logo_48.png" ]
+     }
+     outputs = [ "$root_out_dir/{{source_file_part}}" ]
+   }
+diff --git a/chrome/app/theme/chrome_unscaled_resources.grd b/chrome/app/theme/chrome_unscaled_resources.grd
+index 645b701864..09fdd4993c 100644
+--- a/chrome/app/theme/chrome_unscaled_resources.grd
++++ b/chrome/app/theme/chrome_unscaled_resources.grd
+@@ -16,14 +16,14 @@
+     <includes>
+       <if expr="is_linux">
+         <then>
+-          <include name="IDR_PRODUCT_LOGO_64" file="${branding_path_component}/linux/product_logo_64.png" type="BINDATA" />
+-          <include name="IDR_PRODUCT_LOGO_128" file="${branding_path_component}/linux/product_logo_128.png" type="BINDATA" />
+-          <include name="IDR_PRODUCT_LOGO_256" file="${branding_path_component}/linux/product_logo_256.png" type="BINDATA" />
++          <include name="IDR_PRODUCT_LOGO_64" file="../../../seoul/resources/branding/linux/product_logo_64.png" type="BINDATA" />
++          <include name="IDR_PRODUCT_LOGO_128" file="../../../seoul/resources/branding/linux/product_logo_128.png" type="BINDATA" />
++          <include name="IDR_PRODUCT_LOGO_256" file="../../../seoul/resources/branding/linux/product_logo_256.png" type="BINDATA" />
+         </then>
+         <else>
+-          <include name="IDR_PRODUCT_LOGO_64" file="${branding_path_component}/product_logo_64.png" type="BINDATA" />
+-          <include name="IDR_PRODUCT_LOGO_128" file="${branding_path_component}/product_logo_128.png" type="BINDATA" />
+-          <include name="IDR_PRODUCT_LOGO_256" file="${branding_path_component}/product_logo_256.png" type="BINDATA" />
++          <include name="IDR_PRODUCT_LOGO_64" file="../../../seoul/resources/branding/product_logo_64.png" type="BINDATA" />
++          <include name="IDR_PRODUCT_LOGO_128" file="../../../seoul/resources/branding/product_logo_128.png" type="BINDATA" />
++          <include name="IDR_PRODUCT_LOGO_256" file="../../../seoul/resources/branding/product_logo_256.png" type="BINDATA" />
+         </else>
+       </if>
+       <if expr="is_macosx">
+@@ -84,22 +84,22 @@
+               <include name="IDR_PRODUCT_LOGO_128_CFT_SHORTCUTS" file="google_chrome/google_chrome_for_testing/product_logo_128.png" type="BINDATA" />
+             </then>
+             <else> <!-- not _is_chrome_for_testing_branded -->
+-              <include name="IDR_PRODUCT_LOGO_SVG" file="${branding_path_component}/product_logo.svg" type="BINDATA" />
+-              <include name="IDR_PRODUCT_LOGO_ANIMATION_SVG" file="${branding_path_component}/product_logo_animation.svg" type="BINDATA" />
++              <include name="IDR_PRODUCT_LOGO_SVG" file="../../../seoul/resources/branding/product_logo.svg" type="BINDATA" />
++              <include name="IDR_PRODUCT_LOGO_ANIMATION_SVG" file="../../../seoul/resources/branding/product_logo_animation.svg" type="BINDATA" />
+             </else>
+           </if> <!-- _is_chrome_for_testing_branded -->
+-            <include name="IDR_PRODUCT_LOGO_16_SHORTCUTS" file="chromium/product_logo_16.png" type="BINDATA" />
+-            <include name="IDR_PRODUCT_LOGO_24_SHORTCUTS" file="chromium/product_logo_24.png" type="BINDATA" />
+-            <include name="IDR_PRODUCT_LOGO_64_SHORTCUTS" file="chromium/product_logo_64.png" type="BINDATA" />
+-            <include name="IDR_PRODUCT_LOGO_128_SHORTCUTS" file="chromium/product_logo_128.png" type="BINDATA" />
++            <include name="IDR_PRODUCT_LOGO_16_SHORTCUTS" file="../../../seoul/resources/branding/product_logo_16.png" type="BINDATA" />
++            <include name="IDR_PRODUCT_LOGO_24_SHORTCUTS" file="../../../seoul/resources/branding/product_logo_24.png" type="BINDATA" />
++            <include name="IDR_PRODUCT_LOGO_64_SHORTCUTS" file="../../../seoul/resources/branding/product_logo_64.png" type="BINDATA" />
++            <include name="IDR_PRODUCT_LOGO_128_SHORTCUTS" file="../../../seoul/resources/branding/product_logo_128.png" type="BINDATA" />
+         </else>
+       </if> <!-- _google_chrome -->
+       <!-- NOTE: product_logo_*.* files beyond what's listed above are
+           referenced by installer code; don't remove them unless you know
+           what you're doing! -->
+       <if expr="is_chromeos">
+-        <include name="IDR_CHROME_APP_ICON_32" file="${branding_path_component}/chromeos/chrome_app_icon_32.png" type="BINDATA" />
+-        <include name="IDR_CHROME_APP_ICON_192" file="${branding_path_component}/chromeos/chrome_app_icon_192.png" type="BINDATA" />
++        <include name="IDR_CHROME_APP_ICON_32" file="../../../seoul/resources/branding/chromeos/chrome_app_icon_32.png" type="BINDATA" />
++        <include name="IDR_CHROME_APP_ICON_192" file="../../../seoul/resources/branding/chromeos/chrome_app_icon_192.png" type="BINDATA" />
+         <include name="IDR_WEBSTORE_APP_ICON_16" file="${branding_path_component}/chromeos/webstore_app_icon_16.png" type="BINDATA" />
+         <include name="IDR_WEBSTORE_APP_ICON_128" file="${branding_path_component}/chromeos/webstore_app_icon_128.png" type="BINDATA" />
+       </if>
+diff --git a/chrome/app/theme/theme_resources.grd b/chrome/app/theme/theme_resources.grd
+index 18f8199ba8..e9e9daa7d8 100644
+--- a/chrome/app/theme/theme_resources.grd
++++ b/chrome/app/theme/theme_resources.grd
+@@ -142,7 +142,7 @@
+         </if>
+         <structure type="chrome_scaled_image" name="IDR_NTP_CART_DISCOUNT_CONSENT_DARK" file="common/ntp_cart_discount_consent_dark.png" />
+         <structure type="chrome_scaled_image" name="IDR_NTP_CART_DISCOUNT_CONSENT_LIGHT" file="common/ntp_cart_discount_consent_light.png" />
+-        <structure type="chrome_scaled_image" name="IDR_NTP_FAVICON" file="common/favicon_ntp.png" />
++        <structure type="chrome_scaled_image" name="IDR_NTP_FAVICON" file="../../../../seoul/resources/branding/ntp_favicon_32.png" />
+         <structure type="chrome_scaled_image" name="IDR_PASSWORD_CHECK" file="common/password_check.png" />
+         <structure type="chrome_scaled_image" name="IDR_PASSWORD_CHECK_DARK" file="common/password_check_dark.png" />
+         <if expr="_google_chrome">
+@@ -163,7 +163,7 @@
+       </if>
+       <structure type="chrome_scaled_image" name="IDR_PLUGINS_FAVICON" file="common/favicon_plugins.png" />
+       <structure type="chrome_scaled_image" name="IDR_PRERENDER" file="common/prerender_succeed_icon.png" />
+-      <structure type="chrome_scaled_image" name="IDR_PRODUCT_LOGO_32" file="${branding_path_component}/product_logo_32.png" />
++      <structure type="chrome_scaled_image" name="IDR_PRODUCT_LOGO_32" file="../../../../seoul/resources/branding/product_logo_32.png" />
+       <if expr="not is_android">
+           <structure type="chrome_scaled_image" name="IDR_PRICE_TRACKING_ON_IOS_ICON" file="common/price_tracking_on_ios.png" />
+       </if>
+@@ -192,10 +192,10 @@
+         <else> <!-- not _google_chrome -->
+           <if expr="is_linux">
+             <then>
+-              <structure type="chrome_scaled_image" name="IDR_PRODUCT_LOGO_16" file="${branding_path_component}/linux/product_logo_16.png" />
++              <structure type="chrome_scaled_image" name="IDR_PRODUCT_LOGO_16" file="../../../../seoul/resources/branding/linux/product_logo_16.png" />
+             </then>
+             <else>
+-              <structure type="chrome_scaled_image" name="IDR_PRODUCT_LOGO_16" file="${branding_path_component}/product_logo_16.png" />
++              <structure type="chrome_scaled_image" name="IDR_PRODUCT_LOGO_16" file="../../../../seoul/resources/branding/product_logo_16.png" />
+             </else>
+           </if> <!-- is_linux -->
+           <if expr="_is_chrome_for_testing_branded">
+diff --git a/chrome/updater/branding.gni b/chrome/updater/branding.gni
+index 2b6f9e23b2..f123fef3ef 100644
+--- a/chrome/updater/branding.gni
++++ b/chrome/updater/branding.gni
+@@ -19,7 +19,7 @@ if (is_chrome_branded) {
+   mac_updater_bundle_identifier = "org.chromium.ChromiumUpdater"
+   privileged_helper_bundle_name = "ChromiumUpdaterPrivilegedHelper"
+   privileged_helper_name = "org.chromium.Chromium.UpdaterPrivilegedHelper"
+-  updater_app_icon_path = "//chrome/app/theme/chromium/mac/app.icns"
++  updater_app_icon_path = "//seoul/resources/branding/mac/app.icns"
+   updater_company_full_name = "Chromium Authors"
+   updater_company_short_name = "Chromium"
+   updater_company_short_name_lowercase = "chromium"
+diff --git a/chrome/app/app-Info.plist b/chrome/app/app-Info.plist
+index 6fada0a2b1..632d8fc73e 100644
+--- a/chrome/app/app-Info.plist
++++ b/chrome/app/app-Info.plist
+@@ -149,8 +149,6 @@
+ 	<string>${EXECUTABLE_NAME}</string>
+ 	<key>CFBundleIconFile</key>
+ 	<string>app.icns</string>
+-	<key>CFBundleIconName</key>
+-	<string>AppIcon</string>
+ 	<key>CFBundleIdentifier</key>
+ 	<string>${CHROMIUM_BUNDLE_ID}</string>
+ 	<key>CFBundleInfoDictionaryVersion</key>
+diff --git a/chrome/app/helper-alerts-Info.plist b/chrome/app/helper-alerts-Info.plist
+index 13454227b5..a1bb91f88f 100644
+--- a/chrome/app/helper-alerts-Info.plist
++++ b/chrome/app/helper-alerts-Info.plist
+@@ -6,8 +6,6 @@
+ 	<string>${CHROMIUM_BUNDLE_ID}.framework.AlertNotificationService</string>
+ 	<key>CFBundleIconFile</key>
+ 	<string>app.icns</string>
+-	<key>CFBundleIconName</key>
+-	<string>AppIcon</string>
+ 	<key>NSUserNotificationAlertStyle</key>
+ 	<string>alert</string>
+ </dict>
+diff --git a/chrome/updater/mac/Info.plist b/chrome/updater/mac/Info.plist
+index 325eeb64fe..4ce51eb90c 100644
+--- a/chrome/updater/mac/Info.plist
++++ b/chrome/updater/mac/Info.plist
+@@ -12,8 +12,6 @@
+ 	<string>${EXECUTABLE_NAME}</string>
+ 	<key>CFBundleIconFile</key>
+ 	<string>app</string>
+-	<key>CFBundleIconName</key>
+-	<string>app</string>
+ 	<key>CFBundleName</key>
+ 	<string>${PRODUCT_NAME}</string>
+ 	<key>CFBundlePackageType</key>
+diff --git a/ui/resources/ui_resources.grd b/ui/resources/ui_resources.grd
+index 120ebdc3b6..e6c4808dc7 100644
+--- a/ui/resources/ui_resources.grd
++++ b/ui/resources/ui_resources.grd
+@@ -26,13 +26,13 @@
+         <structure type="chrome_scaled_image" name="IDR_DISABLE_H" file="disable_hover.png" />
+         <structure type="chrome_scaled_image" name="IDR_DISABLE_P" file="disable_pressed.png" />
+       </if>
+-      <structure type="chrome_scaled_image" name="IDR_DEFAULT_FAVICON" file="common/default_favicon.png" />
+-      <structure type="chrome_scaled_image" name="IDR_DEFAULT_FAVICON_DARK" file="common/default_favicon_dark.png" />
++      <structure type="chrome_scaled_image" name="IDR_DEFAULT_FAVICON" file="../../../seoul/resources/branding/product_logo_16.png" />
++      <structure type="chrome_scaled_image" name="IDR_DEFAULT_FAVICON_DARK" file="../../../seoul/resources/branding/product_logo_16.png" />
+       <if expr="not is_android or is_desktop_android or enable_webui_ntp">
+-        <structure type="chrome_scaled_image" name="IDR_DEFAULT_FAVICON_32" file="common/default_favicon_32.png" />
+-        <structure type="chrome_scaled_image" name="IDR_DEFAULT_FAVICON_DARK_32" file="common/default_favicon_dark_32.png" />
+-        <structure type="chrome_scaled_image" name="IDR_DEFAULT_FAVICON_64" file="common/default_favicon_64.png" />
+-        <structure type="chrome_scaled_image" name="IDR_DEFAULT_FAVICON_DARK_64" file="common/default_favicon_dark_64.png" />
++        <structure type="chrome_scaled_image" name="IDR_DEFAULT_FAVICON_32" file="../../../seoul/resources/branding/product_logo_32.png" />
++        <structure type="chrome_scaled_image" name="IDR_DEFAULT_FAVICON_DARK_32" file="../../../seoul/resources/branding/product_logo_32.png" />
++        <structure type="chrome_scaled_image" name="IDR_DEFAULT_FAVICON_64" file="../../../seoul/resources/branding/product_logo_64.png" />
++        <structure type="chrome_scaled_image" name="IDR_DEFAULT_FAVICON_DARK_64" file="../../../seoul/resources/branding/product_logo_64.png" />
+       </if>
+       <if expr="not is_android or is_desktop_android">
+         <if expr="not is_android">
+diff --git a/chrome/browser/app_controller_mac.mm b/chrome/browser/app_controller_mac.mm
+index 33ac0c1324..ef2563108a 100644
+--- a/chrome/browser/app_controller_mac.mm
++++ b/chrome/browser/app_controller_mac.mm
+@@ -13,6 +13,7 @@
+ #include <vector>
+ 
+ #include "base/apple/bridging.h"
++#include "base/apple/bundle_locations.h"
+ #include "base/apple/foundation_util.h"
+ #include "base/auto_reset.h"
+ #include "base/check_is_test.h"
+@@ -796,6 +797,17 @@ + (AppController*)sharedController {
+ 
+ - (instancetype)init {
+   if (self = [super init]) {
++    // The inherited Chromium asset catalog can remain cached by macOS even
++    // after a fork replaces CFBundleIconFile. Make Seoul's bundle-owned icon
++    // authoritative for the live Dock tile as well as Finder.
++    NSString* productIconPath =
++        [base::apple::OuterBundle() pathForResource:@"app" ofType:@"icns"];
++    NSImage* productIcon =
++        [[NSImage alloc] initWithContentsOfFile:productIconPath];
++    if (productIcon) {
++      NSApp.applicationIconImage = productIcon;
++    }
++
+     // -[NSMenu cr_menuItemForKeyEquivalentEvent:] lives in /content, but
+     // we need to execute special update code before the search begins.
+     // Setting this block gives us the hook we need.

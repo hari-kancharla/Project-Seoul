@@ -14,10 +14,12 @@
 #include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser.h"  // nogncheck
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/browser_window/public/profile_browser_collection.h"
 #include "chrome/browser/ui/tabs/vertical_tab_strip_state_controller.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"  // nogncheck
 #include "components/download/public/common/download_item.h"
 #include "components/permissions/permission_request_manager.h"
 #include "components/pref_registry/pref_registry_syncable.h"
@@ -71,11 +73,10 @@ bool OpenSeoulProjectRoute(Profile* profile,
   }
   ProfileBrowserCollection* collection =
       ProfileBrowserCollection::GetForProfile(profile);
-  BrowserWindowInterface* browser =
-      collection
-          ? collection->FindBrowserWithID(
-                SessionID::FromSerializedValue(window.session_id()))
-          : nullptr;
+  BrowserWindowInterface *browser =
+      collection ? collection->FindBrowserWithID(
+                       SessionID::FromSerializedValue(window.session_id()))
+                 : nullptr;
   if (!browser || browser->GetProfile() != profile ||
       browser->IsDeleteScheduled() ||
       browser->GetType() != BrowserWindowInterface::TYPE_NORMAL) {
@@ -83,6 +84,49 @@ bool OpenSeoulProjectRoute(Profile* profile,
   }
   chrome::AddTabAt(browser, url, -1, true);
   return true;
+}
+
+BrowserView *ResolveBrowserView(Profile *profile, LiveWindowKey window) {
+  if (!profile || !window.is_valid()) {
+    return nullptr;
+  }
+  BrowserWindowInterface *browser_window =
+      BrowserWindowInterface::FromSessionID(
+          SessionID::FromSerializedValue(window.session_id()));
+  Browser *browser =
+      browser_window ? browser_window->GetBrowserForMigrationOnly() : nullptr;
+  if (!browser_window || !browser || browser_window->GetProfile() != profile ||
+      browser_window->GetType() != BrowserWindowInterface::TYPE_NORMAL ||
+      browser_window->IsDeleteScheduled()) {
+    return nullptr;
+  }
+  return BrowserView::GetBrowserViewForBrowser(browser);
+}
+
+std::optional<ShellAppearanceLayoutMode>
+ToShellAppearanceLayoutMode(SeoulLayoutMode mode) {
+  switch (mode) {
+  case SeoulLayoutMode::kSingle:
+    return ShellAppearanceLayoutMode::kSingle;
+  case SeoulLayoutMode::kMultiple:
+    return ShellAppearanceLayoutMode::kMultiple;
+  case SeoulLayoutMode::kCollapsed:
+    return ShellAppearanceLayoutMode::kCollapsed;
+  }
+  return std::nullopt;
+}
+
+std::optional<SeoulLayoutMode>
+ToBrowserAppearanceLayoutMode(ShellAppearanceLayoutMode mode) {
+  switch (mode) {
+  case ShellAppearanceLayoutMode::kSingle:
+    return SeoulLayoutMode::kSingle;
+  case ShellAppearanceLayoutMode::kMultiple:
+    return SeoulLayoutMode::kMultiple;
+  case ShellAppearanceLayoutMode::kCollapsed:
+    return SeoulLayoutMode::kCollapsed;
+  }
+  return std::nullopt;
 }
 
 // Builds the scene resolvers over the organization model plus runtime-owned
@@ -269,9 +313,45 @@ SeoulRuntimeService::SeoulRuntimeService(
               return runtime && runtime->SetCompactMode(enabled, window);
             },
             base::Unretained(this)));
+    organization_->shell_service()->SetAppearanceLayoutModeCallbacks(
+        base::BindRepeating(
+            [](SeoulRuntimeService *runtime, LiveWindowKey window) {
+              ShellAppearanceLayoutState state;
+              BrowserView *browser_view =
+                  runtime ? ResolveBrowserView(runtime->profile_, window)
+                          : nullptr;
+              const std::optional<ShellAppearanceLayoutMode> mode =
+                  browser_view ? ToShellAppearanceLayoutMode(
+                                     browser_view->seoul_layout_mode())
+                               : std::nullopt;
+              if (!mode.has_value()) {
+                state.disabled_reason =
+                    "Appearance layouts are unavailable for this window.";
+                return state;
+              }
+              state.available = true;
+              state.mode = *mode;
+              return state;
+            },
+            base::Unretained(this)),
+        base::BindRepeating(
+            [](SeoulRuntimeService *runtime, LiveWindowKey window,
+               ShellAppearanceLayoutMode mode) {
+              BrowserView *browser_view =
+                  runtime ? ResolveBrowserView(runtime->profile_, window)
+                          : nullptr;
+              const std::optional<SeoulLayoutMode> target =
+                  ToBrowserAppearanceLayoutMode(mode);
+              if (!browser_view || !target.has_value()) {
+                return false;
+              }
+              browser_view->SetSeoulLayoutMode(*target);
+              return true;
+            },
+            base::Unretained(this)));
     organization_->shell_service()->SetProjectCallbacks(
         base::BindRepeating(
-            [](SeoulRuntimeService* runtime, WorkspaceId workspace) {
+            [](SeoulRuntimeService *runtime, WorkspaceId workspace) {
               ShellProjectResources resources;
               if (!runtime || !runtime->thread_service_) {
                 return resources;
@@ -307,7 +387,7 @@ SeoulRuntimeService::SeoulRuntimeService(
             },
             base::Unretained(this)),
         base::BindRepeating(
-            [](SeoulRuntimeService* runtime, LiveWindowKey window,
+            [](SeoulRuntimeService *runtime, LiveWindowKey window,
                WorkspaceId workspace) {
               if (!runtime || !runtime->thread_service_ ||
                   !workspace.is_valid()) {
@@ -334,8 +414,8 @@ SeoulRuntimeService::SeoulRuntimeService(
             },
             base::Unretained(this)),
         base::BindRepeating(
-            [](SeoulRuntimeService* runtime, LiveWindowKey window,
-               const std::string& thread_id) {
+            [](SeoulRuntimeService *runtime, LiveWindowKey window,
+               const std::string &thread_id) {
               return runtime && runtime->thread_service_ &&
                      runtime->thread_service_->FindThread(thread_id) &&
                      OpenSeoulProjectRoute(
@@ -345,7 +425,7 @@ SeoulRuntimeService::SeoulRuntimeService(
             },
             base::Unretained(this)),
         base::BindRepeating(
-            [](SeoulRuntimeService* runtime, LiveWindowKey window,
+            [](SeoulRuntimeService *runtime, LiveWindowKey window,
                WorkspaceId workspace) {
               return runtime && workspace.is_valid() &&
                      OpenSeoulProjectRoute(
@@ -1752,7 +1832,7 @@ void SeoulRuntimeService::RefreshSiteLayers() {
 
 void SeoulRuntimeService::BeginSiteLayerZap(
     const std::string &layer_id, const LiveWindowKey &window,
-    SiteLayerZapCallback callback) {
+    bool remove_layer_on_cancel, SiteLayerZapCallback callback) {
   const SiteLayer *layer =
       site_layers_ ? site_layers_->Find(layer_id) : nullptr;
   const std::optional<LiveTabDescriptor> active = ActiveTabDescriptor(window);
@@ -1763,12 +1843,18 @@ void SeoulRuntimeService::BeginSiteLayerZap(
   }
   if (!active.has_value() || active->origin.empty() ||
       !SiteLayerMatchesOrigin(*layer, active->origin)) {
+    if (remove_layer_on_cancel) {
+      std::ignore = RemoveSiteLayer(layer_id);
+    }
     std::move(callback).Run(
         false, base::unexpected(SiteLayerError::kInvalidOrigin));
     return;
   }
   auto applicator = site_layer_applicators_.find(active->tab);
   if (applicator == site_layer_applicators_.end()) {
+    if (remove_layer_on_cancel) {
+      std::ignore = RemoveSiteLayer(layer_id);
+    }
     std::move(callback).Run(
         false, base::unexpected(SiteLayerError::kInvalidOrigin));
     return;
@@ -1776,13 +1862,20 @@ void SeoulRuntimeService::BeginSiteLayerZap(
 
   applicator->second->BeginZap(base::BindOnce(
       [](base::WeakPtr<SeoulRuntimeService> runtime, std::string layer_id,
-         std::string origin, SiteLayerZapCallback callback,
+         std::string origin, bool remove_layer_on_cancel,
+         SiteLayerZapCallback callback,
          std::optional<std::string> selector) {
         if (!runtime) {
           return;
         }
         if (!selector.has_value()) {
-          std::move(callback).Run(false, base::ok());
+          if (remove_layer_on_cancel) {
+            SiteLayerStatusResult result =
+                runtime->RemoveSiteLayer(layer_id);
+            std::move(callback).Run(false, std::move(result));
+          } else {
+            std::move(callback).Run(false, base::ok());
+          }
           return;
         }
         const SiteLayer *stored = runtime->site_layers_
@@ -1828,6 +1921,7 @@ void SeoulRuntimeService::BeginSiteLayerZap(
         std::move(callback).Run(result.has_value(), std::move(result));
       },
       weak_factory_.GetWeakPtr(), layer_id, active->origin,
+      remove_layer_on_cancel,
       std::move(callback)));
 }
 
@@ -2697,6 +2791,7 @@ void SeoulRuntimeService::Shutdown() {
   if (organization_ && organization_->shell_service()) {
     organization_->shell_service()->SetOpenBoostCallback({});
     organization_->shell_service()->SetCompactModeCallbacks({}, {});
+    organization_->shell_service()->SetAppearanceLayoutModeCallbacks({}, {});
     organization_->shell_service()->SetProjectCallbacks({}, {}, {}, {});
   }
   weak_factory_.InvalidateWeakPtrs();

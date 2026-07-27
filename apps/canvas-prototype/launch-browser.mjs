@@ -1,6 +1,6 @@
-// Launch an isolated Chromium through puppeteer-core.
+// Launch an isolated Seoul browser through puppeteer-core.
 // On macOS, never pick the user's Google Chrome installation implicitly. Use
-// the locally built Seoul Chromium; any system browser must be explicitly
+// the locally built Seoul product; any system browser must be explicitly
 // opted into with SEOUL_CHROME_BINARY.
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -26,10 +26,10 @@ export function candidateBrowserPaths({
         'src',
         'out',
         'SeoulBaseline',
-        'Chromium.app',
+        'Seoul.app',
         'Contents',
         'MacOS',
-        'Chromium',
+        'Seoul',
       );
   const candidates = [
     env.SEOUL_CHROME_BINARY,
@@ -53,7 +53,7 @@ export function resolveChromeBinary({
   const found = candidates.find((candidate) => pathExists(candidate));
   if (!found) {
     throw new Error(
-      'No isolated Chrome/Chromium binary found. Build Seoul Chromium or ' +
+      'No isolated Seoul browser binary found. Build Seoul or ' +
         'point SEOUL_CHROME_BINARY at a dedicated test browser executable.',
     );
   }

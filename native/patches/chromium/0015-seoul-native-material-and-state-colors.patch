@@ -1,0 +1,276 @@
+diff --git a/chrome/browser/ui/color/chrome_color_mixers.cc b/chrome/browser/ui/color/chrome_color_mixers.cc
+index 38f578f52ee96a1b739c071df70e2c889a285a43..fda9bca995d0e7076fa6071e0336ee8e04065024 100644
+--- a/chrome/browser/ui/color/chrome_color_mixers.cc
++++ b/chrome/browser/ui/color/chrome_color_mixers.cc
+@@ -28,6 +28,7 @@
+ #include "ui/color/color_provider.h"
+ #include "ui/color/color_provider_utils.h"
+ #include "ui/color/color_recipe.h"
++#include "ui/gfx/color_utils.h"
+ 
+ namespace {
+ 
+@@ -60,14 +61,12 @@ void AddSeoulProductColorMixer(ui::ColorProvider* provider,
+                                  : SkColorSetRGB(0x5F, 0x8D, 0x6E);
+   const SkColor rail_inactive = dark_mode ? SkColorSetRGB(0x32, 0x3F, 0x37)
+                                           : SkColorSetRGB(0x6E, 0x84, 0x75);
+-  const SkColor selected = dark_mode ? SkColorSetRGB(0x3F, 0x63, 0x4F)
+-                                     : SkColorSetRGB(0x79, 0xA1, 0x86);
+-  const SkColor hover = dark_mode ? SkColorSetRGB(0x38, 0x58, 0x47)
+-                                  : SkColorSetRGB(0x70, 0x99, 0x7D);
+-  const SkColor foreground = dark_mode ? SkColorSetRGB(0xF3, 0xF2, 0xEC)
+-                                       : SkColorSetRGB(0xF8, 0xF7, 0xF1);
+-  const SkColor foreground_muted = dark_mode ? SkColorSetRGB(0xC4, 0xCE, 0xC5)
+-                                             : SkColorSetRGB(0xE0, 0xE8, 0xE0);
++  const SkColor foreground_seed =
++      dark_mode ? SkColorSetRGB(0xF3, 0xF2, 0xEC)
++                : SkColorSetRGB(0xF8, 0xF7, 0xF1);
++  const SkColor foreground_muted_seed =
++      dark_mode ? SkColorSetRGB(0xC4, 0xCE, 0xC5)
++                : SkColorSetRGB(0xE0, 0xE8, 0xE0);
+   const SkColor canvas = dark_mode ? SkColorSetRGB(0x17, 0x17, 0x15)
+                                    : SkColorSetRGB(0xF2, 0xF1, 0xEB);
+   const SkColor canvas_text = dark_mode ? SkColorSetRGB(0xF3, 0xF2, 0xEC)
+@@ -81,17 +80,40 @@ void AddSeoulProductColorMixer(ui::ColorProvider* provider,
+   mixer[ui::kColorFrameActive] = {rail};
+   mixer[ui::kColorFrameInactive] = {rail_inactive};
+   mixer[kColorToolbar] = {rail};
+-  mixer[kColorToolbarBackgroundSubtleEmphasis] = {selected};
+-  mixer[kColorToolbarBackgroundSubtleEmphasisHovered] = {hover};
+-  mixer[kColorToolbarButtonIcon] = {foreground};
+-  mixer[kColorToolbarButtonIconDefault] = {foreground};
+-  mixer[kColorToolbarButtonIconHovered] = {foreground};
+-  mixer[kColorToolbarButtonIconPressed] = {foreground};
+-  mixer[kColorToolbarButtonText] = {foreground};
+-  mixer[kColorToolbarText] = {foreground};
+-  mixer[kColorToolbarTextDefault] = {foreground};
+-  mixer[kColorLocationBarBackground] = {selected};
+-  mixer[kColorLocationBarBackgroundHovered] = {hover};
++
++  // Zen composes controls from currentColor at 7% for active state and
++  // 8%/10% for light/dark hover. Chromium's shared background color tokens
++  // are also consumed as contrast-calculation backgrounds and therefore must
++  // resolve opaque. Pre-composite the Zen layers over the toolbar here; this
++  // preserves the exact rendered appearance without violating that contract.
++  const ui::ColorTransform foreground_endpoint =
++      ui::GetColorWithMaxContrast(kColorToolbar);
++  const ui::ColorTransform active_layer =
++      ui::SetAlpha(foreground_endpoint, 0x12);
++  const ui::ColorTransform hover_layer =
++      ui::SetAlpha(foreground_endpoint, dark_mode ? 0x1A : 0x14);
++  const ui::ColorTransform active_fill =
++      ui::GetResultingPaintColor(active_layer, kColorToolbar);
++  const ui::ColorTransform hover_fill =
++      ui::GetResultingPaintColor(hover_layer, kColorToolbar);
++  const ui::ColorTransform toolbar_foreground = ui::BlendForMinContrast(
++      {foreground_seed}, kColorToolbar, foreground_endpoint,
++      color_utils::kMinimumReadableContrastRatio);
++  const ui::ColorTransform toolbar_foreground_muted =
++      ui::BlendForMinContrast(
++          {foreground_muted_seed}, kColorToolbar, foreground_endpoint,
++          color_utils::kMinimumVisibleContrastRatio);
++  mixer[kColorToolbarBackgroundSubtleEmphasis] = active_fill;
++  mixer[kColorToolbarBackgroundSubtleEmphasisHovered] = hover_fill;
++  mixer[kColorToolbarButtonIcon] = toolbar_foreground;
++  mixer[kColorToolbarButtonIconDefault] = toolbar_foreground;
++  mixer[kColorToolbarButtonIconHovered] = toolbar_foreground;
++  mixer[kColorToolbarButtonIconPressed] = toolbar_foreground;
++  mixer[kColorToolbarButtonText] = toolbar_foreground;
++  mixer[kColorToolbarText] = toolbar_foreground;
++  mixer[kColorToolbarTextDefault] = toolbar_foreground;
++  mixer[kColorLocationBarBackground] = active_fill;
++  mixer[kColorLocationBarBackgroundHovered] = hover_fill;
+   mixer[kColorOmniboxText] = {canvas_text};
+   mixer[kColorOmniboxTextDimmed] = {canvas_text_muted};
+   mixer[kColorOmniboxActionIcon] = {canvas_text_muted};
+@@ -110,34 +132,75 @@ void AddSeoulProductColorMixer(ui::ColorProvider* provider,
+   mixer[kColorOmniboxResultsTextSecondary] = {canvas_text_muted};
+   mixer[kColorOmniboxResultsTextSecondarySelected] = {canvas_text};
+   mixer[kColorOmniboxResultsTextSelected] = {canvas_text};
+-  mixer[kColorOmniboxResultsUrl] = {selected};
+-  mixer[kColorOmniboxResultsUrlSelected] = {selected};
+-
+-  mixer[kColorTabBackgroundActiveFrameActive] = {selected};
+-  mixer[kColorTabBackgroundActiveFrameInactive] = {selected};
++  mixer[kColorOmniboxResultsUrl] = ui::BlendForMinContrast(
++      {rail}, kColorOmniboxResultsBackground, std::nullopt,
++      color_utils::kMinimumReadableContrastRatio);
++  mixer[kColorOmniboxResultsUrlSelected] = ui::BlendForMinContrast(
++      {rail}, kColorOmniboxResultsBackgroundSelected, std::nullopt,
++      color_utils::kMinimumReadableContrastRatio);
++
++  // Zen's selected tab is a translucent white layer (80% light, 18% dark).
++  // Resolve the layer against each active/inactive frame so downstream
++  // Chromium contrast recipes continue to receive opaque backgrounds.
++  const ui::ColorTransform selected_tab_layer =
++      ui::SetAlpha(SK_ColorWHITE, dark_mode ? 0x2E : 0xCC);
++  const ui::ColorTransform selected_tab_hover_layer =
++      ui::SetAlpha(SK_ColorWHITE, dark_mode ? 0x38 : 0xD9);
++  const ui::ColorTransform selected_tab_active_fill =
++      ui::GetResultingPaintColor(selected_tab_layer, ui::kColorFrameActive);
++  const ui::ColorTransform selected_tab_inactive_fill =
++      ui::GetResultingPaintColor(selected_tab_layer, ui::kColorFrameInactive);
++  const ui::ColorTransform selected_tab_active_hover_fill =
++      ui::GetResultingPaintColor(selected_tab_hover_layer,
++                                 ui::kColorFrameActive);
++  const ui::ColorTransform selected_tab_inactive_hover_fill =
++      ui::GetResultingPaintColor(selected_tab_hover_layer,
++                                 ui::kColorFrameInactive);
++  mixer[kColorTabBackgroundActiveFrameActive] = selected_tab_active_fill;
++  mixer[kColorTabBackgroundActiveFrameInactive] = selected_tab_inactive_fill;
+   mixer[kColorTabBackgroundInactiveFrameActive] = {rail};
+   mixer[kColorTabBackgroundInactiveFrameInactive] = {rail_inactive};
+-  mixer[kColorTabBackgroundInactiveHoverFrameActive] = {hover};
+-  mixer[kColorTabBackgroundInactiveHoverFrameInactive] = {hover};
+-  mixer[kColorTabBackgroundSelectedFrameActive] = {selected};
+-  mixer[kColorTabBackgroundSelectedFrameInactive] = {selected};
+-  mixer[kColorTabBackgroundSelectedHoverFrameActive] = {hover};
+-  mixer[kColorTabBackgroundSelectedHoverFrameInactive] = {hover};
+-  mixer[kColorTabForegroundActiveFrameActive] = {foreground};
+-  mixer[kColorTabForegroundActiveFrameInactive] = {foreground_muted};
+-  mixer[kColorTabForegroundInactiveFrameActive] = {foreground};
+-  mixer[kColorTabForegroundInactiveFrameInactive] = {foreground_muted};
++  mixer[kColorTabBackgroundInactiveHoverFrameActive] = hover_layer;
++  mixer[kColorTabBackgroundInactiveHoverFrameInactive] = hover_layer;
++  mixer[kColorTabBackgroundSelectedFrameActive] = selected_tab_active_fill;
++  mixer[kColorTabBackgroundSelectedFrameInactive] = selected_tab_inactive_fill;
++  mixer[kColorTabBackgroundSelectedHoverFrameActive] =
++      selected_tab_active_hover_fill;
++  mixer[kColorTabBackgroundSelectedHoverFrameInactive] =
++      selected_tab_inactive_hover_fill;
++  mixer[kColorTabForegroundActiveFrameActive] = ui::BlendForMinContrast(
++      {foreground_seed},
++      ui::GetResultingPaintColor(kColorTabBackgroundActiveFrameActive,
++                                 ui::kColorFrameActive),
++      ui::GetColorWithMaxContrast(ui::GetResultingPaintColor(
++          kColorTabBackgroundActiveFrameActive, ui::kColorFrameActive)),
++      color_utils::kMinimumReadableContrastRatio);
++  mixer[kColorTabForegroundActiveFrameInactive] = ui::BlendForMinContrast(
++      {foreground_muted_seed},
++      ui::GetResultingPaintColor(kColorTabBackgroundActiveFrameInactive,
++                                 ui::kColorFrameInactive),
++      ui::GetColorWithMaxContrast(ui::GetResultingPaintColor(
++          kColorTabBackgroundActiveFrameInactive, ui::kColorFrameInactive)),
++      color_utils::kMinimumReadableContrastRatio);
++  mixer[kColorTabForegroundInactiveFrameActive] = toolbar_foreground;
++  mixer[kColorTabForegroundInactiveFrameInactive] =
++      ui::BlendForMinContrast(
++          {foreground_muted_seed}, {rail_inactive},
++          ui::GetColorWithMaxContrast({rail_inactive}),
++          color_utils::kMinimumVisibleContrastRatio);
+   mixer[kColorTabDividerFrameActive] = {rail};
+   mixer[kColorTabDividerFrameInactive] = {rail_inactive};
+-  mixer[kColorVerticalTabPinnedOutline] = {hover};
++  mixer[kColorVerticalTabPinnedOutline] = hover_layer;
+   mixer[kColorVerticalTabStripShadow] = {
+       SkColorSetA(SK_ColorBLACK, dark_mode ? 0x66 : 0x38)};
+-  mixer[kColorNewTabButtonCRForegroundFrameActive] = {foreground};
+-  mixer[kColorNewTabButtonCRForegroundFrameInactive] = {foreground_muted};
+-  mixer[kColorNewTabButtonCRBackgroundFrameActive] = {rail};
+-  mixer[kColorNewTabButtonCRBackgroundFrameInactive] = {rail_inactive};
+-  mixer[kColorTabSearchButtonCRForegroundFrameActive] = {foreground};
+-  mixer[kColorTabSearchButtonCRForegroundFrameInactive] = {foreground_muted};
++  mixer[kColorNewTabButtonCRForegroundFrameActive] = toolbar_foreground;
++  mixer[kColorNewTabButtonCRForegroundFrameInactive] =
++      toolbar_foreground_muted;
++  mixer[kColorNewTabButtonCRBackgroundFrameActive] = active_fill;
++  mixer[kColorNewTabButtonCRBackgroundFrameInactive] = active_fill;
++  mixer[kColorTabSearchButtonCRForegroundFrameActive] = toolbar_foreground;
++  mixer[kColorTabSearchButtonCRForegroundFrameInactive] =
++      toolbar_foreground_muted;
+ 
+   mixer[kColorNewTabPageBackground] = {canvas};
+   mixer[kColorNewTabPageBackgroundOverride] = {canvas};
+diff --git a/chrome/browser/ui/color/chrome_color_provider_utils_unittest.cc b/chrome/browser/ui/color/chrome_color_provider_utils_unittest.cc
+index fc19507b5a5c061a18d8ba218753ea7148ff600d..c4e26d07e6d490b6e94bbb742f00fdca64521099 100644
+--- a/chrome/browser/ui/color/chrome_color_provider_utils_unittest.cc
++++ b/chrome/browser/ui/color/chrome_color_provider_utils_unittest.cc
+@@ -6,8 +6,13 @@
+ 
+ #include "base/test/gtest_util.h"
+ #include "chrome/browser/ui/color/chrome_color_id.h"
++#include "chrome/browser/ui/color/chrome_color_mixers.h"
+ #include "testing/gtest/include/gtest/gtest.h"
+ #include "ui/color/color_id.h"
++#include "ui/color/color_mixers.h"
++#include "ui/color/color_provider.h"
++#include "ui/color/color_provider_key.h"
++#include "ui/gfx/color_utils.h"
+ 
+ using ChromeColorProviderUtilsTest = ::testing::Test;
+ 
+@@ -15,3 +20,38 @@ TEST_F(ChromeColorProviderUtilsTest, ChromeColorIdNameTest) {
+   EXPECT_EQ("kColorToolbarBackgroundSubtleEmphasis",
+             ChromeColorIdName(kColorToolbarBackgroundSubtleEmphasis));
+ }
++
++TEST_F(ChromeColorProviderUtilsTest,
++       SeoulStateLayersPreserveMaterialAndReadableText) {
++  for (const bool dark_mode : {false, true}) {
++    ui::ColorProvider provider;
++    ui::ColorProviderKey key;
++    if (dark_mode) {
++      key.color_mode = ui::ColorProviderKey::ColorMode::kDark;
++    }
++    AddColorMixers(&provider, key);
++    AddChromeColorMixers(&provider, key);
++
++    const SkColor frame = provider.GetColor(ui::kColorFrameActive);
++    const SkColor active =
++        provider.GetColor(kColorToolbarBackgroundSubtleEmphasis);
++    const SkColor hover =
++        provider.GetColor(kColorToolbarBackgroundSubtleEmphasisHovered);
++    const SkColor selected_tab =
++        provider.GetColor(kColorTabBackgroundActiveFrameActive);
++
++    // These shared tokens are used as contrast-recipe backgrounds, so their
++    // Zen alpha layers must already be composited and opaque.
++    EXPECT_EQ(SK_AlphaOPAQUE, SkColorGetA(active));
++    EXPECT_EQ(SK_AlphaOPAQUE, SkColorGetA(hover));
++    EXPECT_EQ(SK_AlphaOPAQUE, SkColorGetA(selected_tab));
++    EXPECT_GE(color_utils::GetContrastRatio(
++                  provider.GetColor(kColorToolbarText), frame),
++              color_utils::kMinimumReadableContrastRatio);
++    EXPECT_GE(
++        color_utils::GetContrastRatio(
++            provider.GetColor(kColorTabForegroundActiveFrameActive),
++            color_utils::GetResultingPaintColor(selected_tab, frame)),
++        color_utils::kMinimumReadableContrastRatio);
++  }
++}
+diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.cc b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+index cf917881a408ca8d78d2b3631837a737323c2d91..5662fa3de2cb100a6467e732f4c14d017e7f1ff0 100644
+--- a/chrome/browser/ui/views/toolbar/toolbar_view.cc
++++ b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+@@ -710,6 +710,12 @@ void ToolbarView::ApplySeoulSidebarPresentation() {
+   if (!seoul_sidebar_mode_ || display_mode_ != DisplayMode::kNormal) {
+     return;
+   }
++  // The integrated navigation row sits directly on the native frame
++  // material. Painting ToolbarView's normal opaque CustomCornersBackground
++  // here creates a rectangular slab through the translucent rail.
++  // Keep the background object because BrowserViewTabbedLayoutImpl owns its
++  // corner geometry and updates it after each layout.
++  static_cast<CustomCornersBackground*>(background())->SetAlpha(0.0f);
+   SetVisible(!seoul_sidebar_collapsed_);
+   if (seoul_sidebar_collapsed_ || !initialized_) {
+     return;
+diff --git a/ui/base/ui_base_features.cc b/ui/base/ui_base_features.cc
+index 1fb0e89d305b25f1fcfc1f2fa423450f79e8ebb2..2b8fd2c9853f9175086bf1093370e0e437423d87 100644
+--- a/ui/base/ui_base_features.cc
++++ b/ui/base/ui_base_features.cc
+@@ -475,7 +475,14 @@ BASE_FEATURE_PARAM(int,
+ 
+ BASE_FEATURE(kSplitViewLinkOpen, base::FEATURE_DISABLED_BY_DEFAULT);
+ 
++#if BUILDFLAG(IS_MAC)
++// Seoul's macOS shell is designed around the native under-window material.
++// Keep the feature overrideable for diagnostics, but make the production
++// default match the platform-native translucent frame.
++BASE_FEATURE(kGlassFrame, base::FEATURE_ENABLED_BY_DEFAULT);
++#else
+ BASE_FEATURE(kGlassFrame, base::FEATURE_DISABLED_BY_DEFAULT);
++#endif
+ 
+ bool IsGlassFrameEnabled() {
+ #if BUILDFLAG(IS_MAC)

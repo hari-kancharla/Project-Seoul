@@ -1921,7 +1921,7 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
       [&]() { return svc->ActiveTabDescriptor(window).has_value(); }));
 
   base::test::TestFuture<bool, SiteLayerStatusResult> zap_future;
-  svc->BeginSiteLayerZap(layer.id, window, zap_future.GetCallback());
+  svc->BeginSiteLayerZap(layer.id, window, false, zap_future.GetCallback());
   ASSERT_TRUE(base::test::RunUntil([&]() {
     return content::EvalJs(
                contents,
@@ -1962,6 +1962,46 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
+                       CancellingFirstZapRemovesProvisionalBoost) {
+  net::EmbeddedTestServer http_server(net::EmbeddedTestServer::TYPE_HTTP);
+  http_server.ServeFilesFromSourceDirectory(
+      "seoul/browser/product/browser/test_data");
+  ASSERT_TRUE(http_server.Start());
+  const GURL page_url = http_server.GetURL("/boost_target.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), page_url));
+
+  SeoulRuntimeService *svc = runtime();
+  ASSERT_TRUE(svc);
+  SiteLayer layer;
+  layer.id = "provisional-zap";
+  layer.name = "Unsaved first Zap";
+  layer.origin_pattern = url::Origin::Create(page_url).Serialize();
+  ASSERT_TRUE(svc->UpsertSiteLayer(layer).has_value());
+
+  content::WebContents *contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+  const LiveWindowKey window =
+      LiveWindowKey::FromSessionId(browser()->GetSessionID().id());
+  ASSERT_TRUE(base::test::RunUntil(
+      [&]() { return svc->ActiveTabDescriptor(window).has_value(); }));
+
+  base::test::TestFuture<bool, SiteLayerStatusResult> zap_future;
+  svc->BeginSiteLayerZap(layer.id, window, true, zap_future.GetCallback());
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    return content::EvalJs(
+               contents,
+               "Boolean(document.querySelector('[data-seoul-boost-zap]'))")
+        .ExtractBool();
+  }));
+  svc->CancelSiteLayerZap(window);
+  ASSERT_TRUE(zap_future.Wait());
+  EXPECT_FALSE(zap_future.Get<0>());
+  EXPECT_TRUE(zap_future.Get<1>().has_value());
+  EXPECT_FALSE(svc->site_layers()->Find(layer.id));
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
                        NativeBoostEntryOpensCurrentSiteEditor) {
   net::EmbeddedTestServer http_server(net::EmbeddedTestServer::TYPE_HTTP);
   http_server.ServeFilesFromSourceDirectory(
@@ -1995,7 +2035,7 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
-                       NativeBoostEntryExplainsInternalPages) {
+                       NativeBoostEntryRefusesInternalPages) {
   content::WebContents *contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   ASSERT_TRUE(contents);
@@ -2016,8 +2056,8 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
             }
           },
           window, &request_observed));
-  EXPECT_TRUE(OpenBoostEditorForWebContents(contents));
-  EXPECT_TRUE(request_observed);
+  EXPECT_FALSE(OpenBoostEditorForWebContents(contents));
+  EXPECT_FALSE(request_observed);
 }
 
 IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
@@ -2095,9 +2135,28 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
   const base::DictValue *active_page =
       initial->GetDict().FindDict("active_page");
   ASSERT_TRUE(active_page);
+  const std::string *active_tab_id = active_page->FindString("tab_id");
+  ASSERT_TRUE(active_tab_id);
   const std::string *active_origin = active_page->FindString("origin");
   ASSERT_TRUE(active_origin);
   EXPECT_EQ(*active_origin, url::Origin::Create(page_url).Serialize());
+
+  base::test::TestFuture<std::string> stale_save_future;
+  remote->UpsertSiteLayer(
+      "stale-binding", "not-the-active-tab", *active_origin,
+      "Must not save", *active_origin, "", true,
+      std::vector<canvas::mojom::SiteLayerAdjustmentInputPtr>(),
+      base::BindOnce([](base::test::TestFuture<std::string> *future,
+                        const std::string &value) { future->SetValue(value); },
+                     &stale_save_future));
+  std::optional<base::Value> stale_save =
+      base::JSONReader::Read(stale_save_future.Take(), base::JSON_PARSE_RFC);
+  ASSERT_TRUE(stale_save.has_value());
+  const std::string *stale_detail =
+      stale_save->GetDict().FindString("detail");
+  ASSERT_TRUE(stale_detail);
+  EXPECT_EQ(*stale_detail, "active_page_changed");
+  EXPECT_FALSE(runtime()->site_layers()->Find("stale-binding"));
 
   auto adjustment = canvas::mojom::SiteLayerAdjustmentInput::New();
   adjustment->kind = "text_color";
@@ -2127,8 +2186,9 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
 
   base::test::TestFuture<std::string> save_future;
   remote->UpsertSiteLayer(
-      "", "Mojo live proof", url::Origin::Create(page_url).Serialize(), "",
-      true, std::move(adjustments),
+      "", *active_tab_id, *active_origin, "Mojo live proof",
+      url::Origin::Create(page_url).Serialize(), "", true,
+      std::move(adjustments),
       base::BindOnce([](base::test::TestFuture<std::string> *future,
                         const std::string &value) { future->SetValue(value); },
                      &save_future));

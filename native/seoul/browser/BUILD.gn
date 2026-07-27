@@ -68,4 +68,10 @@ group("seoul_unittests") {
     "//seoul/browser/voice:seoul_voice_unittests",
     "//seoul/browser/workflows:seoul_workflows_unittests",
   ]
+
+  if (is_mac) {
+    deps += [
+      "//seoul/browser/product/browser:seoul_keychain_credential_store_unittests",
+    ]
+  }
 }

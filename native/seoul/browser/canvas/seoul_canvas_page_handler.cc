@@ -1329,13 +1329,18 @@ void SeoulCanvasPageHandler::GetSiteLayerSnapshot(
 }
 
 void SeoulCanvasPageHandler::UpsertSiteLayer(
-    const std::string &layer_id, const std::string &name,
+    const std::string &layer_id, const std::string &expected_tab_id,
+    const std::string &expected_page_origin, const std::string &name,
     const std::string &origin_pattern, const std::string &scene_scope,
     bool enabled,
     std::vector<canvas::mojom::SiteLayerAdjustmentInputPtr> adjustments,
     UpsertSiteLayerCallback callback) {
   if (!runtime_ || !ResolveBoundWindow().has_value()) {
     std::move(callback).Run(ErrorJson("window_unbound"));
+    return;
+  }
+  if (!MatchesActivePageBinding(expected_tab_id, expected_page_origin)) {
+    std::move(callback).Run(ErrorJson("active_page_changed"));
     return;
   }
   if (adjustments.size() > kMaxLayerRules) {
@@ -1409,14 +1414,23 @@ void SeoulCanvasPageHandler::DeleteSiteLayer(const std::string &layer_id,
 }
 
 void SeoulCanvasPageHandler::ZapSiteLayer(
-    const std::string &layer_id, ZapSiteLayerCallback callback) {
+    const std::string &layer_id, const std::string &expected_tab_id,
+    const std::string &expected_page_origin, bool remove_layer_on_cancel,
+    ZapSiteLayerCallback callback) {
   const std::optional<LiveWindowKey> window = ResolveBoundWindow();
   if (!runtime_ || !window.has_value()) {
     std::move(callback).Run(ErrorJson("window_unbound"), false);
     return;
   }
+  if (!MatchesActivePageBinding(expected_tab_id, expected_page_origin)) {
+    if (remove_layer_on_cancel) {
+      std::ignore = runtime_->RemoveSiteLayer(layer_id);
+    }
+    std::move(callback).Run(ErrorJson("active_page_changed"), false);
+    return;
+  }
   runtime_->BeginSiteLayerZap(
-      layer_id, *window,
+      layer_id, *window, remove_layer_on_cancel,
       base::BindOnce(
           [](base::WeakPtr<SeoulCanvasPageHandler> handler,
              ZapSiteLayerCallback callback, bool changed,
@@ -2199,6 +2213,19 @@ SeoulCanvasPageHandler::ResolveBoundWindow() const {
     return std::nullopt;
   }
   return runtime_->ResolveWindowBinding(window_binding_token_);
+}
+
+bool SeoulCanvasPageHandler::MatchesActivePageBinding(
+    const std::string &expected_tab_id,
+    const std::string &expected_page_origin) const {
+  const std::optional<LiveWindowKey> window = ResolveBoundWindow();
+  if (!runtime_ || !window.has_value() || expected_tab_id.empty()) {
+    return false;
+  }
+  const std::optional<LiveTabDescriptor> active =
+      runtime_->ActiveTabDescriptor(*window);
+  return active.has_value() && active->tab.value() == expected_tab_id &&
+         active->origin == expected_page_origin;
 }
 
 TaskId SeoulCanvasPageHandler::StartBoundGoal(const std::string &goal) {

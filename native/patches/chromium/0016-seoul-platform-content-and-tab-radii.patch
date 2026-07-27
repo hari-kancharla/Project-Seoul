@@ -1,0 +1,138 @@
+diff --git a/chrome/browser/ui/layout_constants.cc b/chrome/browser/ui/layout_constants.cc
+index 063b8fe52f6976a396555ce753cafcaa84e57f2b..4874cb13c821096918b6c63a6025df8088811cab 100644
+--- a/chrome/browser/ui/layout_constants.cc
++++ b/chrome/browser/ui/layout_constants.cc
+@@ -134,8 +134,13 @@ int GetLayoutConstant(LayoutConstant constant) {
+       return 20;
+     case LayoutConstant::kMainBackgroundRegionCornerRadius:
+     case LayoutConstant::kToolbarCornerRadius:
++      return 8;
+     case LayoutConstant::kVerticalTabCornerRadius:
++#if BUILDFLAG(IS_MAC)
++      return 12;
++#else
+       return 8;
++#endif
+     case LayoutConstant::kVerticalTabHeight:
+       return 30;
+     case LayoutConstant::kVerticalTabPinnedHeight:
+diff --git a/chrome/browser/ui/views/frame/contents_container_view.cc b/chrome/browser/ui/views/frame/contents_container_view.cc
+index 4456d76d51124bdd872813e6600075724cd9e277..cc57181484c7e5f53e3ba000ae135635b8aad0e9 100644
+--- a/chrome/browser/ui/views/frame/contents_container_view.cc
++++ b/chrome/browser/ui/views/frame/contents_container_view.cc
+@@ -8,6 +8,7 @@
+ #include <optional>
+ #include <utility>
+ 
++#include "build/build_config.h"
+ #include "chrome/browser/actor/ui/actor_overlay_web_view.h"
+ #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
+ #include "chrome/browser/enterprise/data_protection/data_protection_overlay_view.h"
+@@ -50,13 +51,51 @@
+ #include "ui/views/view_class_properties.h"
+ #include "ui/views/widget/widget.h"
+ 
++#if BUILDFLAG(IS_MAC)
++#include "base/mac/mac_util.h"
++#endif
++
+ #if BUILDFLAG(IS_WIN)
+ #include "ui/views/widget/native_widget_aura.h"
+ #endif
+ 
+ namespace {
+-constexpr float kContentCornerRadius = 6;
+-constexpr gfx::RoundedCornersF kContentRoundedCorners{kContentCornerRadius};
++enum class ContentCornerPlatform {
++  kMac,
++  kWindowsOrLinux,
++  kOther,
++};
++
++constexpr float ContentCornerRadiusForPlatform(
++    ContentCornerPlatform platform,
++    int macos_major_version) {
++  if (platform == ContentCornerPlatform::kMac) {
++    return macos_major_version >= 26 ? 10.0f : 6.0f;
++  }
++  return platform == ContentCornerPlatform::kWindowsOrLinux ? 5.0f : 6.0f;
++}
++
++static_assert(
++    ContentCornerRadiusForPlatform(ContentCornerPlatform::kMac, 26) == 10.0f);
++static_assert(
++    ContentCornerRadiusForPlatform(ContentCornerPlatform::kMac, 25) == 6.0f);
++static_assert(ContentCornerRadiusForPlatform(
++                  ContentCornerPlatform::kWindowsOrLinux, 0) == 5.0f);
++static_assert(
++    ContentCornerRadiusForPlatform(ContentCornerPlatform::kOther, 0) == 6.0f);
++
++float GetContentCornerRadius() {
++#if BUILDFLAG(IS_MAC)
++  return ContentCornerRadiusForPlatform(ContentCornerPlatform::kMac,
++                                        base::mac::MacOSMajorVersion());
++#elif BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX)
++  return ContentCornerRadiusForPlatform(
++      ContentCornerPlatform::kWindowsOrLinux, 0);
++#else
++  return ContentCornerRadiusForPlatform(ContentCornerPlatform::kOther, 0);
++#endif
++}
++
+ constexpr int kSplitViewContentPadding = 4;
+ 
+ constexpr int kNewTabFooterSeparatorHeight = 1;
+@@ -256,10 +295,14 @@ void ContentsContainerView::SetSeoulRoundedContent(bool rounded) {
+ }
+ 
+ void ContentsContainerView::UpdateBorderRoundedCorners() {
++  const float content_corner_radius = GetContentCornerRadius();
++  const gfx::RoundedCornersF content_rounded_corners_all{
++      content_corner_radius};
++
+   // Update devtools rounded corners. Note, devtools exists behind the contents
+   // view so all devtools corners are rounded.
+-  devtools_web_view_->holder()->SetCornerRadii(kContentRoundedCorners);
+-  devtools_scrim_view_->SetRoundedCorners(kContentRoundedCorners);
++  devtools_web_view_->holder()->SetCornerRadii(content_rounded_corners_all);
++  devtools_scrim_view_->SetRoundedCorners(content_rounded_corners_all);
+ 
+   const bool devtools_in_upper_left =
+       devtools_web_view_->GetVisible() &&
+@@ -277,18 +320,19 @@ void ContentsContainerView::UpdateBorderRoundedCorners() {
+        current_devtools_docked_placement_ == DevToolsDockedPlacement::kRight);
+ 
+   const gfx::RoundedCornersF content_upper_rounded_corners =
+-      gfx::RoundedCornersF{devtools_in_upper_left ? 0 : kContentCornerRadius,
+-                           devtools_in_upper_right ? 0 : kContentCornerRadius,
++      gfx::RoundedCornersF{devtools_in_upper_left ? 0 : content_corner_radius,
++                           devtools_in_upper_right ? 0 : content_corner_radius,
+                            0, 0};
+   const gfx::RoundedCornersF content_lower_rounded_corners =
+       gfx::RoundedCornersF{0, 0,
+-                           devtools_in_lower_right ? 0 : kContentCornerRadius,
+-                           devtools_in_lower_left ? 0 : kContentCornerRadius};
++                           devtools_in_lower_right ? 0 : content_corner_radius,
++                           devtools_in_lower_left ? 0 : content_corner_radius};
+   const gfx::RoundedCornersF content_rounded_corners =
+-      gfx::RoundedCornersF{devtools_in_upper_left ? 0 : kContentCornerRadius,
+-                           devtools_in_upper_right ? 0 : kContentCornerRadius,
+-                           devtools_in_lower_right ? 0 : kContentCornerRadius,
+-                           devtools_in_lower_left ? 0 : kContentCornerRadius};
++      gfx::RoundedCornersF{
++          devtools_in_upper_left ? 0 : content_corner_radius,
++          devtools_in_upper_right ? 0 : content_corner_radius,
++          devtools_in_lower_right ? 0 : content_corner_radius,
++          devtools_in_lower_left ? 0 : content_corner_radius};
+ 
+   auto radii = new_tab_footer_view_ && new_tab_footer_view_->GetVisible()
+                    ? content_upper_rounded_corners
+@@ -296,7 +340,7 @@ void ContentsContainerView::UpdateBorderRoundedCorners() {
+ 
+   contents_view_->SetBackgroundRadii(radii);
+   contents_view_->holder()->SetCornerRadii(radii);
+-  contents_scrim_view_->SetRoundedCorners(kContentRoundedCorners);
++  contents_scrim_view_->SetRoundedCorners(content_rounded_corners_all);
+ 
+   if (new_tab_footer_view_) {
+     new_tab_footer_view_->holder()->SetCornerRadii(

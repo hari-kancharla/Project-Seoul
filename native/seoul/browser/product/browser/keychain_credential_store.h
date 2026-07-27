@@ -1,12 +1,15 @@
 // Project Seoul product runtime - macOS credential store.
 // The concrete CredentialStore over the macOS Keychain (Security framework).
-// Secrets live only in the keychain under a Seoul service namespace; they are
-// never written to prefs, never sent to the Canvas WebUI, and never logged.
+// Production secrets live only in the keychain under a Seoul service namespace;
+// they are never written to prefs, sent to Canvas, or logged. Development
+// launches carrying Chromium's --use-mock-keychain switch use a process-local
+// map instead, so visual verification cannot display a credential prompt.
 // Reads distinguish "absent" from "keychain unavailable" via last_status().
 
 #ifndef SEOUL_BROWSER_PRODUCT_BROWSER_KEYCHAIN_CREDENTIAL_STORE_H_
 #define SEOUL_BROWSER_PRODUCT_BROWSER_KEYCHAIN_CREDENTIAL_STORE_H_
 
+#include <map>
 #include <optional>
 #include <string>
 
@@ -38,11 +41,14 @@ class KeychainCredentialStore : public CredentialStore {
   // The outcome of the most recent operation, for user-visible provider
   // states (locked / unavailable / missing). Never carries secret content.
   StoreStatus last_status() const { return last_status_; }
+  bool uses_mock_keychain_for_testing() const { return use_mock_keychain_; }
 
  private:
   std::string QualifiedAccount(const std::string& account_key) const;
 
   const std::string profile_namespace_;
+  const bool use_mock_keychain_;
+  std::map<std::string, std::string> mock_secrets_;
   StoreStatus last_status_ = StoreStatus::kOk;
 };
 

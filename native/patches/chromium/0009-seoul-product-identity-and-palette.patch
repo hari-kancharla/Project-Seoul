@@ -1,0 +1,304 @@
+diff --git a/chrome/app/theme/chromium/BRANDING b/chrome/app/theme/chromium/BRANDING
+index f8363d5b29..513e9ea52e 100644
+--- a/chrome/app/theme/chromium/BRANDING
++++ b/chrome/app/theme/chromium/BRANDING
+@@ -1,10 +1,10 @@
+-COMPANY_FULLNAME=The Chromium Authors
+-COMPANY_SHORTNAME=The Chromium Authors
+-PRODUCT_FULLNAME=Chromium
+-PRODUCT_SHORTNAME=Chromium
+-PRODUCT_INSTALLER_FULLNAME=Chromium Installer
+-PRODUCT_INSTALLER_SHORTNAME=Chromium Installer
+-COPYRIGHT=Copyright @LASTCHANGE_YEAR@ The Chromium Authors. All rights reserved.
+-MAC_BUNDLE_ID=org.chromium.Chromium
+-MAC_CREATOR_CODE=Cr24
++COMPANY_FULLNAME=The Project Seoul Authors
++COMPANY_SHORTNAME=Project Seoul
++PRODUCT_FULLNAME=Seoul
++PRODUCT_SHORTNAME=Seoul
++PRODUCT_INSTALLER_FULLNAME=Seoul Installer
++PRODUCT_INSTALLER_SHORTNAME=Seoul Installer
++COPYRIGHT=Copyright @LASTCHANGE_YEAR@ The Project Seoul Authors. All rights reserved.
++MAC_BUNDLE_ID=app.projectseoul.Seoul
++MAC_CREATOR_CODE=Se0u
+ MAC_TEAM_ID=
+diff --git a/chrome/browser/autocomplete/chrome_autocomplete_provider_client.cc b/chrome/browser/autocomplete/chrome_autocomplete_provider_client.cc
+index 3a8f5f62b9..7f780b580e 100644
+--- a/chrome/browser/autocomplete/chrome_autocomplete_provider_client.cc
++++ b/chrome/browser/autocomplete/chrome_autocomplete_provider_client.cc
+@@ -672,8 +672,9 @@ bool ChromeAutocompleteProviderClient::IsOmniboxNextAimPopupEnabled() const {
+ }
+ 
+ bool ChromeAutocompleteProviderClient::IsGeminiStarterPackEnabled() const {
+-  return AutocompleteProviderClient::IsGeminiStarterPackEnabled() &&
+-         profile_->GetPrefs()->GetInteger(prefs::kGeminiSettings) == 0;
++  // Seoul owns the command surface. Google-specific starter-pack promotion is
++  // not part of the product and must not leak into its zero-state command bar.
++  return false;
+ }
+ 
+ base::CallbackListSubscription
+diff --git a/chrome/browser/resources/new_tab_page/app.css b/chrome/browser/resources/new_tab_page/app.css
+index 0ab0e453b9..4c8458a6d7 100644
+--- a/chrome/browser/resources/new_tab_page/app.css
++++ b/chrome/browser/resources/new_tab_page/app.css
+@@ -39,6 +39,46 @@
+   --threads-rail-focus-outline-color: var(--color-new-tab-page-focus-ring);
+ }
+ 
++/*
++ * Seoul opens new tabs through the native command surface. A second Google
++ * search product inside the page duplicates the omnibox and is the largest
++ * remaining Chromium identity leak, so the fallback document is intentionally
++ * a calm, empty canvas. Browser commands, history, search, and URL entry remain
++ * available from the native floating bar.
++ */
++#oneGoogleBarStackingContext,
++#oneGoogleBar,
++#oneGoogleBarScrim,
++#logo,
++#searchboxContainer,
++ntp-action-chips,
++cr-most-visited,
++ntp-middle-slot-promo,
++#modules,
++#webstoreToast,
++#undoToast,
++individual-promos,
++#backgroundImageAttribution,
++#customizeButtons,
++#themeAttribution,
++#contentBottomSpacer,
++svg {
++  display: none !important;
++}
++
++:host #content {
++  background:
++    radial-gradient(
++      circle at 72% -12%,
++      color-mix(in srgb, var(--color-new-tab-page-primary-foreground) 5%, transparent),
++      transparent 38%
++    ),
++    var(--color-new-tab-page-background);
++  height: 100vh;
++  min-width: 0;
++  padding: 0;
++}
++
+ /**
+  * Hide everything that should not display when the composebox is open
+  * so they are not tabbable.
+diff --git a/chrome/browser/ui/color/chrome_color_mixers.cc b/chrome/browser/ui/color/chrome_color_mixers.cc
+index 9dfe5e7cd5..5a58f9d47e 100644
+--- a/chrome/browser/ui/color/chrome_color_mixers.cc
++++ b/chrome/browser/ui/color/chrome_color_mixers.cc
+@@ -23,7 +23,11 @@
+ #include "chrome/browser/ui/color/product_specifications_color_mixer.h"
+ #include "chrome/browser/ui/color/projects_panel_color_mixer.h"
+ #include "chrome/browser/ui/color/tab_strip_color_mixer.h"
++#include "third_party/skia/include/core/SkColor.h"
++#include "ui/color/color_mixer.h"
++#include "ui/color/color_provider.h"
+ #include "ui/color/color_provider_utils.h"
++#include "ui/color/color_recipe.h"
+ 
+ namespace {
+ 
+@@ -48,6 +52,108 @@ bool ChromeColorProviderUtilsCallbacks::ColorIdName(
+   return false;
+ }
+ 
++void AddSeoulProductColorMixer(ui::ColorProvider* provider,
++                               const ui::ColorProviderKey& key) {
++  const bool dark_mode =
++      key.color_mode == ui::ColorProviderKey::ColorMode::kDark;
++  const SkColor rail =
++      dark_mode ? SkColorSetRGB(0x29, 0x49, 0x37)
++                : SkColorSetRGB(0x5F, 0x8D, 0x6E);
++  const SkColor rail_inactive =
++      dark_mode ? SkColorSetRGB(0x32, 0x3F, 0x37)
++                : SkColorSetRGB(0x6E, 0x84, 0x75);
++  const SkColor selected =
++      dark_mode ? SkColorSetRGB(0x3F, 0x63, 0x4F)
++                : SkColorSetRGB(0x79, 0xA1, 0x86);
++  const SkColor hover =
++      dark_mode ? SkColorSetRGB(0x38, 0x58, 0x47)
++                : SkColorSetRGB(0x70, 0x99, 0x7D);
++  const SkColor foreground =
++      dark_mode ? SkColorSetRGB(0xF3, 0xF2, 0xEC)
++                : SkColorSetRGB(0xF8, 0xF7, 0xF1);
++  const SkColor foreground_muted =
++      dark_mode ? SkColorSetRGB(0xC4, 0xCE, 0xC5)
++                : SkColorSetRGB(0xE0, 0xE8, 0xE0);
++  const SkColor canvas =
++      dark_mode ? SkColorSetRGB(0x17, 0x17, 0x15)
++                : SkColorSetRGB(0xF2, 0xF1, 0xEB);
++  const SkColor canvas_text =
++      dark_mode ? SkColorSetRGB(0xF3, 0xF2, 0xEC)
++                : SkColorSetRGB(0x17, 0x17, 0x13);
++
++  ui::ColorMixer& mixer = provider->AddMixer();
++  mixer[ui::kColorFrameActive] = {rail};
++  mixer[ui::kColorFrameInactive] = {rail_inactive};
++  mixer[kColorToolbar] = {rail};
++  mixer[kColorToolbarBackgroundSubtleEmphasis] = {selected};
++  mixer[kColorToolbarBackgroundSubtleEmphasisHovered] = {hover};
++  mixer[kColorToolbarButtonIcon] = {foreground};
++  mixer[kColorToolbarButtonIconDefault] = {foreground};
++  mixer[kColorToolbarButtonIconHovered] = {foreground};
++  mixer[kColorToolbarButtonIconPressed] = {foreground};
++  mixer[kColorToolbarButtonText] = {foreground};
++  mixer[kColorToolbarText] = {foreground};
++  mixer[kColorToolbarTextDefault] = {foreground};
++  mixer[kColorLocationBarBackground] = {selected};
++  mixer[kColorLocationBarBackgroundHovered] = {hover};
++  mixer[kColorOmniboxText] = {foreground};
++  mixer[kColorOmniboxTextDimmed] = {foreground_muted};
++  mixer[kColorOmniboxActionIcon] = {foreground_muted};
++  mixer[kColorOmniboxResultsBackground] = {canvas};
++  mixer[kColorOmniboxResultsBackgroundHovered] = {
++      dark_mode ? SkColorSetRGB(0x28, 0x28, 0x24)
++                : SkColorSetRGB(0xE7, 0xE6, 0xDF)};
++  mixer[kColorOmniboxResultsBackgroundSelected] = {
++      dark_mode ? SkColorSetRGB(0x34, 0x40, 0x35)
++                : SkColorSetRGB(0xDF, 0xE7, 0xDB)};
++  mixer[kColorOmniboxResultsIcon] = {canvas_text};
++  mixer[kColorOmniboxResultsTextAnswer] = {canvas_text};
++  mixer[kColorOmniboxResultsTextDimmed] = {
++      dark_mode ? SkColorSetRGB(0xAE, 0xAD, 0xA5)
++                : SkColorSetRGB(0x67, 0x66, 0x60)};
++  mixer[kColorOmniboxResultsTextDimmedSelected] = {canvas_text};
++  mixer[kColorOmniboxResultsTextSecondary] = {
++      dark_mode ? SkColorSetRGB(0xAE, 0xAD, 0xA5)
++                : SkColorSetRGB(0x67, 0x66, 0x60)};
++  mixer[kColorOmniboxResultsTextSecondarySelected] = {canvas_text};
++  mixer[kColorOmniboxResultsTextSelected] = {canvas_text};
++  mixer[kColorOmniboxResultsUrl] = {selected};
++  mixer[kColorOmniboxResultsUrlSelected] = {selected};
++
++  mixer[kColorTabBackgroundActiveFrameActive] = {selected};
++  mixer[kColorTabBackgroundActiveFrameInactive] = {selected};
++  mixer[kColorTabBackgroundInactiveFrameActive] = {rail};
++  mixer[kColorTabBackgroundInactiveFrameInactive] = {rail_inactive};
++  mixer[kColorTabBackgroundInactiveHoverFrameActive] = {hover};
++  mixer[kColorTabBackgroundInactiveHoverFrameInactive] = {hover};
++  mixer[kColorTabBackgroundSelectedFrameActive] = {selected};
++  mixer[kColorTabBackgroundSelectedFrameInactive] = {selected};
++  mixer[kColorTabBackgroundSelectedHoverFrameActive] = {hover};
++  mixer[kColorTabBackgroundSelectedHoverFrameInactive] = {hover};
++  mixer[kColorTabForegroundActiveFrameActive] = {foreground};
++  mixer[kColorTabForegroundActiveFrameInactive] = {foreground_muted};
++  mixer[kColorTabForegroundInactiveFrameActive] = {foreground};
++  mixer[kColorTabForegroundInactiveFrameInactive] = {foreground_muted};
++  mixer[kColorTabDividerFrameActive] = {rail};
++  mixer[kColorTabDividerFrameInactive] = {rail_inactive};
++  mixer[kColorVerticalTabPinnedOutline] = {hover};
++  mixer[kColorVerticalTabStripShadow] = {
++      SkColorSetA(SK_ColorBLACK, dark_mode ? 0x66 : 0x38)};
++  mixer[kColorNewTabButtonCRForegroundFrameActive] = {foreground};
++  mixer[kColorNewTabButtonCRForegroundFrameInactive] = {foreground_muted};
++  mixer[kColorNewTabButtonCRBackgroundFrameActive] = {rail};
++  mixer[kColorNewTabButtonCRBackgroundFrameInactive] = {rail_inactive};
++  mixer[kColorTabSearchButtonCRForegroundFrameActive] = {foreground};
++  mixer[kColorTabSearchButtonCRForegroundFrameInactive] = {foreground_muted};
++
++  mixer[kColorNewTabPageBackground] = {canvas};
++  mixer[kColorNewTabPageBackgroundOverride] = {canvas};
++  mixer[kColorNewTabPagePrimaryForeground] = {canvas_text};
++  mixer[kColorNewTabPageSecondaryForeground] = {
++      dark_mode ? SkColorSetRGB(0xAE, 0xAD, 0xA5)
++                : SkColorSetRGB(0x67, 0x66, 0x60)};
++}
++
+ // Note that this second include is not redundant. The second inclusion of the
+ // .inc file serves to undefine the macros the first inclusion defined.
+ #include "ui/color/color_id_map_macros.inc"
+@@ -83,4 +189,9 @@ void AddChromeColorMixers(ui::ColorProvider* provider,
+   if (key.app_controller) {
+     key.app_controller->AddColorMixers(provider, key);
+   }
++
++  // Seoul is a complete browser shell rather than a Chromium theme. Keep the
++  // engine's platform and accessibility plumbing, but make the final product
++  // palette authoritative over stock Chromium and extension theme recipes.
++  AddSeoulProductColorMixer(provider, key);
+ }
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.cc b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+index b79c3a8b97..3079aecd77 100644
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.cc
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+@@ -1578,12 +1578,6 @@ void LocationBarView::RefreshBackground() {
+   SkColor normal = color_provider->GetColor(kColorLocationBarBackground);
+   SkColor hovered =
+       color_provider->GetColor(kColorLocationBarBackgroundHovered);
+-  if (seoul_sidebar_mode_ && !is_caret_visible && !input_in_progress) {
+-    normal = SK_ColorTRANSPARENT;
+-    hovered = SkColorSetA(
+-        color_provider->GetColor(ui::kColorSysOnSurface), 0x14);
+-  }
+-
+   background_color_ = gfx::Tween::ColorValueBetween(opacity, normal, hovered);
+   if (is_caret_visible) {
+     // Match the background color to the popup if the Omnibox is visibly
+diff --git a/chrome/browser/ui/startup/infobar_utils.cc b/chrome/browser/ui/startup/infobar_utils.cc
+index 8f6bccf2a4..3807748b39 100644
+--- a/chrome/browser/ui/startup/infobar_utils.cc
++++ b/chrome/browser/ui/startup/infobar_utils.cc
+@@ -18,7 +18,6 @@
+ #include "chrome/browser/ui/startup/automation_infobar_delegate.h"
+ #include "chrome/browser/ui/startup/bad_flags_prompt.h"
+ #include "chrome/browser/ui/startup/bidding_and_auction_consented_debugging_infobar_delegate.h"
+-#include "chrome/browser/ui/startup/google_api_keys_infobar_delegate.h"
+ #include "chrome/browser/ui/startup/obsolete_system_infobar_delegate.h"
+ #include "chrome/browser/ui/startup/startup_browser_creator.h"
+ #include "chrome/browser/ui/startup/startup_types.h"
+@@ -28,7 +27,6 @@
+ #include "components/infobars/content/content_infobar_manager.h"
+ #include "components/prefs/pref_service.h"
+ #include "content/public/common/content_switches.h"
+-#include "google_apis/google_api_keys.h"
+ 
+ #if !BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_ANDROID)
+ #include "chrome/browser/ui/startup/default_browser_prompt/default_browser_prompt.h"
+@@ -184,10 +182,6 @@ void AddInfoBarsIfNecessary(BrowserWindowInterface* browser,
+   infobars::ContentInfoBarManager* infobar_manager =
+       infobars::ContentInfoBarManager::FromWebContents(web_contents);
+ 
+-  if (!google_apis::HasAPIKeyConfigured()) {
+-    GoogleApiKeysInfoBarDelegate::Create(infobar_manager);
+-  }
+-
+   if (ObsoleteSystem::IsObsoleteNowOrSoon()) {
+     PrefService* local_state = g_browser_process->local_state();
+     if (!local_state ||
+diff --git a/components/omnibox/browser/autocomplete_grouper_sections.cc b/components/omnibox/browser/autocomplete_grouper_sections.cc
+index 01d0f1b47e..201c0f836b 100644
+--- a/components/omnibox/browser/autocomplete_grouper_sections.cc
++++ b/components/omnibox/browser/autocomplete_grouper_sections.cc
+@@ -425,9 +425,11 @@ DesktopNTPZpsSection::DesktopNTPZpsSection(
+                       {omnibox::GROUP_MIA_RECOMMENDATIONS, mia_enabled ? 8 : 0},
+                       {omnibox::GROUP_PERSONALIZED_ZERO_SUGGEST, 8},
+                   }),
+-              Group(8,
++              // Seoul's command bar starts with local history and navigation,
++              // never remote trending-search editorial content.
++              Group(0,
+                     {
+-                        {omnibox::GROUP_TRENDS, 8},
++                        {omnibox::GROUP_TRENDS, 0},
+                     }),
+               Group(5,
+                     {
+@@ -480,9 +482,9 @@ DesktopSecondaryNTPZpsSection::DesktopSecondaryNTPZpsSection(
+                       {omnibox::GROUP_PREVIOUS_SEARCH_RELATED, /*limit=*/4},
+                   }),
+               Group(
+-                  /*limit=*/4,
++                  /*limit=*/0,
+                   {
+-                      {omnibox::GROUP_TRENDS, /*limit=*/4},
++                      {omnibox::GROUP_TRENDS, /*limit=*/0},
+                   }),
+           },
+           group_configs,

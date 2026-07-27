@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="surface" x1="184" y1="128" x2="838" y2="904"
+        gradientUnits="userSpaceOnUse">
+      <stop stop-color="#82AA8E"/>
+      <stop offset="0.48" stop-color="#5F8D6E"/>
+      <stop offset="1" stop-color="#345F47"/>
+    </linearGradient>
+    <linearGradient id="highlight" x1="512" y1="90" x2="512" y2="602"
+        gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="surface-shadow" x="24" y="36" width="976" height="988"
+        color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="26" stdDeviation="25"
+          flood-color="#173624" flood-opacity="0.25"/>
+    </filter>
+    <filter id="mark-shadow" x="164" y="202" width="706" height="646"
+        color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="14" stdDeviation="11"
+          flood-color="#173624" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#surface-shadow)">
+    <rect x="72" y="58" width="880" height="880" rx="220"
+        fill="url(#surface)"/>
+    <rect x="86" y="72" width="852" height="852" rx="206"
+        fill="none" stroke="#E9F1E8" stroke-opacity="0.18" stroke-width="12"/>
+    <path d="M96 286C202 108 372 72 512 72c207 0 350 91 428 224v-18C940 164 848 72 734 72H290C176 72 84 164 84 278v120c3-38 7-73 12-112Z"
+        fill="url(#highlight)"/>
+  </g>
+
+  <path d="M732 302H420c-105 0-170 55-170 130s65 118 170 118h184c105 0 170 43 170 123 0 79-74 125-174 125H292"
+      fill="none" stroke="#244C37" stroke-opacity="0.28" stroke-width="112"
+      stroke-linecap="round" stroke-linejoin="round"
+      transform="translate(0 14)"/>
+  <path d="M732 302H420c-105 0-170 55-170 130s65 118 170 118h184c105 0 170 43 170 123 0 79-74 125-174 125H292"
+      fill="none" stroke="#F7F4EA" stroke-width="104"
+      stroke-linecap="round" stroke-linejoin="round"
+      filter="url(#mark-shadow)"/>
+</svg>

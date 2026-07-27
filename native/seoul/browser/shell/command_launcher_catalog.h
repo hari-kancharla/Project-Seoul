@@ -29,6 +29,8 @@ struct CommandLauncherEntry {
   ~CommandLauncherEntry();
   std::string id;
   std::string label;
+  // Optional platform-readable shortcut displayed as a compact result badge.
+  std::string shortcut;
   std::vector<std::string> tokens;
   CommandLauncherEntryKind kind = CommandLauncherEntryKind::kUtility;
   ShellUtilityAction action = ShellUtilityAction::kCommandLauncher;

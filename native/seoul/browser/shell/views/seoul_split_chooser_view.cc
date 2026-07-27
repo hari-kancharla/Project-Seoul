@@ -62,22 +62,33 @@ class SplitChooserMenuModel final : public ui::SimpleMenuModel,
 
 }  // namespace
 
-void SeoulSplitChooserView::Show(gfx::NativeWindow parent,
-                                 views::View* anchor,
-                                 ShellController* controller) {
-  (void)parent;
-  if (!anchor || !controller || !anchor->GetWidget()) {
+SeoulSplitChooserView::SeoulSplitChooserView(views::View* anchor,
+                                             ShellController* controller)
+    : anchor_(anchor), controller_(controller) {}
+
+SeoulSplitChooserView::~SeoulSplitChooserView() = default;
+
+void SeoulSplitChooserView::Show() {
+  if (!anchor_ || !controller_ || !anchor_->GetWidget()) {
     return;
   }
-  std::vector<ShellSplitCandidate> candidates = controller->SplitCandidates();
+  std::vector<ShellSplitCandidate> candidates = controller_->SplitCandidates();
   if (candidates.empty()) {
     return;
   }
-  SplitChooserMenuModel model(controller, std::move(candidates));
-  views::MenuRunner menu_runner(&model, views::MenuRunner::HAS_MNEMONICS);
-  menu_runner.RunMenuAt(
-      anchor->GetWidget(), nullptr, anchor->GetAnchorBoundsInScreen(),
-      views::MenuAnchorPosition::kTopLeft, ui::mojom::MenuSourceType::kKeyboard);
+
+  // MenuRunner can outlive RunMenuAt(), so destroy any previous runner before
+  // replacing the model it references and keep both objects owned by this
+  // shell-scoped controller.
+  menu_runner_.reset();
+  model_ = std::make_unique<SplitChooserMenuModel>(controller_,
+                                                   std::move(candidates));
+  menu_runner_ = std::make_unique<views::MenuRunner>(
+      model_.get(), views::MenuRunner::HAS_MNEMONICS);
+  menu_runner_->RunMenuAt(anchor_->GetWidget(), nullptr,
+                          anchor_->GetAnchorBoundsInScreen(),
+                          views::MenuAnchorPosition::kTopLeft,
+                          ui::mojom::MenuSourceType::kKeyboard);
 }
 
 }  // namespace seoul

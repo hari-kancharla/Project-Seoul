@@ -33,6 +33,7 @@ JOBS="$(resolve_jobs)"
 run_unit_tests() {
   local binaries=(
     seoul_command_core_unittests
+    seoul_development_keychain_policy_unittests
     seoul_connectors_unittests
     seoul_context_unittests
     seoul_data_unittests
@@ -44,6 +45,7 @@ run_unit_tests() {
     seoul_policy_unittests
     seoul_preview_unittests
     seoul_product_unittests
+    seoul_keychain_credential_store_unittests
     seoul_projection_core_unittests
     seoul_runtime_unittests
     seoul_saui_unittests
@@ -60,6 +62,7 @@ run_unit_tests() {
   )
   local targets=(
     seoul/browser/commands:seoul_command_core_unittests
+    chrome/app:seoul_development_keychain_policy_unittests
     seoul/browser/connectors:seoul_connectors_unittests
     seoul/browser/context:seoul_context_unittests
     seoul/browser/data:seoul_data_unittests
@@ -71,6 +74,7 @@ run_unit_tests() {
     seoul/browser/policy:seoul_policy_unittests
     seoul/browser/preview:seoul_preview_unittests
     seoul/browser/product:seoul_product_unittests
+    seoul/browser/product/browser:seoul_keychain_credential_store_unittests
     seoul/browser/projection:seoul_projection_core_unittests
     seoul/browser/runtime:seoul_runtime_unittests
     seoul/browser/saui:seoul_saui_unittests
@@ -131,6 +135,7 @@ run_browser_tests() {
     --test-launcher-batch-limit=1 \
     --headless=new \
     --disable-gpu \
+    --use-mock-keychain \
     --disable-features=InitialWebUI
   log "OK: Seoul browser-test filter passed"
 }

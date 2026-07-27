@@ -1,8 +1,13 @@
+From: Seoul Native <seoul@local>
+Date: Sun, 26 Jul 2026 12:00:00 -0400
+Subject: [PATCH] seoul-integrated-vertical-shell
+
+Integrate native omnibox into Seoul vertical rail; flush contents.
+
 diff --git a/chrome/browser/search/search.cc b/chrome/browser/search/search.cc
-index eab18ff732..8c583b879f 100644
 --- a/chrome/browser/search/search.cc
 +++ b/chrome/browser/search/search.cc
-@@ -175,6 +175,13 @@ struct NewTabURLDetails {
+@@ -175,6 +175,13 @@
  #if BUILDFLAG(IS_ANDROID)
      const GURL local_url;
  #else
@@ -16,24 +21,7 @@ index eab18ff732..8c583b879f 100644
      const bool default_is_google = DefaultSearchProviderIsGoogle(profile);
      const GURL local_url(default_is_google
                               ? chrome::ChromeUINewTabPageURLAsGURL()
-diff --git a/chrome/browser/ui/browser.cc b/chrome/browser/ui/browser.cc
-index 98009e1085..ba3a1e3bd2 100644
---- a/chrome/browser/ui/browser.cc
-+++ b/chrome/browser/ui/browser.cc
-@@ -734,6 +734,11 @@ GURL Browser::GetNewTabURL() const {
-   if (auto* const app_browser_controller = app_controller()) {
-     return app_browser_controller->GetAppNewTabUrl();
-   }
-+  // Seoul's first-party Canvas is the product start surface. Incognito,
-+  // guest, and non-normal windows retain Chromium's constrained NTP.
-+  if (is_type_normal() && profile()->IsRegularProfile()) {
-+    return GURL("chrome://seoul-canvas/");
-+  }
-   return chrome::ChromeUINewTabURLAsGURL();
- }
- 
 diff --git a/chrome/browser/ui/tabs/vertical_tab_strip_state.h b/chrome/browser/ui/tabs/vertical_tab_strip_state.h
-index b46ad7ecdf..340acf966f 100644
 --- a/chrome/browser/ui/tabs/vertical_tab_strip_state.h
 +++ b/chrome/browser/ui/tabs/vertical_tab_strip_state.h
 @@ -7,7 +7,7 @@
@@ -46,7 +34,6 @@ index b46ad7ecdf..340acf966f 100644
  // Per-window state for the vertical tab strip.
  struct VerticalTabStripState {
 diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/views/frame/browser_view.cc
-index bcb1930a86..bfd016a009 100644
 --- a/chrome/browser/ui/views/frame/browser_view.cc
 +++ b/chrome/browser/ui/views/frame/browser_view.cc
 @@ -324,6 +324,7 @@
@@ -57,7 +44,7 @@ index bcb1930a86..bfd016a009 100644
  #include "ui/gfx/geometry/outsets.h"
  #include "ui/gfx/geometry/point.h"
  #include "ui/gfx/geometry/rect.h"
-@@ -964,6 +965,19 @@ BrowserView::BrowserView(Browser* browser)
+@@ -964,6 +965,28 @@
      vertical_tab_strip_region_view_ =
          AddChildView(std::move(vertical_tab_strip_container));
  
@@ -67,27 +54,130 @@ index bcb1930a86..bfd016a009 100644
 +    // raw ToolbarView pointer, so command/focus/security plumbing is unchanged.
 +    toolbar_ = vertical_tab_strip_region_view_->AddChildViewAt(
 +        top_container_->RemoveChildViewT(toolbar_), 0);
++    // Clear the Mac traffic-light band before the address row. Stock Chromium
++    // put this in VerticalTabStripTopContainer; Seoul hides that chrome.
 +    toolbar_->SetProperty(views::kMarginsKey,
-+                          gfx::Insets::TLBR(8, 8, 4, 8));
++                          gfx::Insets::TLBR(36, 10, 6, 10));
 +    toolbar_->SetProperty(
 +        views::kFlexBehaviorKey,
-+        views::FlexSpecification(views::MinimumFlexSizeRule::kPreferred,
-+                                 views::MaximumFlexSizeRule::kPreferred));
++        views::FlexSpecification(views::MinimumFlexSizeRule::kScaleToMinimum,
++                                 views::MaximumFlexSizeRule::kPreferred)
++            .WithOrder(1));
++    // Apply Seoul rail presentation immediately so first layout does not size
++    // the window around a phantom top-toolbar minimum width.
++    toolbar_->SetSeoulSidebarPresentation(/*collapsed=*/false);
++    if (auto* top = vertical_tab_strip_region_view_->GetTopContainer()) {
++      top->SetVisible(false);
++    }
 +
      vertical_tab_strip_top_corner_ =
          AddChildView(std::make_unique<CustomFloatingCorner>(
              *this, CustomFloatingCorner::CornerOrientation::kTopLeading,
+diff --git a/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc b/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
+--- a/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
++++ b/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
+@@ -234,7 +234,13 @@
+   layout.min_content_width = kContentsContainerMinimumWidth;
+ 
+   // Get information about the vertical tabstrip, if present.
+-  const int toolbar_minimum_width = views().toolbar->GetMinimumSize().width();
++  // When Seoul hosts the toolbar inside the vertical rail, the toolbar no
++  // longer competes for horizontal space beside the strip. Counting its
++  // minimum width here shrinks the rail and lets contents slide underneath.
++  const int toolbar_minimum_width =
++      IsParentedTo(views().toolbar, views().top_container)
++          ? views().toolbar->GetMinimumSize().width()
++          : 0;
+   int min_vertical_tab_strip_width = 0;
+   int preferred_vertical_tab_strip_width = 0;
+   if (tab_strip_type == TabStripType::kVertical) {
+@@ -723,7 +729,12 @@
+       if (!is_fullscreen(window_state)) {
+         IncreasePaddingToMinimum(params, GetMinimumGrabHandlePadding());
+       }
+-      int inset_amount = horizontal_layout.vertical_tab_strip_width;
++      // Inset by the width the rail actually occupies on screen (including
++      // hover reveal). Overlaying page content under the rail is a Chromium
++      // expand-on-hover trick; Seoul's product chrome must push content.
++      // Stay flush with the rail. Upstream's -1 overlap is only for fractional
++      // displays; never invent a positive seam (that paints as a white crack).
++      int inset_amount = vertical_tab_strip_width;
+       if (adjust_for_cracking) {
+         inset_amount -= 1;
+       }
+@@ -736,11 +747,11 @@
+                 TabStripAnimations::kExpand ||
+             vertical_tab_strip_animation.current_motion ==
+                 TabStripAnimations::kCollapse;
+-        unclipped_contents_region.Inset(gfx::Insets::TLBR(
+-            0, VerticalTabStripRegionView::kCollapsedWidth, 0, 0));
++        unclipped_contents_region.Inset(
++            gfx::Insets::TLBR(0, vertical_tab_strip_width, 0, 0));
+       } else {
+-        unclipped_contents_region.Inset(gfx::Insets::TLBR(
+-            0, horizontal_layout.vertical_tab_strip_width, 0, 0));
++        unclipped_contents_region.Inset(
++            gfx::Insets::TLBR(0, vertical_tab_strip_width, 0, 0));
+       }
+     }
+     layout.AddChild(views().vertical_tab_strip_region_view,
+@@ -1086,17 +1097,20 @@
+   // Because side panels have minimum width, in a small browser, it is possible
+   // for the combination of minimum-sized contents pane and minimum-sized side
+   // panel may exceed the width of the window. In this case, the contents pane
+-  // slides under the side panel.
++  // slides under the side panel. Never do that for the vertical tab strip:
++  // Seoul's rail is permanent product chrome, not a transient panel.
+   int content_left = params.visual_client_area.x();
+   int content_right = params.visual_client_area.right();
+-  if (const int deficit = horizontal_layout.min_content_width -
+-                          params.visual_client_area.width();
+-      deficit > 0) {
+-    // However, do not let this go past the edge of the allowed area.
+-    content_left =
+-        std::max(content_left, browser_params.visual_client_area.x());
+-    content_right =
+-        std::min(content_right, browser_params.visual_client_area.right());
++  if (tab_strip_type != TabStripType::kVertical) {
++    if (const int deficit = horizontal_layout.min_content_width -
++                            params.visual_client_area.width();
++        deficit > 0) {
++      // However, do not let this go past the edge of the allowed area.
++      content_left =
++          std::max(content_left, browser_params.visual_client_area.x());
++      content_right =
++          std::min(content_right, browser_params.visual_client_area.right());
++    }
+   }
+   auto& contents_layout =
+       layout.AddChild(views().contents_container,
+@@ -1448,8 +1462,14 @@
+     vertical_tabs_outline.opacity =
+         1.0 - kVerticalTabStripOutlineFadeOnHover *
+                   vertical_tabs_bottom_corner_amount;
+-    // Vertical tabs outline always draws trailing edge.
+-    vertical_tabs_outline.trailing = true;
++    // Seoul hosts the toolbar inside the rail: a trailing outline reads as a
++    // Chromium contents hairline against the page. Keep outline only for the
++    // stock expand-on-hover chrome where the strip floats over content.
++    const bool seoul_integrated_rail =
++        views().toolbar &&
++        views().toolbar->parent() == views().vertical_tab_strip_region_view;
++    vertical_tabs_outline.trailing =
++        !seoul_integrated_rail || animation.expand_on_hover;
+     // Top edge is drawn if the layout is below the top of the parent.
+     if (animation.expand_on_hover ||
+         views().vertical_tab_strip_region_view->y() > 0 ||
 diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.cc b/chrome/browser/ui/views/toolbar/toolbar_view.cc
-index 9bdbc454ec..2ca1cf8947 100644
 --- a/chrome/browser/ui/views/toolbar/toolbar_view.cc
 +++ b/chrome/browser/ui/views/toolbar/toolbar_view.cc
-@@ -671,6 +671,50 @@ void ToolbarView::Init() {
+@@ -671,8 +671,59 @@
    }
  
    initialized_ = true;
 +  ApplySeoulSidebarPresentation();
-+}
-+
+ }
+ 
 +void ToolbarView::SetSeoulSidebarPresentation(bool collapsed) {
 +  if (display_mode_ != DisplayMode::kNormal) {
 +    return;
@@ -117,8 +207,7 @@ index 9bdbc454ec..2ca1cf8947 100644
 +  for (views::View* child : children()) {
 +    const bool should_show =
 +        child == back_ || child == forward_ || child == reload_ ||
-+        child == location_bar_view_ || child == toolbar_webview_ ||
-+        child == app_menu_button_;
++        child == location_bar_view_ || child == toolbar_webview_;
 +    if (child->GetVisible() != should_show) {
 +      child->SetVisible(should_show);
 +    }
@@ -127,12 +216,68 @@ index 9bdbc454ec..2ca1cf8947 100644
 +    overflow_button_->SetVisible(false);
 +  }
 +  if (layout_manager_) {
-+    layout_manager_->SetInteriorMargin(gfx::Insets::TLBR(4, 8, 4, 8));
++    // Tight interior margins; outer traffic-light clearance lives on the
++    // toolbar's region-view margin in BrowserView.
++    layout_manager_->SetInteriorMargin(gfx::Insets::TLBR(0, 2, 0, 2));
 +  }
++  // Page-action chips (AI Mode and friends) steal omnibox width in the rail.
++  if (location_bar_view_) {
++    if (auto* page_actions = location_bar_view_->page_action_container()) {
++      page_actions->SetVisible(false);
++    }
++  }
++}
++
+ void ToolbarView::InitGlicContainer() {
+   if (base::FeatureList::IsEnabled(features::kGlicActorUi) &&
+       features::kGlicActorUiTaskIcon.Get()) {
+@@ -1363,6 +1414,22 @@
+ 
+ gfx::Size ToolbarView::CalculatePreferredSize(
+     const views::SizeBounds& available_size) const {
++  if (seoul_sidebar_mode_ && display_mode_ == DisplayMode::kNormal) {
++    // Two-row rail: nav buttons, then a full-width omnibox.
++    const int nav_height = GetBackForwardButtonSize().height();
++    const int location_height =
++        location_bar_ && location_bar_->IsVisible()
++            ? location_bar_->PreferredSize().height()
++            : 0;
++    const int margins =
++        layout_manager_ ? layout_manager_->interior_margin().height() : 0;
++    const int height = nav_height + 2 + location_height + margins;
++    const int width = available_size.width().is_bounded()
++                          ? available_size.width().value()
++                          : 0;
++    return gfx::Size(width, height * size_animation_.GetCurrentValue());
++  }
++
+   gfx::Size size;
+   switch (display_mode_) {
+     case DisplayMode::kCustomTab:
+@@ -1391,6 +1458,22 @@
  }
  
- void ToolbarView::InitGlicContainer() {
-@@ -1432,6 +1477,11 @@ void ToolbarView::Layout(PassKey) {
+ gfx::Size ToolbarView::GetMinimumSize() const {
++  if (seoul_sidebar_mode_ && display_mode_ == DisplayMode::kNormal) {
++    // Width must stay 0 so BrowserView horizontal layout does not reserve a
++    // phantom top-toolbar column beside the vertical rail.
++    const int nav_height =
++        GetBackForwardButtonSize(/*minimum_size=*/true).height();
++    const int location_height =
++        location_bar_ && location_bar_->IsVisible()
++            ? location_bar_->MinimumSize().height()
++            : 0;
++    const int margins =
++        layout_manager_ ? layout_manager_->interior_margin().height() : 0;
++    return gfx::Size(
++        0, (nav_height + 2 + location_height + margins) *
++               size_animation_.GetCurrentValue());
++  }
++
+   gfx::Size size;
+   switch (display_mode_) {
+     case DisplayMode::kCustomTab:
+@@ -1432,6 +1515,39 @@
      return;
    }
  
@@ -140,11 +285,39 @@ index 9bdbc454ec..2ca1cf8947 100644
 +  if (seoul_sidebar_mode_ && seoul_sidebar_collapsed_) {
 +    return;
 +  }
++  if (seoul_sidebar_mode_ && display_mode_ == DisplayMode::kNormal) {
++    // Manual two-row layout so the omnibox keeps a usable width in the rail.
++    const gfx::Insets margin =
++        layout_manager_ ? layout_manager_->interior_margin()
++                        : gfx::Insets::TLBR(0, 2, 0, 2);
++    int x = margin.left();
++    int y = margin.top();
++    const int nav_height = GetBackForwardButtonSize().height();
++    for (views::View* button : {static_cast<views::View*>(back_),
++                                static_cast<views::View*>(forward_),
++                                static_cast<views::View*>(reload_)}) {
++      if (!button || !button->GetVisible()) {
++        continue;
++      }
++      const gfx::Size size = button->GetPreferredSize();
++      button->SetBounds(x, y, size.width(), nav_height);
++      x += size.width();
++    }
++    y += nav_height + 2;
++    if (location_bar_view_ && location_bar_view_->GetVisible()) {
++      const int location_height =
++          location_bar_view_->GetPreferredSize().height();
++      location_bar_view_->SetBounds(
++          margin.left(), y,
++          std::max(0, width() - margin.width()), location_height);
++    }
++    return;
++  }
 +
    if (display_mode_ == DisplayMode::kCustomTab) {
      custom_tab_bar_->SetBounds(0, 0, width(),
                                 custom_tab_bar_->GetPreferredSize().height());
-@@ -1445,7 +1495,7 @@ void ToolbarView::Layout(PassKey) {
+@@ -1445,7 +1561,7 @@
      LayoutCommon();
    }
  
@@ -153,7 +326,7 @@ index 9bdbc454ec..2ca1cf8947 100644
      // Need to determine whether the overflow button should be visible, and only
      // update it if the visibility changes.
      const bool was_overflow_button_visible =
-@@ -1475,6 +1525,7 @@ void ToolbarView::OnThemeChanged() {
+@@ -1475,6 +1591,7 @@
  
    if (display_mode_ == DisplayMode::kNormal) {
      LoadImages();
@@ -162,10 +335,9 @@ index 9bdbc454ec..2ca1cf8947 100644
  
    SchedulePaint();
 diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.h b/chrome/browser/ui/views/toolbar/toolbar_view.h
-index 58ef785117..b4b37f7595 100644
 --- a/chrome/browser/ui/views/toolbar/toolbar_view.h
 +++ b/chrome/browser/ui/views/toolbar/toolbar_view.h
-@@ -119,6 +119,12 @@ class ToolbarView : public views::AccessiblePaneView,
+@@ -119,6 +119,12 @@
    // Create the contents of the Browser Toolbar.
    void Init();
  
@@ -178,7 +350,7 @@ index 58ef785117..b4b37f7595 100644
    // Forces the toolbar (and transitively the location bar) to update its
    // current state.  If |tab| is non-NULL, we're switching (back?) to this tab
    // and should restore any previous location bar state (such as user editing)
-@@ -277,6 +283,7 @@ class ToolbarView : public views::AccessiblePaneView,
+@@ -277,6 +283,7 @@
  
    // Logic that must be done on initialization and then on layout.
    void LayoutCommon();
@@ -186,7 +358,7 @@ index 58ef785117..b4b37f7595 100644
  
    // AppMenuIconController::Delegate:
    void UpdateTypeAndSeverity(
-@@ -454,6 +461,8 @@ class ToolbarView : public views::AccessiblePaneView,
+@@ -454,6 +461,8 @@
  
    // Whether this toolbar has been initialized.
    bool initialized_ = false;

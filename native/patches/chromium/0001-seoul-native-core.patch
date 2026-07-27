@@ -1,5 +1,5 @@
 diff --git a/chrome/app/chrome_command_ids.h b/chrome/app/chrome_command_ids.h
-index b36306e291..4c32a7eab3 100644
+index b36306e..4c32a7e 100644
 --- a/chrome/app/chrome_command_ids.h
 +++ b/chrome/app/chrome_command_ids.h
 @@ -362,6 +362,7 @@
@@ -11,7 +11,7 @@ index b36306e291..4c32a7eab3 100644
  // Image items.
  #define IDC_CONTENT_CONTEXT_SAVEIMAGEAS 50120
 diff --git a/chrome/app/generated_resources.grd b/chrome/app/generated_resources.grd
-index b3263e1207..0fbc9fff94 100644
+index b3263e1..0fbc9ff 100644
 --- a/chrome/app/generated_resources.grd
 +++ b/chrome/app/generated_resources.grd
 @@ -666,6 +666,9 @@ are declared in tools/grit/grit_args.gni.
@@ -35,7 +35,7 @@ index b3263e1207..0fbc9fff94 100644
              Open Link in New &amp;Window
            </message>
 diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
-index 63c2601cfc..9d6de31546 100644
+index 63c2601..9d6de31 100644
 --- a/chrome/browser/BUILD.gn
 +++ b/chrome/browser/BUILD.gn
 @@ -295,6 +295,13 @@ static_library("browser") {
@@ -66,8 +66,29 @@ index 63c2601cfc..9d6de31546 100644
      "//chrome/browser/profiles:profile_util",
      "//chrome/browser/profiles:profile_util_impl",
      "//chrome/browser/profiles:profiles_extra_parts",
+diff --git a/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc b/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc
+index 84b5bdb..a95f64c 100644
+--- a/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc
++++ b/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc
+@@ -132,6 +132,7 @@
+ #include "mojo/public/cpp/bindings/binder_map.h"
+ #include "mojo/public/cpp/bindings/pending_receiver.h"
+ #include "mojo/public/cpp/bindings/self_owned_receiver.h"
++#include "seoul/browser/canvas/seoul_canvas_ui.h"
+ #include "ui/webui/color_change_listener/color_change_handler.h"
+ #include "ui/webui/resources/cr_components/app_management/app_management.mojom.h"
+ #include "ui/webui/resources/cr_components/color_change_listener/color_change_listener.mojom.h"
+@@ -636,6 +637,8 @@ void PopulateChromeWebUIFrameBindersPartsDesktop(
+ 
+ void PopulateChromeWebUIFrameInterfaceBrokersTrustedPartsDesktop(
+     content::WebUIBrowserInterfaceBrokerRegistry& registry) {
++  registry.ForWebUI<seoul::SeoulCanvasUI>()
++      .Add<seoul::canvas::mojom::PageHandlerFactory>();
+   // Note: The MetricsReporterService & ColorChangeListener are available to all
+   // WebUIs in the registry
+   registry.AddGlobal<metrics_reporter::mojom::PageMetricsHost>(
 diff --git a/chrome/browser/profiles/chrome_browser_main_extra_parts_profiles.cc b/chrome/browser/profiles/chrome_browser_main_extra_parts_profiles.cc
-index 1aab47b6d0..9e6a4664d1 100644
+index 1aab47b..9e6a466 100644
 --- a/chrome/browser/profiles/chrome_browser_main_extra_parts_profiles.cc
 +++ b/chrome/browser/profiles/chrome_browser_main_extra_parts_profiles.cc
 @@ -13,6 +13,7 @@
@@ -96,7 +117,7 @@ index 1aab47b6d0..9e6a4664d1 100644
  
  void ChromeBrowserMainExtraPartsProfiles::PreProfileInit() {
 diff --git a/chrome/browser/renderer_context_menu/render_view_context_menu.cc b/chrome/browser/renderer_context_menu/render_view_context_menu.cc
-index 556579d8e4..4572176a0a 100644
+index 556579d..4572176 100644
 --- a/chrome/browser/renderer_context_menu/render_view_context_menu.cc
 +++ b/chrome/browser/renderer_context_menu/render_view_context_menu.cc
 @@ -11,6 +11,7 @@
@@ -205,7 +226,7 @@ index 556579d8e4..4572176a0a 100644
        // Pass along the |referring_url| so we can show it in browser UI. Note
        // that this won't and shouldn't be sent via the referrer header.
 diff --git a/chrome/browser/resources/BUILD.gn b/chrome/browser/resources/BUILD.gn
-index b66098b14f..0584d50bea 100644
+index b66098b..0584d50 100644
 --- a/chrome/browser/resources/BUILD.gn
 +++ b/chrome/browser/resources/BUILD.gn
 @@ -81,6 +81,7 @@ group("resources") {
@@ -217,7 +238,7 @@ index b66098b14f..0584d50bea 100644
        "side_panel/tabs_from_other_devices:resources",
        "signin:resources",
 diff --git a/chrome/browser/ui/side_panel/side_panel_entry_id.h b/chrome/browser/ui/side_panel/side_panel_entry_id.h
-index ac0e2c2d6a..7a32d68825 100644
+index ac0e2c2..7a32d68 100644
 --- a/chrome/browser/ui/side_panel/side_panel_entry_id.h
 +++ b/chrome/browser/ui/side_panel/side_panel_entry_id.h
 @@ -42,6 +42,7 @@
@@ -229,7 +250,7 @@ index ac0e2c2d6a..7a32d68825 100644
    /* Extensions (nothing more should be added below here) */                  \
    V(kExtension, std::nullopt, "Extension")
 diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
-index 25ffbdf18e..5384cd9a86 100644
+index 25ffbdf..ea36dac 100644
 --- a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
 +++ b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
 @@ -40,6 +40,7 @@
@@ -240,7 +261,7 @@ index 25ffbdf18e..5384cd9a86 100644
  #include "chrome/browser/ui/views/tabs/shared/drop_arrow.h"
  #include "chrome/browser/ui/views/tabs/vertical/root_tab_collection_node.h"
  #include "chrome/browser/ui/views/tabs/vertical/tab_collection_node.h"
-@@ -49,6 +49,12 @@
+@@ -49,6 +50,12 @@
  #include "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_controller.h"
  #include "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_top_container.h"
  #include "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.h"
@@ -253,7 +274,7 @@ index 25ffbdf18e..5384cd9a86 100644
  #include "chrome/browser/ui/views/tabs/vertical/vertical_tab_view.h"
  #include "chrome/browser/ui/views/tabs/vertical/vertical_unpinned_tab_container_view.h"
  #include "chrome/browser/ui/web_applications/app_browser_controller.h"
-@@ -292,6 +298,27 @@ VerticalTabStripRegionView::~VerticalTabStripRegionView() {
+@@ -292,6 +299,27 @@ VerticalTabStripRegionView::~VerticalTabStripRegionView() {
    hover_locks_.clear();
  
    if (root_node_) {
@@ -281,7 +302,7 @@ index 25ffbdf18e..5384cd9a86 100644
      root_node_->SetController(nullptr);
    }
  
-@@ -505,6 +532,21 @@ void VerticalTabStripRegionView::Layout(PassKey) {
+@@ -505,6 +533,21 @@ void VerticalTabStripRegionView::Layout(PassKey) {
  }
  
  views::View* VerticalTabStripRegionView::GetDefaultFocusableChild() {
@@ -303,7 +324,7 @@ index 25ffbdf18e..5384cd9a86 100644
    const int active_index = tab_strip_model_->active_index();
    if (active_index != TabStripModel::kNoTab) {
      return GetTabAnchorViewAt(active_index);
-@@ -662,6 +704,30 @@ void VerticalTabStripRegionView::InitializeTabStrip() {
+@@ -662,6 +705,30 @@ void VerticalTabStripRegionView::InitializeTabStrip() {
    on_child_moved_subscription_ =
        root_node_->RegisterOnChildMovedCallback(base::BindRepeating(
            &VerticalTabStripRegionView::OnChildMoved, base::Unretained(this)));
@@ -334,7 +355,7 @@ index 25ffbdf18e..5384cd9a86 100644
  }
  
  void VerticalTabStripRegionView::ResetTabStrip() {
-@@ -669,6 +735,27 @@ void VerticalTabStripRegionView::ResetTabStrip() {
+@@ -669,6 +736,27 @@ void VerticalTabStripRegionView::ResetTabStrip() {
      return;
    }
  
@@ -362,15 +383,14 @@ index 25ffbdf18e..5384cd9a86 100644
    on_children_added_subscription_.reset();
    on_children_removed_subscription_.reset();
    on_child_moved_subscription_.reset();
-@@ -1106,10 +1194,22 @@ void VerticalTabStripRegionView::OnCollapseStateChanged(
+@@ -1106,8 +1194,20 @@ void VerticalTabStripRegionView::OnCollapseStateChanged(
  
    resize_area_width_ = collapsed ? kCollapsedResizeAreaWidth : kResizeAreaWidth;
  
 -  if (tab_strip_view_) {
 -    tab_strip_view_->SetCollapsedState(collapsed);
--  }
 +  UpdateSeoulSidebarPresentation(collapsed && !is_expanded_on_hover_);
- 
++
 +  if (browser_view_ && browser_view_->browser()) {
 +    Profile* profile = browser_view_->browser()->profile();
 +    if (seoul::SeoulOrganizationService* service =
@@ -383,11 +403,9 @@ index 25ffbdf18e..5384cd9a86 100644
 +        }
 +      }
 +    }
-+  }
-+
+   }
+ 
    if (state == tabs::VerticalTabStripCollapseState::kExpanded ||
-       state == tabs::VerticalTabStripCollapseState::kCollapsed) {
-     UpdateExpandOnHoverState();
 @@ -1354,6 +1454,7 @@ void VerticalTabStripRegionView::ResetExpandOnHoverTimers() {
  
  void VerticalTabStripRegionView::AnimateExpandOnHover(bool expand) {
@@ -396,7 +414,7 @@ index 25ffbdf18e..5384cd9a86 100644
    ResetExpandOnHoverTimers();
  
    if (expand) {
-@@ -1377,6 +1478,30 @@ void VerticalTabStripRegionView::AnimateExpandOnHover(bool expand) {
+@@ -1377,6 +1478,39 @@ void VerticalTabStripRegionView::AnimateExpandOnHover(bool expand) {
                       : TabStripAnimations::kCollapseOnHover);
  }
  
@@ -404,6 +422,15 @@ index 25ffbdf18e..5384cd9a86 100644
 +    bool collapsed) {
 +  if (tab_strip_view_) {
 +    tab_strip_view_->SetCollapsedState(collapsed);
++  }
++  // Reinforce hide of Chromium organizer / tab-search chrome.
++  if (top_button_container_) {
++    top_button_container_->SetVisible(false);
++    top_button_container_->SetProperty(views::kViewIgnoredByLayoutKey, true);
++  }
++  if (top_button_separator_) {
++    top_button_separator_->SetVisible(false);
++    top_button_separator_->SetProperty(views::kViewIgnoredByLayoutKey, true);
 +  }
 +  if (!browser_view_ || !browser_view_->browser()) {
 +    return;
@@ -427,7 +454,7 @@ index 25ffbdf18e..5384cd9a86 100644
  void VerticalTabStripRegionView::RegisterExpandOnHoverLock(
      VerticalTabStripExpandOnHoverLock* lock) {
    hover_locks_.insert(lock);
-@@ -1608,5 +1733,15 @@ gfx::Rect VerticalTabStripRegionView::GetLinkDropBoundsFromPosition(
+@@ -1608,5 +1742,15 @@ gfx::Rect VerticalTabStripRegionView::GetLinkDropBoundsFromPosition(
    return gfx::Rect(position, gfx::Size(DropArrow::kSize, DropArrow::kSize));
  }
  
@@ -444,7 +471,7 @@ index 25ffbdf18e..5384cd9a86 100644
  BEGIN_METADATA(VerticalTabStripRegionView)
  END_METADATA
 diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h
-index 70c78e23c0..b9f7a62e1c 100644
+index 70c78e2..b9f7a62 100644
 --- a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h
 +++ b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h
 @@ -187,6 +187,13 @@ class VerticalTabStripRegionView final
@@ -472,7 +499,7 @@ index 70c78e23c0..b9f7a62e1c 100644
    void RegisterExpandOnHoverLock(VerticalTabStripExpandOnHoverLock* lock);
    void UnregisterExpandOnHoverLock(VerticalTabStripExpandOnHoverLock* lock);
 diff --git a/chrome/browser/ui/views/side_panel/BUILD.gn b/chrome/browser/ui/views/side_panel/BUILD.gn
-index a17f190873..5cb78625bd 100644
+index a17f190..5cb7862 100644
 --- a/chrome/browser/ui/views/side_panel/BUILD.gn
 +++ b/chrome/browser/ui/views/side_panel/BUILD.gn
 @@ -98,6 +98,7 @@ source_set("side_panel") {
@@ -484,7 +511,7 @@ index a17f190873..5cb78625bd 100644
      "//chrome/app:generated_resources",
      "//chrome/app:generated_resources_grit",
 diff --git a/chrome/browser/ui/views/side_panel/side_panel_helper.cc b/chrome/browser/ui/views/side_panel/side_panel_helper.cc
-index 9dfcb4b484..a366aae178 100644
+index 9dfcb4b..a366aae 100644
 --- a/chrome/browser/ui/views/side_panel/side_panel_helper.cc
 +++ b/chrome/browser/ui/views/side_panel/side_panel_helper.cc
 @@ -4,11 +4,14 @@
@@ -560,7 +587,7 @@ index 9dfcb4b484..a366aae178 100644
    if (TabsFromOtherDevicesSidePanelCoordinator::IsSupported(
            browser->profile())) {
 diff --git a/chrome/browser/ui/webui/chrome_web_ui_configs.cc b/chrome/browser/ui/webui/chrome_web_ui_configs.cc
-index 9daef52054..5e4ccc17f9 100644
+index 9daef52..5e4ccc1 100644
 --- a/chrome/browser/ui/webui/chrome_web_ui_configs.cc
 +++ b/chrome/browser/ui/webui/chrome_web_ui_configs.cc
 @@ -13,6 +13,7 @@
@@ -579,8 +606,28 @@ index 9daef52054..5e4ccc17f9 100644
    map.AddWebUIConfig(std::make_unique<AccessibilityUIConfig>());
    map.AddWebUIConfig(
        std::make_unique<AccessibilityAnnotatorInternalsUIConfig>());
+diff --git a/chrome/chrome_paks.gni b/chrome/chrome_paks.gni
+index a6db77c..deea879 100644
+--- a/chrome/chrome_paks.gni
++++ b/chrome/chrome_paks.gni
+@@ -152,6 +152,7 @@ template("chrome_extra_paks") {
+       "$root_gen_dir/content/quota_internals_resources.pak",
+       "$root_gen_dir/mojo/public/js/mojo_bindings_resources.pak",
+       "$root_gen_dir/net/net_resources.pak",
++      "$root_gen_dir/seoul/seoul_canvas_resources.pak",
+       "$root_gen_dir/third_party/blink/public/resources/blink_resources.pak",
+       "$root_gen_dir/third_party/blink/public/resources/inspector_overlay_resources.pak",
+       "$root_gen_dir/third_party/blink/public/strings/permission_element_generated_strings.pak",
+@@ -188,6 +189,7 @@ template("chrome_extra_paks") {
+       "//content/browser/resources",
+       "//mojo/public/js:resources",
+       "//net:net_resources",
++      "//seoul/browser/canvas/resources",
+       "//third_party/blink/public:devtools_inspector_resources",
+       "//third_party/blink/public:resources",
+       "//third_party/blink/public/strings:permission_element_generated_strings",
 diff --git a/chrome/test/BUILD.gn b/chrome/test/BUILD.gn
-index 5a75b29519..631c51b80d 100644
+index 5a75b29..631c51b 100644
 --- a/chrome/test/BUILD.gn
 +++ b/chrome/test/BUILD.gn
 @@ -2596,6 +2596,10 @@ if (!is_android) {
@@ -595,7 +642,7 @@ index 5a75b29519..631c51b80d 100644
        ":platform_browser_tests",
        ":test_support",
 diff --git a/third_party/lit/v3_0/BUILD.gn b/third_party/lit/v3_0/BUILD.gn
-index 3d22db142f..33a4418d89 100644
+index 3d22db1..33a4418 100644
 --- a/third_party/lit/v3_0/BUILD.gn
 +++ b/third_party/lit/v3_0/BUILD.gn
 @@ -24,6 +24,7 @@ ts_library("build_ts") {
@@ -607,7 +654,7 @@ index 3d22db142f..33a4418d89 100644
      "//chrome/browser/resources/access_code_cast:build_ts",
      "//chrome/browser/resources/accessibility_annotator_info:build_ts",
 diff --git a/tools/gritsettings/resource_ids.spec b/tools/gritsettings/resource_ids.spec
-index 9d69921f81..6ea5983549 100644
+index 9d69921..6ea5983 100644
 --- a/tools/gritsettings/resource_ids.spec
 +++ b/tools/gritsettings/resource_ids.spec
 @@ -1738,6 +1738,14 @@
@@ -626,7 +673,7 @@ index 9d69921f81..6ea5983549 100644
      "META": {"sizes": {"includes": [800]}},
      "includes": [12000],
 diff --git a/tools/metrics/histograms/metadata/page/histograms.xml b/tools/metrics/histograms/metadata/page/histograms.xml
-index aa07126513..7164563ebe 100644
+index aa07126..7164563 100644
 --- a/tools/metrics/histograms/metadata/page/histograms.xml
 +++ b/tools/metrics/histograms/metadata/page/histograms.xml
 @@ -600,6 +600,7 @@ chromium-metrics-reviews@google.com.
@@ -638,7 +685,7 @@ index aa07126513..7164563ebe 100644
    <variant name=".TabSearch"/>
    <variant name=".TabsFromOtherDevicesSidePanel"/>
 diff --git a/tools/metrics/histograms/metadata/ui/enums.xml b/tools/metrics/histograms/metadata/ui/enums.xml
-index f65a7cda7f..08a3d6825e 100644
+index f65a7cd..08a3d68 100644
 --- a/tools/metrics/histograms/metadata/ui/enums.xml
 +++ b/tools/metrics/histograms/metadata/ui/enums.xml
 @@ -78,6 +78,7 @@ chromium-metrics-reviews@google.com.
@@ -658,7 +705,7 @@ index f65a7cda7f..08a3d6825e 100644
  
  <!-- LINT.ThenChange(//chrome/browser/renderer_context_menu/render_view_context_menu.cc:RenderViewContextMenuItem) -->
 diff --git a/ui/views/bubble/bubble_dialog_delegate_view.h b/ui/views/bubble/bubble_dialog_delegate_view.h
-index 4257c7ba1a..220bd0a471 100644
+index 4257c7b..220bd0a 100644
 --- a/ui/views/bubble/bubble_dialog_delegate_view.h
 +++ b/ui/views/bubble/bubble_dialog_delegate_view.h
 @@ -101,6 +101,11 @@ class RichNudge;
@@ -683,7 +730,7 @@ index 4257c7ba1a..220bd0a471 100644
    friend class ::AppDialogView;
    friend class ::BruschettaUninstallerView;
 diff --git a/ui/webui/resources/tools/build_webui.gni b/ui/webui/resources/tools/build_webui.gni
-index 4b2eaadc7f..1703f64104 100644
+index 4b2eaad..1703f64 100644
 --- a/ui/webui/resources/tools/build_webui.gni
 +++ b/ui/webui/resources/tools/build_webui.gni
 @@ -291,6 +291,11 @@ template("build_webui") {
@@ -698,42 +745,3 @@ index 4b2eaadc7f..1703f64104 100644
    # Determine if there is a Lit and/or Polymer dependency. This information is
    # used for determining the default template for html_to_wrapper() as well as
    # the default tsconfig file for ts_library().
-diff --git a/chrome/chrome_paks.gni b/chrome/chrome_paks.gni
-index a6db77c726..deea879efa 100644
---- a/chrome/chrome_paks.gni
-+++ b/chrome/chrome_paks.gni
-@@ -152,6 +152,7 @@ template("chrome_extra_paks") {
-       "$root_gen_dir/content/quota_internals_resources.pak",
-       "$root_gen_dir/mojo/public/js/mojo_bindings_resources.pak",
-       "$root_gen_dir/net/net_resources.pak",
-+      "$root_gen_dir/seoul/seoul_canvas_resources.pak",
-       "$root_gen_dir/third_party/blink/public/resources/blink_resources.pak",
-       "$root_gen_dir/third_party/blink/public/resources/inspector_overlay_resources.pak",
-       "$root_gen_dir/third_party/blink/public/strings/permission_element_generated_strings.pak",
-@@ -188,6 +189,7 @@ template("chrome_extra_paks") {
-       "//content/browser/resources",
-       "//mojo/public/js:resources",
-       "//net:net_resources",
-+      "//seoul/browser/canvas/resources",
-       "//third_party/blink/public:devtools_inspector_resources",
-       "//third_party/blink/public:resources",
-       "//third_party/blink/public/strings:permission_element_generated_strings",
-diff --git a/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc b/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc
-index 84b5bdb527..a95f64c9b4 100644
---- a/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc
-+++ b/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc
-@@ -132,6 +132,7 @@
- #include "mojo/public/cpp/bindings/binder_map.h"
- #include "mojo/public/cpp/bindings/pending_receiver.h"
- #include "mojo/public/cpp/bindings/self_owned_receiver.h"
-+#include "seoul/browser/canvas/seoul_canvas_ui.h"
- #include "ui/webui/color_change_listener/color_change_handler.h"
- #include "ui/webui/resources/cr_components/app_management/app_management.mojom.h"
- #include "ui/webui/resources/cr_components/color_change_listener/color_change_listener.mojom.h"
-@@ -637,4 +638,6 @@ void PopulateChromeWebUIFrameInterfaceBrokersTrustedPartsDesktop(
- void PopulateChromeWebUIFrameInterfaceBrokersTrustedPartsDesktop(
-     content::WebUIBrowserInterfaceBrokerRegistry& registry) {
-+  registry.ForWebUI<seoul::SeoulCanvasUI>()
-+      .Add<seoul::canvas::mojom::PageHandlerFactory>();
-   // Note: The MetricsReporterService & ColorChangeListener are available to all
-   // WebUIs in the registry

@@ -193,6 +193,7 @@ public:
       base::OnceCallback<void(bool changed, SiteLayerStatusResult result)>;
   void BeginSiteLayerZap(const std::string &layer_id,
                          const LiveWindowKey &window,
+                         bool remove_layer_on_cancel,
                          SiteLayerZapCallback callback);
   void CancelSiteLayerZap(const LiveWindowKey &window);
 

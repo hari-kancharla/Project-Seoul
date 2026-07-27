@@ -5,12 +5,15 @@
 
 #include "base/memory/raw_ptr.h"
 
+class BrowserWindowInterface;
+class Profile;
 class VerticalTabStripRegionView;
 
 namespace seoul {
 
 class SeoulShellFooterView;
 class SeoulShellHeaderView;
+class SeoulShellSpaceView;
 class ShellController;
 
 // Owns the shell header/footer child views attached to one initialized vertical
@@ -20,27 +23,31 @@ class ShellController;
 // is still alive (the integration patch unregisters at the start of
 // ResetTabStrip and in the region destructor, before child-view teardown).
 class SeoulShellRegionHost {
- public:
+public:
   SeoulShellRegionHost();
-  SeoulShellRegionHost(const SeoulShellRegionHost&) = delete;
-  SeoulShellRegionHost& operator=(const SeoulShellRegionHost&) = delete;
+  SeoulShellRegionHost(const SeoulShellRegionHost &) = delete;
+  SeoulShellRegionHost &operator=(const SeoulShellRegionHost &) = delete;
   ~SeoulShellRegionHost();
 
   // Attaches header/footer views for `controller` into `region`. Re-attaching
   // to the same region rebinds the controller without duplicating views.
-  void Attach(VerticalTabStripRegionView* region, ShellController* controller);
+  void Attach(VerticalTabStripRegionView *region, ShellController *controller,
+              BrowserWindowInterface *browser_window, Profile *profile);
   void SetPresentationCollapsed(bool collapsed);
+  bool ShowCommandLauncher();
   // Removes the shell child views from the region. Idempotent.
   void Detach();
 
-  VerticalTabStripRegionView* region() const { return region_; }
+  VerticalTabStripRegionView *region() const { return region_; }
+  SeoulShellHeaderView *header_for_testing() const { return header_; }
 
- private:
+private:
   raw_ptr<VerticalTabStripRegionView> region_ = nullptr;
   raw_ptr<SeoulShellHeaderView> header_ = nullptr;
+  raw_ptr<SeoulShellSpaceView> space_ = nullptr;
   raw_ptr<SeoulShellFooterView> footer_ = nullptr;
 };
 
-}  // namespace seoul
+} // namespace seoul
 
-#endif  // SEOUL_BROWSER_SHELL_VIEWS_SEOUL_SHELL_REGION_HOST_H_
+#endif // SEOUL_BROWSER_SHELL_VIEWS_SEOUL_SHELL_REGION_HOST_H_

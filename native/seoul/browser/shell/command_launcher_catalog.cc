@@ -10,10 +10,11 @@
 namespace seoul {
 namespace {
 
-CommandLauncherEntry MakeEntry(const std::string &id, const std::string &label,
+CommandLauncherEntry MakeEntry(const std::string& id,
+                               const std::string& label,
                                std::initializer_list<std::string> tokens,
                                bool enabled,
-                               const std::string &disabled_reason) {
+                               const std::string& disabled_reason) {
   CommandLauncherEntry entry;
   entry.id = id;
   entry.label = label;
@@ -98,20 +99,20 @@ int ScoreValue(std::string_view value, std::string_view normalized_query) {
   return 50000 + adjacent * 120 + word_boundaries * 80 - span * 4 - first_match;
 }
 
-int ScoreEntry(const CommandLauncherEntry &entry,
+int ScoreEntry(const CommandLauncherEntry& entry,
                std::string_view normalized_query) {
   if (normalized_query.empty()) {
     return 1;
   }
   int score = ScoreValue(entry.label, normalized_query);
   score = std::max(score, ScoreValue(entry.id, normalized_query) - 1000);
-  for (const std::string &token : entry.tokens) {
+  for (const std::string& token : entry.tokens) {
     score = std::max(score, ScoreValue(token, normalized_query) - 500);
   }
   return score;
 }
 
-std::string DisplayTitle(const LiveTabDescriptor &tab) {
+std::string DisplayTitle(const LiveTabDescriptor& tab) {
   if (!tab.title.empty()) {
     return tab.title;
   }
@@ -121,13 +122,14 @@ std::string DisplayTitle(const LiveTabDescriptor &tab) {
   return "Untitled tab";
 }
 
-} // namespace
+}  // namespace
 
 std::vector<CommandLauncherEntry> CommandLauncherCatalog::BuildEntries(
-    const ShellSnapshot &shell, const OrganizationSnapshot &organization,
-    const std::vector<LiveWindowSnapshot> &live_windows) {
+    const ShellSnapshot& shell,
+    const OrganizationSnapshot& organization,
+    const std::vector<LiveWindowSnapshot>& live_windows) {
   auto action_enabled = [&](ShellUtilityAction action) {
-    for (const ShellActionEnablement &entry : shell.actions) {
+    for (const ShellActionEnablement& entry : shell.actions) {
       if (entry.action == action) {
         return entry;
       }
@@ -141,8 +143,16 @@ std::vector<CommandLauncherEntry> CommandLauncherCatalog::BuildEntries(
       action_enabled(ShellUtilityAction::kCreateSplit);
   const ShellActionEnablement canvas =
       action_enabled(ShellUtilityAction::kOpenCanvas);
+  const ShellActionEnablement boost =
+      action_enabled(ShellUtilityAction::kOpenBoost);
   const ShellActionEnablement tasks =
       action_enabled(ShellUtilityAction::kOpenTaskDeck);
+  const ShellActionEnablement appearance_single =
+      action_enabled(ShellUtilityAction::kSetAppearanceSingle);
+  const ShellActionEnablement appearance_multiple =
+      action_enabled(ShellUtilityAction::kSetAppearanceMultiple);
+  const ShellActionEnablement appearance_collapsed =
+      action_enabled(ShellUtilityAction::kSetAppearanceCollapsed);
   const ShellActionEnablement compact =
       action_enabled(ShellUtilityAction::kToggleCompactMode);
   const ShellActionEnablement reconcile =
@@ -153,6 +163,7 @@ std::vector<CommandLauncherEntry> CommandLauncherCatalog::BuildEntries(
                               {"open", "tab", "temporary"}, new_tab.enabled,
                               new_tab.disabled_reason));
   entries.back().action = ShellUtilityAction::kNewTemporaryTab;
+  entries.back().shortcut = "⌘T";
   entries.push_back(MakeEntry("create_split", "Create Split", {"split", "pane"},
                               split.enabled, split.disabled_reason));
   entries.back().action = ShellUtilityAction::kCreateSplit;
@@ -160,22 +171,54 @@ std::vector<CommandLauncherEntry> CommandLauncherCatalog::BuildEntries(
                               {"canvas", "assistant", "voice", "tasks"},
                               canvas.enabled, canvas.disabled_reason));
   entries.back().action = ShellUtilityAction::kOpenCanvas;
+  entries.push_back(MakeEntry("open_boost", "Boost This Site",
+                              {"boost", "customize", "style", "script", "site"},
+                              boost.enabled, boost.disabled_reason));
+  entries.back().action = ShellUtilityAction::kOpenBoost;
   entries.push_back(MakeEntry("open_task_deck", "Open Task Deck",
                               {"tasks", "progress", "receipts", "automation"},
                               tasks.enabled, tasks.disabled_reason));
   entries.back().action = ShellUtilityAction::kOpenTaskDeck;
+  entries.push_back(
+      MakeEntry("appearance_single", "Single Toolbar Layout",
+                {"appearance", "layout", "single", "toolbar"},
+                appearance_single.enabled, appearance_single.disabled_reason));
+  entries.back().action = ShellUtilityAction::kSetAppearanceSingle;
+  if (shell.appearance_layout.available &&
+      shell.appearance_layout.mode == ShellAppearanceLayoutMode::kSingle) {
+    entries.back().shortcut = "Current";
+  }
+  entries.push_back(MakeEntry(
+      "appearance_multiple", "Multiple Toolbars Layout",
+      {"appearance", "layout", "multiple", "toolbars"},
+      appearance_multiple.enabled, appearance_multiple.disabled_reason));
+  entries.back().action = ShellUtilityAction::kSetAppearanceMultiple;
+  if (shell.appearance_layout.available &&
+      shell.appearance_layout.mode == ShellAppearanceLayoutMode::kMultiple) {
+    entries.back().shortcut = "Current";
+  }
+  entries.push_back(MakeEntry(
+      "appearance_collapsed", "Collapsed Toolbar Layout",
+      {"appearance", "layout", "collapsed", "toolbar"},
+      appearance_collapsed.enabled, appearance_collapsed.disabled_reason));
+  entries.back().action = ShellUtilityAction::kSetAppearanceCollapsed;
+  if (shell.appearance_layout.available &&
+      shell.appearance_layout.mode == ShellAppearanceLayoutMode::kCollapsed) {
+    entries.back().shortcut = "Current";
+  }
   entries.push_back(MakeEntry(
       "toggle_compact",
       shell.compact_mode.enabled ? "Exit Compact Mode" : "Enter Compact Mode",
       {"compact", "focus", "hide", "chrome", "toolbar", "zen"}, compact.enabled,
       compact.disabled_reason));
   entries.back().action = ShellUtilityAction::kToggleCompactMode;
+  entries.back().shortcut = "⌘⇧C";
   entries.push_back(MakeEntry("reconcile", "Run Reconciliation",
                               {"reconcile", "recovery", "degraded"},
                               reconcile.enabled, reconcile.disabled_reason));
   entries.back().action = ShellUtilityAction::kReconcile;
 
-  for (const WorkspaceRecord &workspace : organization.workspaces) {
+  for (const WorkspaceRecord& workspace : organization.workspaces) {
     if (workspace.archived) {
       continue;
     }
@@ -194,7 +237,7 @@ std::vector<CommandLauncherEntry> CommandLauncherCatalog::BuildEntries(
     entries.push_back(std::move(entry));
   }
 
-  for (const EssentialRecord &essential : organization.essentials) {
+  for (const EssentialRecord& essential : organization.essentials) {
     if (entries.size() >= kMaxCatalogEntries) {
       break;
     }
@@ -211,11 +254,11 @@ std::vector<CommandLauncherEntry> CommandLauncherCatalog::BuildEntries(
     entries.push_back(std::move(entry));
   }
 
-  for (const LiveWindowSnapshot &window : live_windows) {
+  for (const LiveWindowSnapshot& window : live_windows) {
     if (!window.window.is_valid() || !window.eligible) {
       continue;
     }
-    for (const LiveTabDescriptor &tab : window.tabs) {
+    for (const LiveTabDescriptor& tab : window.tabs) {
       if (entries.size() >= kMaxCatalogEntries) {
         break;
       }
@@ -228,9 +271,9 @@ std::vector<CommandLauncherEntry> CommandLauncherCatalog::BuildEntries(
           window.window == shell.window && tab.tab == window.active_tab;
       entry.label =
           (active ? "Current tab — " : "Activate tab — ") + DisplayTitle(tab);
-      entry.tokens = {"tab", "page", tab.title, tab.origin,
-                      window.window == shell.window ? "this window"
-                                                    : "other window"};
+      entry.tokens = {
+          "tab", "page", tab.title, tab.origin,
+          window.window == shell.window ? "this window" : "other window"};
       entry.kind = CommandLauncherEntryKind::kTab;
       entry.live_window = window.window;
       entry.live_tab = tab.tab;
@@ -243,9 +286,10 @@ std::vector<CommandLauncherEntry> CommandLauncherCatalog::BuildEntries(
   return entries;
 }
 
-std::vector<CommandLauncherEntry>
-CommandLauncherCatalog::Filter(const std::vector<CommandLauncherEntry> &entries,
-                               std::string_view query, size_t max_results) {
+std::vector<CommandLauncherEntry> CommandLauncherCatalog::Filter(
+    const std::vector<CommandLauncherEntry>& entries,
+    std::string_view query,
+    size_t max_results) {
   if (max_results == 0) {
     return {};
   }
@@ -263,7 +307,7 @@ CommandLauncherCatalog::Filter(const std::vector<CommandLauncherEntry> &entries,
     }
   }
   std::stable_sort(ranked.begin(), ranked.end(),
-                   [](const RankedEntry &a, const RankedEntry &b) {
+                   [](const RankedEntry& a, const RankedEntry& b) {
                      if (a.score != b.score) {
                        return a.score > b.score;
                      }
@@ -271,7 +315,7 @@ CommandLauncherCatalog::Filter(const std::vector<CommandLauncherEntry> &entries,
                    });
   std::vector<CommandLauncherEntry> filtered;
   filtered.reserve(std::min(max_results, ranked.size()));
-  for (const RankedEntry &match : ranked) {
+  for (const RankedEntry& match : ranked) {
     if (filtered.size() >= max_results) {
       break;
     }
@@ -281,13 +325,13 @@ CommandLauncherCatalog::Filter(const std::vector<CommandLauncherEntry> &entries,
 }
 
 CommandLauncherEntry::CommandLauncherEntry() = default;
-CommandLauncherEntry::CommandLauncherEntry(const CommandLauncherEntry &) =
+CommandLauncherEntry::CommandLauncherEntry(const CommandLauncherEntry&) =
     default;
-CommandLauncherEntry::CommandLauncherEntry(CommandLauncherEntry &&) = default;
-CommandLauncherEntry &
-CommandLauncherEntry::operator=(const CommandLauncherEntry &) = default;
-CommandLauncherEntry &
-CommandLauncherEntry::operator=(CommandLauncherEntry &&) = default;
+CommandLauncherEntry::CommandLauncherEntry(CommandLauncherEntry&&) = default;
+CommandLauncherEntry& CommandLauncherEntry::operator=(
+    const CommandLauncherEntry&) = default;
+CommandLauncherEntry& CommandLauncherEntry::operator=(CommandLauncherEntry&&) =
+    default;
 CommandLauncherEntry::~CommandLauncherEntry() = default;
 
-} // namespace seoul
+}  // namespace seoul

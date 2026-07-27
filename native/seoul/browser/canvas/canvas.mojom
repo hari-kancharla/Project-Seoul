@@ -205,6 +205,8 @@ interface PageHandler {
   // only after browser-side validation.
   GetSiteLayerSnapshot() => (string snapshot_json);
   UpsertSiteLayer(string layer_id,
+                  string expected_tab_id,
+                  string expected_page_origin,
                   string name,
                   string origin_pattern,
                   string scene_scope,
@@ -217,7 +219,10 @@ interface PageHandler {
   // Enters a browser-owned page picker. The method replies only after the
   // user clicks an element or cancels with Escape; a successful selection is
   // appended as a validated Hide adjustment and applied immediately.
-  ZapSiteLayer(string layer_id)
+  ZapSiteLayer(string layer_id,
+               string expected_tab_id,
+               string expected_page_origin,
+               bool remove_layer_on_cancel)
       => (string snapshot_json, bool changed);
   CancelSiteLayerZap();
 

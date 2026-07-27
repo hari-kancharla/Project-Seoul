@@ -24,7 +24,9 @@ import type {
   LiveCollectionSourceDoc,
   PageContextDoc,
   SiteLayerAdjustmentDoc,
+  SiteLayerAdjustmentInputDoc,
   SiteLayerDoc,
+  SiteLayerEditorBinding,
   SiteLayerSnapshotDoc,
   StudioEssentialDoc,
   StudioProviderRouteDoc,
@@ -39,7 +41,15 @@ import type {
   TaskSnapshotDoc,
   ThreadSnapshotDoc,
 } from './canvas_types.js';
-import {propString, safeHexColor, safeHttpUrl} from './canvas_types.js';
+import {
+  boostPassthroughAdjustments,
+  chunkBoostHideSelectors,
+  propString,
+  safeHexColor,
+  safeHttpUrl,
+  siteLayerEditorBinding,
+  siteLayerEditorBindingMatches,
+} from './canvas_types.js';
 import {renderDataTable, renderVisualization} from './canvas_visualizations.js';
 
 interface RealtimeVoiceSessionDoc {
@@ -623,6 +633,8 @@ export class SeoulCanvasAppElement extends CrLitElement {
   private boardCommitTail_: Promise<void> = Promise.resolve();
   private boardCommitSequence_ = 0;
   private boardPendingLayouts_ = new Map<number, BoardPendingLayout>();
+  private boostEditorBinding_: SiteLayerEditorBinding|undefined;
+  private boostPassthroughAdjustments_: SiteLayerAdjustmentInputDoc[] = [];
   private libraryRevision_ = '0';
 
   override render() {
@@ -1011,6 +1023,8 @@ export class SeoulCanvasAppElement extends CrLitElement {
 
   private resetBoostEditor_() {
     this.editingBoostId_ = '';
+    this.boostEditorBinding_ = undefined;
+    this.boostPassthroughAdjustments_ = [];
     this.boostName_ = '';
     this.boostReadingMode_ = false;
     this.boostContentWidthEnabled_ = false;
@@ -1039,9 +1053,18 @@ export class SeoulCanvasAppElement extends CrLitElement {
   }
 
   protected openNewBoost_() {
+    const binding = siteLayerEditorBinding(this.boosts_.active_page);
+    if (!binding) {
+      this.boostEditorOpen_ = false;
+      this.boostsError_ =
+          'Open an http or https page before creating a Boost.';
+      return;
+    }
     this.resetBoostEditor_();
+    this.boostEditorBinding_ = binding;
     const title = this.boosts_.active_page?.title.trim();
     this.boostName_ = title ? `${title} · Focus` : 'Site focus';
+    this.boostsError_ = '';
     this.boostEditorOpen_ = true;
   }
 
@@ -1059,8 +1082,18 @@ export class SeoulCanvasAppElement extends CrLitElement {
   }
 
   protected editBoost_(layer: SiteLayerDoc) {
+    const binding =
+        siteLayerEditorBinding(this.boosts_.active_page, layer);
+    if (!binding) {
+      this.boostsError_ =
+          'Select a browser tab before editing this Boost.';
+      return;
+    }
     this.resetBoostEditor_();
     this.editingBoostId_ = layer.id;
+    this.boostEditorBinding_ = binding;
+    this.boostPassthroughAdjustments_ =
+        boostPassthroughAdjustments(layer.adjustments);
     this.boostName_ = layer.name;
     this.boostReadingMode_ =
         Boolean(this.adjustmentFor_(layer, 'reading_mode'));
@@ -1117,13 +1150,11 @@ export class SeoulCanvasAppElement extends CrLitElement {
   }
 
   private boostAdjustments_() {
-    const adjustments: Array<{
-      kind: string;
-      selectors: string[];
-      textValue: string;
-      numericValue: number;
-      density: string;
-    }> = [];
+    const adjustments: SiteLayerAdjustmentInputDoc[] =
+        this.boostPassthroughAdjustments_.map(adjustment => ({
+          ...adjustment,
+          selectors: [...adjustment.selectors],
+        }));
     const add = (
         kind: string, selectors: string[] = [], textValue = '',
         numericValue = 0, density = 'comfortable') => {
@@ -1163,20 +1194,23 @@ export class SeoulCanvasAppElement extends CrLitElement {
     const selectors = this.boostHideSelectors_.split('\n')
         .map(selector => selector.trim())
         .filter(Boolean);
-    if (selectors.length) add('hide', selectors);
+    adjustments.push(...chunkBoostHideSelectors(selectors));
     return adjustments;
   }
 
   protected async saveBoost_(keepEditorOpen = false):
       Promise<string|undefined> {
     if (!this.pageHandler_ || this.boostsBusy_) return undefined;
-    const origin = this.editingBoostId_ ?
-        this.boosts_.layers?.find(layer =>
-          layer.id === this.editingBoostId_)?.origin_pattern :
-        this.boosts_.active_page?.origin;
+    const binding = this.boostEditorBinding_;
+    if (!siteLayerEditorBindingMatches(
+            binding, this.boosts_.active_page)) {
+      this.boostsError_ =
+          'The active tab changed. Reopen the Boost editor before saving.';
+      return undefined;
+    }
     const name = this.boostName_.trim();
     const adjustments = this.boostAdjustments_();
-    if (!origin || !name) return undefined;
+    if (!binding?.originPattern || !name) return undefined;
     const targetId =
         this.editingBoostId_ || `boost-${crypto.randomUUID()}`;
     this.boostsBusy_ = true;
@@ -1184,7 +1218,9 @@ export class SeoulCanvasAppElement extends CrLitElement {
     this.boostsMessage_ = '';
     try {
       const response = await this.pageHandler_.upsertSiteLayer(
-          targetId, name, origin, '', true, adjustments);
+          targetId, binding.tabId, binding.pageOrigin, name,
+          binding.originPattern, binding.sceneScope, binding.enabled,
+          adjustments);
       if (this.adoptSiteLayerSnapshot_(response.snapshotJson)) {
         const wasEditing = Boolean(this.editingBoostId_);
         if (keepEditorOpen) {
@@ -1198,6 +1234,10 @@ export class SeoulCanvasAppElement extends CrLitElement {
         }
         return targetId;
       }
+      const error = this.boostsError_;
+      const current = await this.pageHandler_.getSiteLayerSnapshot();
+      this.adoptSiteLayerSnapshot_(current.snapshotJson);
+      this.boostsError_ = error;
     } catch {
       this.boostsError_ = 'The Boost could not be saved.';
     } finally {
@@ -1208,31 +1248,65 @@ export class SeoulCanvasAppElement extends CrLitElement {
 
   protected async zapElement_() {
     if (!this.pageHandler_ || this.boostsBusy_) return;
+    const binding = this.boostEditorBinding_;
+    if (!siteLayerEditorBindingMatches(
+            binding, this.boosts_.active_page)) {
+      this.boostsError_ =
+          'The active tab changed. Reopen the Boost editor before using Zap.';
+      return;
+    }
+    const createdForZap = !this.editingBoostId_;
     let layerId = this.editingBoostId_;
     if (!layerId) {
       layerId = await this.saveBoost_(true) ?? '';
     }
-    if (!layerId || !this.pageHandler_) return;
+    if (!layerId || !this.pageHandler_ || !binding) return;
     this.boostsBusy_ = true;
     this.boostZapActive_ = true;
     this.boostsError_ = '';
     this.boostsMessage_ =
         'Zap is active: click an element on the page, or press Escape.';
     try {
-      const response = await this.pageHandler_.zapSiteLayer(layerId);
+      const response = await this.pageHandler_.zapSiteLayer(
+          layerId, binding.tabId, binding.pageOrigin, createdForZap);
       if (this.adoptSiteLayerSnapshot_(response.snapshotJson)) {
         this.boostsMessage_ = response.changed ?
             'Element removed. The Zap will reapply on the next visit.' :
             'Zap cancelled. No page changes were saved.';
+        if (!response.changed && createdForZap &&
+            this.editingBoostId_ === layerId) {
+          this.editingBoostId_ = '';
+        }
         const updated =
             this.boosts_.layers?.find(layer => layer.id === layerId);
         if (updated && this.boostEditorOpen_ &&
             this.editingBoostId_ === layerId) {
           this.editBoost_(updated);
         }
+      } else if (createdForZap) {
+        const error = this.boostsError_;
+        if (this.editingBoostId_ === layerId) {
+          this.editingBoostId_ = '';
+        }
+        const current = await this.pageHandler_.getSiteLayerSnapshot();
+        this.adoptSiteLayerSnapshot_(current.snapshotJson);
+        this.boostsError_ = error;
       }
     } catch {
       this.boostsError_ = 'The page picker could not start.';
+      if (createdForZap && this.pageHandler_) {
+        const error = this.boostsError_;
+        if (this.editingBoostId_ === layerId) {
+          this.editingBoostId_ = '';
+        }
+        try {
+          const current = await this.pageHandler_.getSiteLayerSnapshot();
+          this.adoptSiteLayerSnapshot_(current.snapshotJson);
+          this.boostsError_ = error;
+        } catch {
+          // Keep the original picker error when reconciliation is unavailable.
+        }
+      }
     } finally {
       this.boostZapActive_ = false;
       this.boostsBusy_ = false;
@@ -1291,6 +1365,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
     const canSave = Boolean(
         this.boostName_.trim() &&
         (!this.boostFontEnabled_ || this.boostFontFamily_.trim()) &&
+        siteLayerEditorBindingMatches(this.boostEditorBinding_, active) &&
         (this.editingBoostId_ || active?.customizable));
     return html`<section class="boosts-view" aria-label="Boosts">
       <div class="view-heading boosts-heading"><div>

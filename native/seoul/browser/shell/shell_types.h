@@ -4,6 +4,7 @@
 #define SEOUL_BROWSER_SHELL_SHELL_TYPES_H_
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,14 @@ using ShellWindowKey = LiveWindowKey;
 
 enum class ShellMode {
   kExpanded,
+  kCollapsed,
+};
+
+// Zen's durable Appearance layout choices. Compact mode is a separate,
+// transient presentation and must not be encoded as an Appearance mode.
+enum class ShellAppearanceLayoutMode {
+  kSingle,
+  kMultiple,
   kCollapsed,
 };
 
@@ -79,16 +88,26 @@ enum class ShellUtilityAction {
   kOpenTaskDeck,
   kCreateSplit,
   kToggleCompactMode,
+  kSetAppearanceSingle,
+  kSetAppearanceMultiple,
+  kSetAppearanceCollapsed,
+  kOpenSettings,
+  kOpenDownloads,
   kReconcile,
   kAcknowledgeRecovery,
 };
 
+// Returns the typed layout target for Appearance actions and nullopt for every
+// other utility action. Launcher identifiers are never interpreted as modes.
+std::optional<ShellAppearanceLayoutMode> AppearanceLayoutModeForAction(
+    ShellUtilityAction action);
+
 struct ShellEssentialItem {
   ShellEssentialItem();
-  ShellEssentialItem(const ShellEssentialItem &);
-  ShellEssentialItem(ShellEssentialItem &&);
-  ShellEssentialItem &operator=(const ShellEssentialItem &);
-  ShellEssentialItem &operator=(ShellEssentialItem &&);
+  ShellEssentialItem(const ShellEssentialItem&);
+  ShellEssentialItem(ShellEssentialItem&&);
+  ShellEssentialItem& operator=(const ShellEssentialItem&);
+  ShellEssentialItem& operator=(ShellEssentialItem&&);
   ~ShellEssentialItem();
   EssentialId id;
   std::string name;
@@ -101,8 +120,8 @@ struct ShellEssentialItem {
   LiveTabKey live_tab;
   LiveWindowKey live_window;
 
-  friend bool operator==(const ShellEssentialItem &,
-                         const ShellEssentialItem &) = default;
+  friend bool operator==(const ShellEssentialItem&,
+                         const ShellEssentialItem&) = default;
 };
 
 struct ShellPinnedItem {
@@ -112,16 +131,16 @@ struct ShellPinnedItem {
   ShellItemState state = ShellItemState::kNormal;
   bool is_active = false;
 
-  friend bool operator==(const ShellPinnedItem &,
-                         const ShellPinnedItem &) = default;
+  friend bool operator==(const ShellPinnedItem&,
+                         const ShellPinnedItem&) = default;
 };
 
 struct ShellWorkspaceHeader {
   ShellWorkspaceHeader();
-  ShellWorkspaceHeader(const ShellWorkspaceHeader &);
-  ShellWorkspaceHeader(ShellWorkspaceHeader &&);
-  ShellWorkspaceHeader &operator=(const ShellWorkspaceHeader &);
-  ShellWorkspaceHeader &operator=(ShellWorkspaceHeader &&);
+  ShellWorkspaceHeader(const ShellWorkspaceHeader&);
+  ShellWorkspaceHeader(ShellWorkspaceHeader&&);
+  ShellWorkspaceHeader& operator=(const ShellWorkspaceHeader&);
+  ShellWorkspaceHeader& operator=(ShellWorkspaceHeader&&);
   ~ShellWorkspaceHeader();
   WorkspaceId workspace_id;
   std::string name;
@@ -130,8 +149,27 @@ struct ShellWorkspaceHeader {
   bool switching = false;
   ShellItemState state = ShellItemState::kNormal;
 
-  friend bool operator==(const ShellWorkspaceHeader &,
-                         const ShellWorkspaceHeader &) = default;
+  friend bool operator==(const ShellWorkspaceHeader&,
+                         const ShellWorkspaceHeader&) = default;
+};
+
+// A Zen-style Space switcher item. Workspaces remain the durable model name,
+// while the shell presents them as Spaces.
+struct ShellSpaceItem {
+  ShellSpaceItem();
+  ShellSpaceItem(const ShellSpaceItem&);
+  ShellSpaceItem(ShellSpaceItem&&);
+  ShellSpaceItem& operator=(const ShellSpaceItem&);
+  ShellSpaceItem& operator=(ShellSpaceItem&&);
+  ~ShellSpaceItem();
+  WorkspaceId workspace_id;
+  std::string name;
+  std::string icon;
+  bool is_active = false;
+  bool switching = false;
+
+  friend bool operator==(const ShellSpaceItem&,
+                         const ShellSpaceItem&) = default;
 };
 
 struct ShellSectionInfo {
@@ -140,8 +178,8 @@ struct ShellSectionInfo {
   bool visible = false;
   int projected_count = 0;
 
-  friend bool operator==(const ShellSectionInfo &,
-                         const ShellSectionInfo &) = default;
+  friend bool operator==(const ShellSectionInfo&,
+                         const ShellSectionInfo&) = default;
 };
 
 struct ShellActionEnablement {
@@ -149,8 +187,8 @@ struct ShellActionEnablement {
   bool enabled = false;
   std::string disabled_reason;
 
-  friend bool operator==(const ShellActionEnablement &,
-                         const ShellActionEnablement &) = default;
+  friend bool operator==(const ShellActionEnablement&,
+                         const ShellActionEnablement&) = default;
 };
 
 struct ShellSplitCandidate {
@@ -158,8 +196,8 @@ struct ShellSplitCandidate {
   std::string title;
   std::string origin;
 
-  friend bool operator==(const ShellSplitCandidate &,
-                         const ShellSplitCandidate &) = default;
+  friend bool operator==(const ShellSplitCandidate&,
+                         const ShellSplitCandidate&) = default;
 };
 
 struct ShellTaskSummary {
@@ -171,8 +209,8 @@ struct ShellTaskSummary {
 
   bool has_attention() const { return waiting_for_user > 0 || paused > 0; }
 
-  friend bool operator==(const ShellTaskSummary &,
-                         const ShellTaskSummary &) = default;
+  friend bool operator==(const ShellTaskSummary&,
+                         const ShellTaskSummary&) = default;
 };
 
 struct ShellCompactModeState {
@@ -180,8 +218,17 @@ struct ShellCompactModeState {
   bool enabled = false;
   std::string disabled_reason;
 
-  friend bool operator==(const ShellCompactModeState &,
-                         const ShellCompactModeState &) = default;
+  friend bool operator==(const ShellCompactModeState&,
+                         const ShellCompactModeState&) = default;
+};
+
+struct ShellAppearanceLayoutState {
+  bool available = false;
+  ShellAppearanceLayoutMode mode = ShellAppearanceLayoutMode::kSingle;
+  std::string disabled_reason;
+
+  friend bool operator==(const ShellAppearanceLayoutState&,
+                         const ShellAppearanceLayoutState&) = default;
 };
 
 struct ShellChatItem {
@@ -211,16 +258,17 @@ struct ShellProjectResources {
 
 struct ShellSnapshot {
   ShellSnapshot();
-  ShellSnapshot(const ShellSnapshot &);
-  ShellSnapshot(ShellSnapshot &&);
-  ShellSnapshot &operator=(const ShellSnapshot &);
-  ShellSnapshot &operator=(ShellSnapshot &&);
+  ShellSnapshot(const ShellSnapshot&);
+  ShellSnapshot(ShellSnapshot&&);
+  ShellSnapshot& operator=(const ShellSnapshot&);
+  ShellSnapshot& operator=(ShellSnapshot&&);
   ~ShellSnapshot();
   ShellWindowKey window;
   ShellMode mode = ShellMode::kExpanded;
   ShellStatus status = ShellStatus::kCoherent;
   uint64_t revision = 0;
   ShellWorkspaceHeader workspace;
+  std::vector<ShellSpaceItem> spaces;
   std::vector<ShellEssentialItem> essentials;
   std::vector<ShellPinnedItem> pinned_items;
   std::vector<ShellSectionInfo> sections;
@@ -228,6 +276,7 @@ struct ShellSnapshot {
   ShellTaskSummary tasks;
   ShellProjectResources project_resources;
   ShellCompactModeState compact_mode;
+  ShellAppearanceLayoutState appearance_layout;
   bool show_empty_workspace = false;
   bool show_status_banner = false;
   std::string status_message;
@@ -239,6 +288,6 @@ struct ShellChange {
   uint64_t revision = 0;
 };
 
-} // namespace seoul
+}  // namespace seoul
 
-#endif // SEOUL_BROWSER_SHELL_SHELL_TYPES_H_
+#endif  // SEOUL_BROWSER_SHELL_SHELL_TYPES_H_

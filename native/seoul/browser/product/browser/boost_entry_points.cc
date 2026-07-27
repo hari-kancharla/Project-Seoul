@@ -45,6 +45,9 @@ bool CanBoostWebContents(content::WebContents *web_contents) {
 }
 
 bool OpenBoostEditorForWebContents(content::WebContents *web_contents) {
+  if (!CanBoostWebContents(web_contents)) {
+    return false;
+  }
   BrowserWindowInterface *browser = EligibleBrowserFor(web_contents);
   SeoulRuntimeService *runtime =
       browser ? SeoulRuntimeServiceFactory::GetForProfile(browser->GetProfile())

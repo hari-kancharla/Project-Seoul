@@ -70,22 +70,40 @@ else
   if src_has_user_edits; then
     # Tracked edits are legitimate in exactly one case: they are precisely the
     # applied Seoul patch series (the runbook applies patches before gen/build).
-    # Proof: every series patch reverse-applies cleanly, in reverse order, and
-    # nothing remains afterwards. --check makes this read-only.
+    # Simulate the complete reverse operation in a temporary index. A single
+    # multi-patch `git apply --reverse --check` does not carry each patch's
+    # result into the next check, so dependent patches can be reported as false
+    # failures even when the checkout is the exact cumulative series.
     series_matches=1
-    reverse_list=""
-    for p in "$PATCHES_DIR"/*.patch; do
-      [ -f "$p" ] || { series_matches=0; break; }
-      reverse_list="$p $reverse_list"
-    done
-    if [ "$series_matches" = 1 ] && [ -n "$reverse_list" ]; then
-      # shellcheck disable=SC2086
-      git -C "$CHROMIUM_SRC" apply --reverse --check $reverse_list 2>/dev/null || series_matches=0
-    else
+    index_file="$(mktemp "${TMPDIR:-/tmp}/seoul-verify-index.XXXXXX")"
+    delta_file="$(mktemp "${TMPDIR:-/tmp}/seoul-verify-delta.XXXXXX")"
+    rm -f "$index_file"
+    patches=("$PATCHES_DIR"/*.patch)
+    if [ ! -f "${patches[0]:-}" ]; then
       series_matches=0
+    elif ! git -C "$CHROMIUM_SRC" diff --binary --ignore-submodules=all HEAD >"$delta_file"; then
+      series_matches=0
+    elif ! GIT_INDEX_FILE="$index_file" git -C "$CHROMIUM_SRC" read-tree HEAD; then
+      series_matches=0
+    elif ! GIT_INDEX_FILE="$index_file" git -C "$CHROMIUM_SRC" apply --cached "$delta_file"; then
+      series_matches=0
+    else
+      for ((i=${#patches[@]}-1; i>=0; i--)); do
+        if ! GIT_INDEX_FILE="$index_file" git -C "$CHROMIUM_SRC" \
+            apply --cached --reverse "${patches[$i]}" 2>/dev/null; then
+          series_matches=0
+          break
+        fi
+      done
+      if [ "$series_matches" = 1 ] &&
+          ! GIT_INDEX_FILE="$index_file" git -C "$CHROMIUM_SRC" \
+              diff --cached --quiet HEAD; then
+        series_matches=0
+      fi
     fi
+    rm -f "$index_file" "$delta_file"
     if [ "$series_matches" = 1 ]; then
-      pass "src tracked edits are exactly the applied Seoul patch series (reverse-apply check clean)"
+      pass "src tracked edits are exactly the applied Seoul patch series (temporary-index reverse proof clean)"
     else
       bad "src has edits to tracked, non-submodule files beyond the Seoul patch series:"
       git -C "$CHROMIUM_SRC" status --porcelain --ignore-submodules=all --untracked-files=no | sed 's/^/        /'

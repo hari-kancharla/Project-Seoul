@@ -1,0 +1,22 @@
+diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
+--- a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
++++ b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
+@@ -227,12 +227,18 @@
+           state_controller_, root_action_item, browser_view->browser()));
+   top_button_container_->SetProperty(
+       views::kMarginsKey, gfx::Insets::VH(0, region_horizontal_padding));
++  // Seoul owns compact mode + command search. Never show Chromium's stock
++  // organizer / tab-search combo above the product shell.
++  top_button_container_->SetVisible(false);
++  top_button_container_->SetProperty(views::kViewIgnoredByLayoutKey, true);
+ 
+   top_button_separator_ = AddChildView(std::make_unique<views::Separator>());
+   // The TopContainer handles the padding distance to the separator so that we
+   // can control how far it is in the various states.
+   top_button_separator_->SetProperty(
+       views::kMarginsKey, gfx::Insets::VH(0, region_horizontal_padding));
++  top_button_separator_->SetVisible(false);
++  top_button_separator_->SetProperty(views::kViewIgnoredByLayoutKey, true);
+ 
+   bottom_button_container_ =
+       AddChildView(std::make_unique<VerticalTabStripBottomContainer>(

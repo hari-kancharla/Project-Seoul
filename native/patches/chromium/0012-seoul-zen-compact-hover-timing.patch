@@ -1,0 +1,32 @@
+diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
+--- a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
++++ b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
+@@ -94,6 +94,7 @@ constexpr int kResizeAreaWidth = 5;
+ constexpr int kCollapsedResizeAreaWidth = 2;
+ constexpr int kKeyboardResizeWidth = 50;
+ constexpr int kSnapDistance = 15;
++constexpr base::TimeDelta kSeoulCompactModeHideDelay = base::Seconds(1);
+ 
+ // Shadow is used in expand-on-hover mode. Shadow radius and opacity are dynamic
+ // and set by the layout.
+@@ -651,6 +652,20 @@ void VerticalTabStripRegionView::OnMouseExited(const ui::MouseEvent& event) {
+ }
+ 
+ void VerticalTabStripRegionView::HandleMouseExited() {
++  const bool seoul_integrated_rail =
++      browser_view_ && browser_view_->toolbar() &&
++      browser_view_->toolbar()->parent() == this;
++  if (seoul_integrated_rail && is_expanded_on_hover_) {
++    if (!mouse_exit_timer_.IsRunning()) {
++      mouse_exit_timer_.Start(
++          FROM_HERE, kSeoulCompactModeHideDelay,
++          base::BindOnce(
++              &VerticalTabStripRegionView::UpdateExpandOnHoverState,
++              base::Unretained(this), false));
++    }
++    return;
++  }
++
+   // On Windows, we get mouse exit events when moving between the caption area
+   // and client as well as when we transition between web contents area
+   // underneath the expanded on hover overlay to outside it.

@@ -104,7 +104,7 @@ DEPOT_TOOLS_DIR="$SEOUL_CHROMIUM_ROOT_ABS/depot_tools"
 CHROMIUM_SRC="$SEOUL_CHROMIUM_ROOT_ABS/src"
 OUT_DIR_NAME="SeoulBaseline"
 OUT_DIR="$CHROMIUM_SRC/out/$OUT_DIR_NAME"
-CHROMIUM_BINARY="$OUT_DIR/Chromium.app/Contents/MacOS/Chromium"
+CHROMIUM_BINARY="$OUT_DIR/Seoul.app/Contents/MacOS/Seoul"
 EVIDENCE_DIR="$SEOUL_NATIVE_DIR/evidence"
 
 # Repository-owned Seoul native source and the Chromium integration patch series.

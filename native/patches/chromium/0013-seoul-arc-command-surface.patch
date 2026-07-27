@@ -1,0 +1,1019 @@
+diff --git a/chrome/app/chromium_strings.grd b/chrome/app/chromium_strings.grd
+index 38b5029..c9ca569 100644
+--- a/chrome/app/chromium_strings.grd
++++ b/chrome/app/chromium_strings.grd
+@@ -294,10 +294,10 @@ If you update this file, be sure also to update google_chrome_strings.grd. -->
+         </then>
+         <else>
+           <message name="IDS_PRODUCT_NAME" desc="The Chrome application name" translateable="false">
+-            Chromium
++            Seoul
+           </message>
+           <message name="IDS_SHORT_PRODUCT_NAME" desc="The Chrome application short name." translateable="false">
+-            Chromium
++            Seoul
+           </message>
+         </else>
+       </if>
+@@ -317,7 +317,7 @@ If you update this file, be sure also to update google_chrome_strings.grd. -->
+       </if>
+       <if expr="is_macosx or is_linux">
+         <message name="IDS_FIRST_RUN_DIALOG_WINDOW_TITLE" desc="Window title of First Run dialog on Mac and Linux, displayed in title bar">
+-          Welcome to Chromium
++          Welcome to Seoul
+         </message>
+       </if>
+       <if expr="is_linux">
+@@ -431,7 +431,7 @@ New bookmarks can’t be saved in your account until you delete some. If you sig
+           </then>
+           <else>
+             <message name="IDS_BROWSER_WINDOW_TITLE_FORMAT" desc="The format for titles displayed in tabs and popup windows">
+-              <ph name="PAGE_TITLE">$1<ex>Google</ex></ph> - Chromium
++              <ph name="PAGE_TITLE">$1<ex>Google</ex></ph> - Seoul
+             </message>
+           </else>
+         </if>
+@@ -470,18 +470,18 @@ New bookmarks can’t be saved in your account until you delete some. If you sig
+         </then>
+         <else>
+           <message name="IDS_ACCESSIBLE_BROWSER_WINDOW_TITLE_FORMAT" desc="The format for the accessible name of a tabbed browser window">
+-            <ph name="PAGE_TITLE">$1<ex>Google</ex></ph> - Chromium
++            <ph name="PAGE_TITLE">$1<ex>Google</ex></ph> - Seoul
+           </message>
+         </else>
+       </if>
+       <message name="IDS_ACCESSIBLE_BETA_BROWSER_WINDOW_TITLE_FORMAT" desc="The format for the accessible name of a tabbed browser window for the beta channel version of the browser">
+-        <ph name="PAGE_TITLE">$1<ex>Google</ex></ph> - Chromium Beta
++        <ph name="PAGE_TITLE">$1<ex>Google</ex></ph> - Seoul Beta
+       </message>
+       <message name="IDS_ACCESSIBLE_DEV_BROWSER_WINDOW_TITLE_FORMAT" desc="The format for the accessible name of a tabbed browser window for the developer (dev) channel version of the browser">
+-        <ph name="PAGE_TITLE">$1<ex>Google</ex></ph> - Chromium Dev
++        <ph name="PAGE_TITLE">$1<ex>Google</ex></ph> - Seoul Dev
+       </message>
+       <message name="IDS_ACCESSIBLE_CANARY_BROWSER_WINDOW_TITLE_FORMAT" desc="The format for the accessible name of a tabbed browser window for the canary (nightly build) channel version of the browser">
+-        <ph name="PAGE_TITLE">$1<ex>Google</ex></ph> - Chromium Canary
++        <ph name="PAGE_TITLE">$1<ex>Google</ex></ph> - Seoul Canary
+       </message>
+       <if expr="_is_chrome_for_testing_branded">
+         <then>
+@@ -494,10 +494,10 @@ New bookmarks can’t be saved in your account until you delete some. If you sig
+         </then>
+         <else>
+           <message name="IDS_ABOUT_VERSION_COMPANY_NAME" desc="Company name on the about pages">
+-            The Chromium Authors
++            Seoul Browser
+           </message>
+           <message name="IDS_ABOUT_VERSION_COPYRIGHT" desc="Copyright information on the about pages">
+-            Copyright <ph name="YEAR">{0,date,y}<ex>2016</ex></ph> The Chromium Authors. All rights reserved.
++            Built on the Chromium open-source project.
+           </message>
+         </else>
+       </if>
+diff --git a/chrome/browser/ui/color/chrome_color_mixers.cc b/chrome/browser/ui/color/chrome_color_mixers.cc
+index 5a58f9d..38f578f 100644
+--- a/chrome/browser/ui/color/chrome_color_mixers.cc
++++ b/chrome/browser/ui/color/chrome_color_mixers.cc
+@@ -56,30 +56,26 @@ void AddSeoulProductColorMixer(ui::ColorProvider* provider,
+                                const ui::ColorProviderKey& key) {
+   const bool dark_mode =
+       key.color_mode == ui::ColorProviderKey::ColorMode::kDark;
+-  const SkColor rail =
+-      dark_mode ? SkColorSetRGB(0x29, 0x49, 0x37)
+-                : SkColorSetRGB(0x5F, 0x8D, 0x6E);
+-  const SkColor rail_inactive =
+-      dark_mode ? SkColorSetRGB(0x32, 0x3F, 0x37)
+-                : SkColorSetRGB(0x6E, 0x84, 0x75);
+-  const SkColor selected =
+-      dark_mode ? SkColorSetRGB(0x3F, 0x63, 0x4F)
+-                : SkColorSetRGB(0x79, 0xA1, 0x86);
+-  const SkColor hover =
+-      dark_mode ? SkColorSetRGB(0x38, 0x58, 0x47)
+-                : SkColorSetRGB(0x70, 0x99, 0x7D);
+-  const SkColor foreground =
+-      dark_mode ? SkColorSetRGB(0xF3, 0xF2, 0xEC)
+-                : SkColorSetRGB(0xF8, 0xF7, 0xF1);
+-  const SkColor foreground_muted =
+-      dark_mode ? SkColorSetRGB(0xC4, 0xCE, 0xC5)
+-                : SkColorSetRGB(0xE0, 0xE8, 0xE0);
+-  const SkColor canvas =
+-      dark_mode ? SkColorSetRGB(0x17, 0x17, 0x15)
+-                : SkColorSetRGB(0xF2, 0xF1, 0xEB);
+-  const SkColor canvas_text =
+-      dark_mode ? SkColorSetRGB(0xF3, 0xF2, 0xEC)
+-                : SkColorSetRGB(0x17, 0x17, 0x13);
++  const SkColor rail = dark_mode ? SkColorSetRGB(0x29, 0x49, 0x37)
++                                 : SkColorSetRGB(0x5F, 0x8D, 0x6E);
++  const SkColor rail_inactive = dark_mode ? SkColorSetRGB(0x32, 0x3F, 0x37)
++                                          : SkColorSetRGB(0x6E, 0x84, 0x75);
++  const SkColor selected = dark_mode ? SkColorSetRGB(0x3F, 0x63, 0x4F)
++                                     : SkColorSetRGB(0x79, 0xA1, 0x86);
++  const SkColor hover = dark_mode ? SkColorSetRGB(0x38, 0x58, 0x47)
++                                  : SkColorSetRGB(0x70, 0x99, 0x7D);
++  const SkColor foreground = dark_mode ? SkColorSetRGB(0xF3, 0xF2, 0xEC)
++                                       : SkColorSetRGB(0xF8, 0xF7, 0xF1);
++  const SkColor foreground_muted = dark_mode ? SkColorSetRGB(0xC4, 0xCE, 0xC5)
++                                             : SkColorSetRGB(0xE0, 0xE8, 0xE0);
++  const SkColor canvas = dark_mode ? SkColorSetRGB(0x17, 0x17, 0x15)
++                                   : SkColorSetRGB(0xF2, 0xF1, 0xEB);
++  const SkColor canvas_text = dark_mode ? SkColorSetRGB(0xF3, 0xF2, 0xEC)
++                                        : SkColorSetRGB(0x17, 0x17, 0x13);
++  const SkColor canvas_text_muted = dark_mode ? SkColorSetRGB(0xAE, 0xAD, 0xA5)
++                                              : SkColorSetRGB(0x67, 0x66, 0x60);
++  const SkColor command_surface = dark_mode ? SkColorSetRGB(0x24, 0x24, 0x22)
++                                            : SkColorSetRGB(0xFB, 0xFB, 0xFB);
+ 
+   ui::ColorMixer& mixer = provider->AddMixer();
+   mixer[ui::kColorFrameActive] = {rail};
+@@ -96,10 +92,11 @@ void AddSeoulProductColorMixer(ui::ColorProvider* provider,
+   mixer[kColorToolbarTextDefault] = {foreground};
+   mixer[kColorLocationBarBackground] = {selected};
+   mixer[kColorLocationBarBackgroundHovered] = {hover};
+-  mixer[kColorOmniboxText] = {foreground};
+-  mixer[kColorOmniboxTextDimmed] = {foreground_muted};
+-  mixer[kColorOmniboxActionIcon] = {foreground_muted};
+-  mixer[kColorOmniboxResultsBackground] = {canvas};
++  mixer[kColorOmniboxText] = {canvas_text};
++  mixer[kColorOmniboxTextDimmed] = {canvas_text_muted};
++  mixer[kColorOmniboxActionIcon] = {canvas_text_muted};
++  mixer[kColorOmniboxForegroundDisabled] = {canvas_text_muted};
++  mixer[kColorOmniboxResultsBackground] = {command_surface};
+   mixer[kColorOmniboxResultsBackgroundHovered] = {
+       dark_mode ? SkColorSetRGB(0x28, 0x28, 0x24)
+                 : SkColorSetRGB(0xE7, 0xE6, 0xDF)};
+@@ -108,13 +105,9 @@ void AddSeoulProductColorMixer(ui::ColorProvider* provider,
+                 : SkColorSetRGB(0xDF, 0xE7, 0xDB)};
+   mixer[kColorOmniboxResultsIcon] = {canvas_text};
+   mixer[kColorOmniboxResultsTextAnswer] = {canvas_text};
+-  mixer[kColorOmniboxResultsTextDimmed] = {
+-      dark_mode ? SkColorSetRGB(0xAE, 0xAD, 0xA5)
+-                : SkColorSetRGB(0x67, 0x66, 0x60)};
++  mixer[kColorOmniboxResultsTextDimmed] = {canvas_text_muted};
+   mixer[kColorOmniboxResultsTextDimmedSelected] = {canvas_text};
+-  mixer[kColorOmniboxResultsTextSecondary] = {
+-      dark_mode ? SkColorSetRGB(0xAE, 0xAD, 0xA5)
+-                : SkColorSetRGB(0x67, 0x66, 0x60)};
++  mixer[kColorOmniboxResultsTextSecondary] = {canvas_text_muted};
+   mixer[kColorOmniboxResultsTextSecondarySelected] = {canvas_text};
+   mixer[kColorOmniboxResultsTextSelected] = {canvas_text};
+   mixer[kColorOmniboxResultsUrl] = {selected};
+diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/views/frame/browser_view.cc
+index a430faf..8d41182 100644
+--- a/chrome/browser/ui/views/frame/browser_view.cc
++++ b/chrome/browser/ui/views/frame/browser_view.cc
+@@ -334,6 +334,7 @@
+ #include "ui/gfx/scrollbar_size.h"
+ #include "ui/views/accessibility/view_accessibility.h"
+ #include "ui/views/accessibility/view_accessibility_utils.h"
++#include "ui/views/animation/animation_builder.h"
+ #include "ui/views/animation/compositor_animation_runner.h"
+ #include "ui/views/bubble/bubble_dialog_delegate_view.h"
+ #include "ui/views/controls/button/menu_button.h"
+@@ -344,6 +345,7 @@
+ #include "ui/views/layout/fill_layout.h"
+ #include "ui/views/view.h"
+ #include "ui/views/view_class_properties.h"
++#include "ui/views/view_shadow.h"
+ #include "ui/views/view_utils.h"
+ #include "ui/views/views_features.h"
+ #include "ui/views/widget/native_widget.h"
+@@ -971,10 +973,9 @@ BrowserView::BrowserView(Browser* browser)
+     // raw ToolbarView pointer, so command/focus/security plumbing is unchanged.
+     toolbar_ = vertical_tab_strip_region_view_->AddChildViewAt(
+         top_container_->RemoveChildViewT(toolbar_), 0);
+-    // Clear the Mac traffic-light band before the address row. Stock Chromium
+-    // put this in VerticalTabStripTopContainer; Seoul hides that chrome.
+-    toolbar_->SetProperty(views::kMarginsKey,
+-                          gfx::Insets::TLBR(36, 10, 6, 10));
++    // The native traffic lights and navigation share one compact header row.
++    // Their exact horizontal exclusion is supplied by frame layout.
++    toolbar_->SetProperty(views::kMarginsKey, gfx::Insets::TLBR(2, 10, 6, 10));
+     toolbar_->SetProperty(
+         views::kFlexBehaviorKey,
+         views::FlexSpecification(views::MinimumFlexSizeRule::kScaleToMinimum,
+@@ -1235,7 +1236,14 @@ ClientFrameElementInfo BrowserView::GetFrameElementInfo() const {
+                 .height()
+           : 0;
+   if (toolbar_ && ShouldDrawVerticalTabStrip()) {
+-    info.toolbar_minimum_height = toolbar_->GetMinimumSize().height();
++    const bool seoul_integrated_rail =
++        vertical_tab_strip_region_view_ &&
++        toolbar_->parent() == vertical_tab_strip_region_view_;
++    // The native macOS titlebar contains only the compact navigation row.
++    // Including the second-row address field in its height pushes the traffic
++    // lights down into a large empty band.
++    info.toolbar_minimum_height =
++        seoul_integrated_rail ? 38 : toolbar_->GetMinimumSize().height();
+   } else if (web_app_frame_toolbar_ && ShouldDrawWebAppFrameToolbar()) {
+     info.toolbar_minimum_height =
+         web_app_frame_toolbar_->GetMinimumSize().height();
+@@ -2288,7 +2296,13 @@ void BrowserView::SetFocusToLocationBar(bool is_user_initiated) {
+     return;
+   }
+ #endif
+-  if (!IsLocationBarVisible()) {
++  const bool seoul_hidden_command_bar =
++      vertical_tab_strip_region_view_ && toolbar_ &&
++      toolbar_->location_bar_view() &&
++      toolbar_->location_bar_view()->parent() == toolbar_;
++  if (seoul_hidden_command_bar) {
++    SetSeoulOmniboxFloating(true);
++  } else if (!IsLocationBarVisible()) {
+     return;
+   }
+ 
+@@ -3076,9 +3090,20 @@ bool BrowserView::IsToolbarShowing() const {
+ }
+ 
+ bool BrowserView::IsLocationBarVisible() const {
+-  return browser_->SupportsWindowFeature(
+-             Browser::WindowFeature::kFeatureLocationBar) &&
+-         GetLocationBar()->IsVisible();
++  if (!browser_->SupportsWindowFeature(
++          Browser::WindowFeature::kFeatureLocationBar)) {
++    return false;
++  }
++
++  // The Seoul rail deliberately keeps its native omnibox hidden until the
++  // user invokes the command surface. Report that surface as available to the
++  // browser command controller so Cmd+L and Open Location are not discarded
++  // before SetFocusToLocationBar() has a chance to float it.
++  const bool seoul_command_bar_available =
++      vertical_tab_strip_region_view_ && toolbar_ &&
++      toolbar_->location_bar_view() &&
++      toolbar_->location_bar_view()->parent() == toolbar_;
++  return seoul_command_bar_available || GetLocationBar()->IsVisible();
+ }
+ 
+ void BrowserView::ShowUpdateChromeDialog() {
+@@ -4514,8 +4539,8 @@ void BrowserView::GetAccessiblePanes(std::vector<views::View*>* panes) {
+         toolbar_->location_bar_view()
+             ->permission_dashboard_view()
+             ->GetVisible()) {
+-      panes->push_back(toolbar_->location_bar_view()
+-                           ->permission_dashboard_view());
++      panes->push_back(
++          toolbar_->location_bar_view()->permission_dashboard_view());
+     }
+   } else if (toolbar_ && toolbar_->location_bar() &&
+              toolbar_->location_bar()->GetChipController() &&
+@@ -4860,14 +4885,22 @@ void BrowserView::SetSeoulOmniboxFloating(bool floating) {
+ 
+   seoul_omnibox_reparenting_ = true;
+   seoul_omnibox_floating_ = floating;
++  location_bar->SetSeoulFloatingMode(floating);
+   if (floating) {
+     auto owned_location_bar = toolbar_->RemoveChildViewT(location_bar);
+     location_bar->SetProperty(views::kViewIgnoredByLayoutKey, true);
++    location_bar->SetVisible(true);
+     AddChildView(std::move(owned_location_bar));
++    seoul_omnibox_shadow_ =
++        std::make_unique<views::ViewShadow>(location_bar, 16);
++    seoul_omnibox_shadow_->SetRoundedCornerRadius(12);
++    location_bar->layer()->SetOpacity(0.0f);
+   } else if (location_bar->parent() == this) {
++    seoul_omnibox_shadow_.reset();
+     auto owned_location_bar = RemoveChildViewT(location_bar);
+     location_bar->SetProperty(views::kViewIgnoredByLayoutKey, false);
+     toolbar_->AddChildView(std::move(owned_location_bar));
++    location_bar->SetVisible(false);
+   }
+   seoul_omnibox_reparenting_ = false;
+ 
+@@ -4876,6 +4909,12 @@ void BrowserView::SetSeoulOmniboxFloating(bool floating) {
+   DeprecatedLayoutImmediately();
+ 
+   if (floating) {
++    views::AnimationBuilder()
++        .SetPreemptionStrategy(
++            ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET)
++        .Once()
++        .SetDuration(base::Milliseconds(180))
++        .SetOpacity(location_bar->layer(), 1.0f);
+     location_bar->FocusLocation(/*is_user_initiated=*/true,
+                                 /*clear_focus_if_failed=*/false);
+   }
+@@ -4906,11 +4945,17 @@ void BrowserView::Layout(PassKey) {
+       toolbar_->location_bar_view()->parent() == this) {
+     constexpr int kZenFloatingOmniboxHeight = 62;
+     constexpr int kZenFloatingResultsHeight = 333;
+-    const int width = std::min(750, GetLocalBounds().width() * 2 / 3);
+-    const int x = (GetLocalBounds().width() - width) / 2;
+-    const int y =
+-        std::max(24, (GetLocalBounds().height() - kZenFloatingResultsHeight) /
+-                         2);
++    // Center the command surface inside the page canvas. Centering it against
++    // the entire browser makes it cross the vertical rail at ordinary window
++    // sizes, exposing the frame color through its rounded leading corner.
++    // Zen caps the floating URL bar at 750 DIPs and otherwise uses two thirds
++    // of the available width.
++    const gfx::Rect canvas_bounds =
++        contents_container_ ? contents_container_->bounds() : GetLocalBounds();
++    const int width = std::min(750, canvas_bounds.width() * 2 / 3);
++    const int x = canvas_bounds.x() + (canvas_bounds.width() - width) / 2;
++    const int y = std::max(
++        24, (GetLocalBounds().height() - kZenFloatingResultsHeight) / 2);
+     toolbar_->location_bar_view()->SetBounds(x, y, width,
+                                              kZenFloatingOmniboxHeight);
+   }
+@@ -5220,6 +5265,14 @@ const views::View* BrowserView::GetViewByElementId(
+ // BrowserView, ui::AcceleratorTarget overrides:
+ 
+ bool BrowserView::AcceleratorPressed(const ui::Accelerator& accelerator) {
++  const ui::Accelerator seoul_command_launcher(
++      ui::VKEY_K, ui::EF_PLATFORM_ACCELERATOR | ui::EF_SHIFT_DOWN);
++  if (accelerator == seoul_command_launcher &&
++      vertical_tab_strip_region_view_ &&
++      vertical_tab_strip_region_view_->ShowSeoulCommandLauncher()) {
++    return true;
++  }
++
+   int command_id;
+   // Though AcceleratorManager should not send unknown |accelerator| to us, it's
+   // still possible the command cannot be executed now.
+diff --git a/chrome/browser/ui/views/frame/browser_view.h b/chrome/browser/ui/views/frame/browser_view.h
+index ac9120e..9c52239 100644
+--- a/chrome/browser/ui/views/frame/browser_view.h
++++ b/chrome/browser/ui/views/frame/browser_view.h
+@@ -116,6 +116,7 @@ enum class Channel;
+ }
+ 
+ namespace views {
++class ViewShadow;
+ class WebView;
+ }  // namespace views
+ 
+@@ -1263,6 +1264,7 @@ class BrowserView : public BrowserWindow,
+   raw_ptr<VerticalTabStripRegionView> vertical_tab_strip_region_view_ = nullptr;
+   bool seoul_omnibox_floating_ = false;
+   bool seoul_omnibox_reparenting_ = false;
++  std::unique_ptr<views::ViewShadow> seoul_omnibox_shadow_;
+ 
+   // Outward-projecting corners of the vertical tab strip.
+   raw_ptr<CustomFloatingCorner> vertical_tab_strip_top_corner_ = nullptr;
+diff --git a/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc b/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
+index 4bf68d4..ae440d4 100644
+--- a/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
++++ b/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
+@@ -36,6 +36,7 @@
+ #include "chrome/browser/ui/views/tabs/projects/layout_constants.h"
+ #include "chrome/browser/ui/views/tabs/projects/projects_panel_utils.h"
+ #include "chrome/browser/ui/views/tabs/projects/projects_panel_view.h"
++#include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+ #include "components/split_tabs/split_tab_visual_data.h"
+ #include "ui/base/pointer/touch_ui_controller.h"
+ #include "ui/base/ui_base_features.h"
+@@ -512,7 +513,7 @@ gfx::Size BrowserViewTabbedLayoutImpl::GetMinimumMainAreaSize(
+ 
+   int width = std::max({toolbar_size.width(), bookmark_bar_size.width(),
+                         infobar_container_size.width(),
+-                            kContentsContainerMinimumWidth});
++                        kContentsContainerMinimumWidth});
+   const int height = toolbar_size.height() + bookmark_bar_size.height() +
+                      infobar_container_size.height() + contents_size.height();
+ 
+@@ -1176,7 +1177,13 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+     int toolbar_height = 0;
+     int caption_button_width = 0;
+ 
+-    // If the toolbar is not in the browser, then the exclusion isn't either.
++    const bool seoul_integrated_rail =
++        views().toolbar &&
++        views().toolbar->parent() == views().vertical_tab_strip_region_view;
++
++    // A conventional toolbar is a direct browser child. Seoul's toolbar is a
++    // child of the vertical rail, but it still shares the first row with the
++    // frame-owned caption buttons.
+     if (toolbar_bounds) {
+       // Calculate the toolbar height adjacent to the tabstrip. This will be
+       // zero if the toolbar is in e.g. an immersive mode overlay, or is not
+@@ -1184,6 +1191,11 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+       // leading caption buttons).
+       toolbar_height = toolbar_bounds->bottom() - tabstrip_bounds->y();
+ 
++      caption_button_width =
++          base::ClampCeil(browser_params.leading_exclusion.content.width()) -
++          tabstrip_bounds->x();
++    } else if (seoul_integrated_rail) {
++      toolbar_height = 38;
+       caption_button_width =
+           base::ClampCeil(browser_params.leading_exclusion.content.width()) -
+           tabstrip_bounds->x();
+diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
+index ee4f2f8..52bfd6d 100644
+--- a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
++++ b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
+@@ -40,7 +40,6 @@
+ #include "chrome/browser/ui/views/frame/custom_corners_background.h"
+ #include "chrome/browser/ui/views/frame/shadow_frame_view.h"
+ #include "chrome/browser/ui/views/frame/tab_strip_region_view.h"
+-#include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+ #include "chrome/browser/ui/views/tabs/shared/drop_arrow.h"
+ #include "chrome/browser/ui/views/tabs/vertical/root_tab_collection_node.h"
+ #include "chrome/browser/ui/views/tabs/vertical/tab_collection_node.h"
+@@ -50,18 +49,19 @@
+ #include "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_controller.h"
+ #include "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_top_container.h"
+ #include "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.h"
+-#include "components/sessions/core/session_id.h"
+-#include "seoul/browser/lifecycle/lifecycle_identity.h"
+-#include "seoul/browser/organization/seoul_organization_service.h"
+-#include "seoul/browser/organization/seoul_organization_service_factory.h"
+-#include "seoul/browser/projection/projection_service.h"
+-#include "seoul/browser/shell/shell_service.h"
+ #include "chrome/browser/ui/views/tabs/vertical/vertical_tab_view.h"
+ #include "chrome/browser/ui/views/tabs/vertical/vertical_unpinned_tab_container_view.h"
++#include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+ #include "chrome/browser/ui/web_applications/app_browser_controller.h"
+ #include "chrome/grit/generated_resources.h"
++#include "components/sessions/core/session_id.h"
+ #include "components/tabs/public/tab_group.h"
+ #include "components/tabs/public/tab_interface.h"
++#include "seoul/browser/lifecycle/lifecycle_identity.h"
++#include "seoul/browser/organization/seoul_organization_service.h"
++#include "seoul/browser/organization/seoul_organization_service_factory.h"
++#include "seoul/browser/projection/projection_service.h"
++#include "seoul/browser/shell/shell_service.h"
+ #include "ui/base/clipboard/clipboard_constants.h"
+ #include "ui/base/dragdrop/os_exchange_data.h"
+ #include "ui/base/interaction/element_tracker.h"
+@@ -470,6 +470,11 @@ void VerticalTabStripRegionView::SetToolbarHeightForLayout(int toolbar_height) {
+ void VerticalTabStripRegionView::SetCaptionButtonWidthForLayout(
+     int caption_button_width) {
+   top_button_container_->SetCaptionButtonWidthForLayout(caption_button_width);
++  if (browser_view_ && browser_view_->toolbar() &&
++      browser_view_->toolbar()->parent() == this) {
++    browser_view_->toolbar()->SetSeoulCaptionButtonWidthForLayout(
++        caption_button_width);
++  }
+ }
+ 
+ void VerticalTabStripRegionView::SetIsExitingExpandOnHoverForLayout(
+@@ -544,11 +549,13 @@ views::View* VerticalTabStripRegionView::GetDefaultFocusableChild() {
+     Profile* profile = browser_view_->browser()->profile();
+     if (seoul::SeoulOrganizationService* service =
+             seoul::SeoulOrganizationServiceFactory::GetForProfile(profile)) {
+-      if (seoul::ProjectionService* projection = service->projection_service()) {
++      if (seoul::ProjectionService* projection =
++              service->projection_service()) {
+         const SessionID sid = browser_view_->browser()->session_id();
+         if (sid.is_valid()) {
+-          if (views::View* child = projection->GetDefaultFocusableChildForWindow(
+-                  seoul::LiveWindowKey::FromSessionId(sid.id()))) {
++          if (views::View* child =
++                  projection->GetDefaultFocusableChildForWindow(
++                      seoul::LiveWindowKey::FromSessionId(sid.id()))) {
+             return child;
+           }
+         }
+@@ -652,16 +659,15 @@ void VerticalTabStripRegionView::OnMouseExited(const ui::MouseEvent& event) {
+ }
+ 
+ void VerticalTabStripRegionView::HandleMouseExited() {
+-  const bool seoul_integrated_rail =
+-      browser_view_ && browser_view_->toolbar() &&
+-      browser_view_->toolbar()->parent() == this;
++  const bool seoul_integrated_rail = browser_view_ &&
++                                     browser_view_->toolbar() &&
++                                     browser_view_->toolbar()->parent() == this;
+   if (seoul_integrated_rail && is_expanded_on_hover_) {
+     if (!mouse_exit_timer_.IsRunning()) {
+       mouse_exit_timer_.Start(
+           FROM_HERE, kSeoulCompactModeHideDelay,
+-          base::BindOnce(
+-              &VerticalTabStripRegionView::UpdateExpandOnHoverState,
+-              base::Unretained(this), false));
++          base::BindOnce(&VerticalTabStripRegionView::UpdateExpandOnHoverState,
++                         base::Unretained(this), false));
+     }
+     return;
+   }
+@@ -744,8 +750,7 @@ void VerticalTabStripRegionView::InitializeTabStrip() {
+           projection->RegisterVerticalRegion(key, this);
+         }
+         if (seoul::ShellService* shell = service->shell_service()) {
+-          shell->RegisterVerticalRegion(key, this,
+-                                        browser_view_->browser());
++          shell->RegisterVerticalRegion(key, this, browser_view_->browser());
+         }
+       }
+     }
+@@ -1774,5 +1779,21 @@ views::View* VerticalTabStripRegionView::GetSeoulShellFooterAnchor() {
+   return bottom_button_container_;
+ }
+ 
++bool VerticalTabStripRegionView::ShowSeoulCommandLauncher() {
++  if (!browser_view_ || !browser_view_->browser()) {
++    return false;
++  }
++  Profile* profile = browser_view_->browser()->profile();
++  seoul::SeoulOrganizationService* service =
++      seoul::SeoulOrganizationServiceFactory::GetForProfile(profile);
++  if (!service || !service->shell_service()) {
++    return false;
++  }
++  const SessionID sid = browser_view_->browser()->session_id();
++  return sid.is_valid() &&
++         service->shell_service()->ShowCommandLauncher(
++             seoul::LiveWindowKey::FromSessionId(sid.id()));
++}
++
+ BEGIN_METADATA(VerticalTabStripRegionView)
+ END_METADATA
+diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h
+index bf55a31..f9c2c64 100644
+--- a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h
++++ b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h
+@@ -190,6 +190,7 @@ class VerticalTabStripRegionView final
+   views::View* GetSeoulShellSeparatorAnchor();
+   views::View* GetSeoulShellFooterAnchor();
+   VerticalTabStripView* GetSeoulTabStripView() { return tab_strip_view_; }
++  bool ShowSeoulCommandLauncher();
+   // Production accessor for the initialized vertical-tab root node, used by the
+   // Seoul projection adapter (not a testing-only accessor). Non-null only
+   // between InitializeTabStrip() and ResetTabStrip().
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.cc b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+index 3079aec..41896c5 100644
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.cc
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+@@ -697,6 +697,12 @@ void LocationBarView::SelectAll() {
+ 
+ void LocationBarView::FocusLocation(bool is_user_initiated,
+                                     bool clear_focus_if_failed) {
++  // Arc-style Seoul windows do not keep a permanent address row in the rail.
++  // Move the native omnibox into its command surface before asking Views to
++  // focus it; an invisible rail child cannot receive focus.
++  if (seoul_sidebar_mode_ && !seoul_floating_mode_) {
++    delegate_->OnOmniboxFocusChanged(true);
++  }
+   omnibox_view_->SetFocus(is_user_initiated);
+   if (clear_focus_if_failed && !omnibox_view_->HasFocus()) {
+     // If none of location bar got focus, then clear focus.
+@@ -1607,8 +1613,20 @@ void LocationBarView::RefreshBackground() {
+     border_color = color_provider->GetColor(kColorLocationBarBorderOnMismatch);
+   }
+ 
+-  if (is_popup_mode_) {
++  if (is_popup_mode_ ||
++      (seoul_floating_mode_ && GetOmniboxController()->IsPopupOpen())) {
++    // The floating popup owns the outer rounded surface and shadow. Painting a
++    // second rounded border around its embedded location row produces a seam
++    // and clipped-looking top corners.
+     SetBackground(views::CreateSolidBackground(background_color_));
++  } else if (seoul_floating_mode_) {
++    constexpr int kZenFloatingOmniboxRadius = 12;
++    SetBackground(views::CreateBackgroundFromPainter(
++        views::Painter::CreateRoundRectWith1PxBorderPainter(
++            background_color_,
++            color_provider->GetColor(kColorLocationBarBorder),
++            kZenFloatingOmniboxRadius, SkBlendMode::kSrcOver,
++            /*antialias=*/true, /*should_border_scale=*/true)));
+   } else {
+     SetBackground(CreateRoundRectBackground(
+         background_color_, border_color, size(),
+@@ -2112,6 +2130,17 @@ void LocationBarView::SetSeoulSidebarMode(bool enabled) {
+     return;
+   }
+   seoul_sidebar_mode_ = enabled;
++  if (enabled && !seoul_floating_mode_) {
++    SetVisible(false);
++  }
++  RefreshBackground();
++}
++
++void LocationBarView::SetSeoulFloatingMode(bool enabled) {
++  if (seoul_floating_mode_ == enabled) {
++    return;
++  }
++  seoul_floating_mode_ = enabled;
+   RefreshBackground();
+ }
+ 
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.h b/chrome/browser/ui/views/location_bar/location_bar_view.h
+index 6f566a5..7989407 100644
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.h
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.h
+@@ -201,7 +201,6 @@ class LocationBarView
+ 
+   const OmniboxController* GetOmniboxController() const;
+ 
+-
+   // Controls the permission dashboard in the LocationBarView.
+   PermissionDashboardController* permission_dashboard_controller() {
+     return permission_dashboard_controller_.get();
+@@ -294,6 +293,8 @@ class LocationBarView
+   void OnOmniboxFocused();
+   void OnOmniboxBlurred();
+   void SetSeoulSidebarMode(bool enabled);
++  void SetSeoulFloatingMode(bool enabled);
++  bool seoul_floating_mode() const { return seoul_floating_mode_; }
+ 
+   // Called when omnibox view receives mouse notifications relevant to hover.
+   // |is_hovering| should be true when mouse is in omnibox; false when exited.
+@@ -630,6 +631,7 @@ class LocationBarView
+   // window). This value also controls whether the location bar is read-only.
+   const bool is_popup_mode_;
+   bool seoul_sidebar_mode_ = false;
++  bool seoul_floating_mode_ = false;
+ 
+   bool is_initialized_ = false;
+ 
+diff --git a/chrome/browser/ui/views/omnibox/omnibox_popup_view_views.cc b/chrome/browser/ui/views/omnibox/omnibox_popup_view_views.cc
+index 973f59d..918e4cf 100644
+--- a/chrome/browser/ui/views/omnibox/omnibox_popup_view_views.cc
++++ b/chrome/browser/ui/views/omnibox/omnibox_popup_view_views.cc
+@@ -94,8 +94,10 @@ std::optional<gfx::Rect> GetDebugWidgetBounds(
+ 
+   // Calculate the frame's Y position so the top of the results area
+   // (frame_y + non_result_height) aligns with the content area's top.
+-  frame_bounds.set_y(contents_bounds.y() -
+-                     RoundedOmniboxResultsFrame::GetNonResultSectionHeight());
++  frame_bounds.set_y(
++      contents_bounds.y() -
++      RoundedOmniboxResultsFrame::GetNonResultSectionHeight(
++          true, location_bar_view->GetBoundsInScreen().height()));
+ 
+   return frame_bounds;
+ }
+@@ -739,7 +741,8 @@ gfx::Rect OmniboxPopupViewViews::GetTargetBounds() const {
+   // Add enough space on the top and bottom so it looks like there is the same
+   // amount of space between the text and the popup border as there is in the
+   // interior between each row of text.
+-  popup_height += RoundedOmniboxResultsFrame::GetNonResultSectionHeight();
++  popup_height += RoundedOmniboxResultsFrame::GetNonResultSectionHeight(
++      true, location_bar_view_->GetBoundsInScreen().height());
+ 
+   // The rounded popup is always offset the same amount from the omnibox.
+   gfx::Rect content_rect = location_bar_view_->GetBoundsInScreen();
+diff --git a/chrome/browser/ui/views/omnibox/omnibox_view_views.cc b/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
+index b878a46..ee800a9 100644
+--- a/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
++++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
+@@ -51,6 +51,7 @@
+ #include "chrome/browser/ui/omnibox/omnibox_controller.h"
+ #include "chrome/browser/ui/omnibox/omnibox_edit_model.h"
+ #include "chrome/browser/ui/omnibox/omnibox_next_features.h"
++#include "chrome/browser/ui/omnibox/omnibox_popup_view.h"
+ #include "chrome/browser/ui/omnibox/omnibox_tab_helper.h"
+ #include "chrome/browser/ui/page_action/page_action_icon_type.h"
+ #include "chrome/browser/ui/view_ids.h"
+@@ -58,7 +59,6 @@
+ #include "chrome/browser/ui/views/frame/immersive_mode_controller.h"
+ #include "chrome/browser/ui/views/location_bar/icon_label_bubble_view.h"
+ #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
+-#include "chrome/browser/ui/omnibox/omnibox_popup_view.h"
+ #include "chrome/browser/ui/views/omnibox/omnibox_popup_closer.h"
+ #include "chrome/browser/ui/views/omnibox/omnibox_text_view.h"
+ #include "chrome/browser/ui/views/page_action/page_action_container_view.h"
+@@ -1949,6 +1949,13 @@ bool OmniboxViewViews::ShouldShowPlaceholderText() const {
+     return false;
+   }
+ 
++  // Seoul's floating command surface is an explicit search/address entry
++  // point. Leaving a focused, empty surface with only a detached magnifier
++  // makes the control look broken rather than ready for input.
++  if (location_bar_view_ && location_bar_view_->seoul_floating_mode()) {
++    return true;
++  }
++
+   // If there's keyword placeholder to show, always show it, regardless of
+   // whether the omnibox is focused, because users won't enter keyword mode,
+   // blur the omnibox, read the placeholder text, refocus the omnibox, and begin
+@@ -2133,8 +2140,20 @@ bool OmniboxViewViews::HandleKeyEvent(views::Textfield* textfield,
+       }
+       return true;
+     }
+-    case ui::VKEY_ESCAPE:
+-      return controller()->edit_model()->OnEscapeKeyPressed();
++    case ui::VKEY_ESCAPE: {
++      const bool handled = controller()->edit_model()->OnEscapeKeyPressed();
++      if (handled && location_bar_view_ &&
++          location_bar_view_->seoul_floating_mode()) {
++        // Seoul's omnibox is a transient command surface, not a permanent
++        // toolbar field. One Escape should dismiss the complete surface after
++        // reverting the edit model, rather than leaving a detached input
++        // floating over the page until the user clicks elsewhere.
++        if (views::FocusManager* focus_manager = GetFocusManager()) {
++          focus_manager->ClearFocus();
++        }
++      }
++      return handled;
++    }
+ 
+     case ui::VKEY_CONTROL:
+       controller()->edit_model()->OnControlKeyChanged(true);
+diff --git a/chrome/browser/ui/views/omnibox/rounded_omnibox_results_frame.cc b/chrome/browser/ui/views/omnibox/rounded_omnibox_results_frame.cc
+index 8411133..edd56e3 100644
+--- a/chrome/browser/ui/views/omnibox/rounded_omnibox_results_frame.cc
++++ b/chrome/browser/ui/views/omnibox/rounded_omnibox_results_frame.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "chrome/browser/ui/views/omnibox/rounded_omnibox_results_frame.h"
+ 
++#include <algorithm>
+ #include <memory>
+ #include <utility>
+ 
+@@ -236,7 +237,9 @@ RoundedOmniboxResultsFrame::RoundedOmniboxResultsFrame(
+     views::View* contents,
+     LocationBar* location_bar,
+     bool forward_mouse_events)
+-    : contents_(contents), forward_mouse_events_(forward_mouse_events) {
++    : contents_(contents),
++      location_bar_(location_bar),
++      forward_mouse_events_(forward_mouse_events) {
+   const int corner_radius = views::LayoutProvider::Get()->GetCornerRadiusMetric(
+       views::ShapeContextTokens::kOmniboxExpandedRadius);
+   // Host the contents in its own View to simplify layout and customization.
+@@ -297,9 +300,12 @@ void RoundedOmniboxResultsFrame::OnBeforeWidgetInit(
+ }
+ 
+ // static
+-int RoundedOmniboxResultsFrame::GetNonResultSectionHeight(bool include_cutout) {
++int RoundedOmniboxResultsFrame::GetNonResultSectionHeight(
++    bool include_cutout,
++    int location_bar_height) {
+   return include_cutout
+-             ? GetLayoutConstant(LayoutConstant::kLocationBarHeight) +
++             ? std::max(GetLayoutConstant(LayoutConstant::kLocationBarHeight),
++                        location_bar_height) +
+                    GetLocationBarAlignmentInsets().height()
+              : 0;
+ }
+@@ -343,7 +349,8 @@ void RoundedOmniboxResultsFrame::Layout(PassKey) {
+ 
+   if (top_background_->GetVisible()) {
+     gfx::Rect top_bounds(contents_host_->GetContentsBounds());
+-    top_bounds.set_height(GetNonResultSectionHeight(true));
++    top_bounds.set_height(GetNonResultSectionHeight(
++        true, location_bar_->BoundsInScreen().height()));
+     top_bounds.Inset(GetLocationBarAlignmentInsets());
+     top_background_->SetBoundsRect(top_bounds);
+   }
+@@ -409,7 +416,9 @@ void RoundedOmniboxResultsFrame::OnMouseEvent(ui::MouseEvent* event) {
+ // Insets used to position |contents_| within |contents_host_|.
+ gfx::Insets RoundedOmniboxResultsFrame::GetContentInsets() {
+   return gfx::Insets::TLBR(
+-      GetNonResultSectionHeight(top_background_->GetVisible()), 0, 0, 0);
++      GetNonResultSectionHeight(top_background_->GetVisible(),
++                                location_bar_->BoundsInScreen().height()),
++      0, 0, 0);
+ }
+ 
+ BEGIN_METADATA(RoundedOmniboxResultsFrame)
+diff --git a/chrome/browser/ui/views/omnibox/rounded_omnibox_results_frame.h b/chrome/browser/ui/views/omnibox/rounded_omnibox_results_frame.h
+index 878b5d2..16f01f4 100644
+--- a/chrome/browser/ui/views/omnibox/rounded_omnibox_results_frame.h
++++ b/chrome/browser/ui/views/omnibox/rounded_omnibox_results_frame.h
+@@ -32,8 +32,11 @@ class RoundedOmniboxResultsFrame : public views::View {
+   static void OnBeforeWidgetInit(views::Widget::InitParams* params,
+                                  views::Widget* widget);
+ 
+-  // The height of the location bar view part of the omnibox popup.
+-  static int GetNonResultSectionHeight(bool include_cutout = true);
++  // The height of the location bar view part of the omnibox popup. When a
++  // custom location bar height is supplied, the cutout tracks that real
++  // surface instead of assuming Chromium's standard toolbar row.
++  static int GetNonResultSectionHeight(bool include_cutout = true,
++                                       int location_bar_height = 0);
+ 
+   // How the Widget is aligned relative to the location bar.
+   static gfx::Insets GetLocationBarAlignmentInsets();
+@@ -63,6 +66,7 @@ class RoundedOmniboxResultsFrame : public views::View {
+   raw_ptr<views::View> top_background_ = nullptr;
+   raw_ptr<views::View> contents_host_ = nullptr;
+   raw_ptr<views::View> contents_;
++  raw_ptr<LocationBar> location_bar_;
+ 
+   // Only used on platforms that support Aura (non-Mac).
+   [[maybe_unused]] const bool forward_mouse_events_;
+diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.cc b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+index ae048b3..5954146 100644
+--- a/chrome/browser/ui/views/toolbar/toolbar_view.cc
++++ b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+@@ -600,7 +600,6 @@ void ToolbarView::Init() {
+     avatar_->SetVisible(show_avatar_toolbar_button);
+   }
+ 
+-
+   overflow_button_ = AddChildView(std::make_unique<OverflowButton>());
+   overflow_button_->SetVisible(false);
+ 
+@@ -698,6 +697,15 @@ void ToolbarView::SetSeoulSidebarPresentation(bool collapsed) {
+   PreferredSizeChanged();
+ }
+ 
++void ToolbarView::SetSeoulCaptionButtonWidthForLayout(
++    int caption_button_width) {
++  if (seoul_caption_button_width_ == caption_button_width) {
++    return;
++  }
++  seoul_caption_button_width_ = caption_button_width;
++  InvalidateLayout(/*avoid_propagate_during_layout=*/true);
++}
++
+ void ToolbarView::ApplySeoulSidebarPresentation() {
+   if (!seoul_sidebar_mode_ || display_mode_ != DisplayMode::kNormal) {
+     return;
+@@ -707,12 +715,11 @@ void ToolbarView::ApplySeoulSidebarPresentation() {
+     return;
+   }
+ 
+-  // Keep core navigation beside the address field. Secondary browser actions
+-  // remain available from Commands/More instead of crowding the narrow rail.
++  // Keep core navigation in the compact header. The native omnibox moves into
++  // the command surface rather than occupying a permanent rail row.
+   for (views::View* child : children()) {
+-    const bool should_show =
+-        child == back_ || child == forward_ || child == reload_ ||
+-        child == location_bar_view_ || child == toolbar_webview_;
++    const bool should_show = child == back_ || child == forward_ ||
++                             child == reload_ || child == toolbar_webview_;
+     if (child->GetVisible() != should_show) {
+       child->SetVisible(should_show);
+     }
+@@ -721,8 +728,8 @@ void ToolbarView::ApplySeoulSidebarPresentation() {
+     overflow_button_->SetVisible(false);
+   }
+   if (layout_manager_) {
+-    // Tight interior margins; outer traffic-light clearance lives on the
+-    // toolbar's region-view margin in BrowserView.
++    // Tight interior margins. Native caption-button clearance applies to this
++    // single header row.
+     layout_manager_->SetInteriorMargin(gfx::Insets::TLBR(0, 2, 0, 2));
+   }
+   // Page-action chips (AI Mode and friends) steal omnibox width in the rail.
+@@ -1431,13 +1438,13 @@ bool ToolbarView::GetAcceleratorForCommandId(
+ gfx::Size ToolbarView::CalculatePreferredSize(
+     const views::SizeBounds& available_size) const {
+   if (seoul_sidebar_mode_ && display_mode_ == DisplayMode::kNormal) {
+-    // Two-row rail: nav buttons, then a full-width omnibox.
++    // Single compact header row. The command bar contributes height only while
++    // it is reparented into BrowserView as the floating surface.
+     const int nav_height = GetBackForwardButtonSize().height();
+-    const int location_height =
+-        location_bar_ && location_bar_->IsVisible() &&
+-                location_bar_view_->parent() == this
+-            ? location_bar_->PreferredSize().height()
+-            : 0;
++    const int location_height = location_bar_ && location_bar_->IsVisible() &&
++                                        location_bar_view_->parent() == this
++                                    ? location_bar_->PreferredSize().height()
++                                    : 0;
+     const int margins =
+         layout_manager_ ? layout_manager_->interior_margin().height() : 0;
+     const int height = nav_height + 2 + location_height + margins;
+@@ -1477,19 +1484,18 @@ gfx::Size ToolbarView::CalculatePreferredSize(
+ gfx::Size ToolbarView::GetMinimumSize() const {
+   if (seoul_sidebar_mode_ && display_mode_ == DisplayMode::kNormal) {
+     // Width must stay 0 so BrowserView horizontal layout does not reserve a
+-    // phantom top-toolbar column beside the vertical rail.
++    // phantom top-toolbar column beside the vertical rail. The hidden command
++    // bar contributes no height here.
+     const int nav_height =
+         GetBackForwardButtonSize(/*minimum_size=*/true).height();
+-    const int location_height =
+-        location_bar_ && location_bar_->IsVisible() &&
+-                location_bar_view_->parent() == this
+-            ? location_bar_->MinimumSize().height()
+-            : 0;
++    const int location_height = location_bar_ && location_bar_->IsVisible() &&
++                                        location_bar_view_->parent() == this
++                                    ? location_bar_->MinimumSize().height()
++                                    : 0;
+     const int margins =
+         layout_manager_ ? layout_manager_->interior_margin().height() : 0;
+-    return gfx::Size(
+-        0, (nav_height + 2 + location_height + margins) *
+-               size_animation_.GetCurrentValue());
++    return gfx::Size(0, (nav_height + 2 + location_height + margins) *
++                            size_animation_.GetCurrentValue());
+   }
+ 
+   gfx::Size size;
+@@ -1538,16 +1544,20 @@ void ToolbarView::Layout(PassKey) {
+     return;
+   }
+   if (seoul_sidebar_mode_ && display_mode_ == DisplayMode::kNormal) {
+-    // Manual two-row layout so the omnibox keeps a usable width in the rail.
+-    const gfx::Insets margin =
+-        layout_manager_ ? layout_manager_->interior_margin()
+-                        : gfx::Insets::TLBR(0, 2, 0, 2);
+-    int x = margin.left();
++    // Arc-style single header row. The omnibox lives in the floating command
++    // surface while focused.
++    const gfx::Insets margin = layout_manager_
++                                   ? layout_manager_->interior_margin()
++                                   : gfx::Insets::TLBR(0, 2, 0, 2);
++    // Keep navigation on the same compact row as the native macOS traffic
++    // lights. Chromium's frame layout gives us the exact leading exclusion.
++    int x =
++        std::max(margin.left(), seoul_caption_button_width_ + margin.left());
+     int y = margin.top();
+     const int nav_height = GetBackForwardButtonSize().height();
+-    for (views::View* button : {static_cast<views::View*>(back_),
+-                                static_cast<views::View*>(forward_),
+-                                static_cast<views::View*>(reload_)}) {
++    for (views::View* button :
++         {static_cast<views::View*>(back_), static_cast<views::View*>(forward_),
++          static_cast<views::View*>(reload_)}) {
+       if (!button || !button->GetVisible()) {
+         continue;
+       }
+@@ -1555,15 +1565,6 @@ void ToolbarView::Layout(PassKey) {
+       button->SetBounds(x, y, size.width(), nav_height);
+       x += size.width();
+     }
+-    y += nav_height + 2;
+-    if (location_bar_view_ && location_bar_view_->GetVisible() &&
+-        location_bar_view_->parent() == this) {
+-      const int location_height =
+-          location_bar_view_->GetPreferredSize().height();
+-      location_bar_view_->SetBounds(
+-          margin.left(), y,
+-          std::max(0, width() - margin.width()), location_height);
+-    }
+     return;
+   }
+ 
+diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.h b/chrome/browser/ui/views/toolbar/toolbar_view.h
+index 7bc282d..e18493e 100644
+--- a/chrome/browser/ui/views/toolbar/toolbar_view.h
++++ b/chrome/browser/ui/views/toolbar/toolbar_view.h
+@@ -124,6 +124,7 @@ class ToolbarView : public views::AccessiblePaneView,
+   // duplicate navigation/action strip is moved to the command surface. The
+   // row disappears in collapsed presentation and returns on hover reveal.
+   void SetSeoulSidebarPresentation(bool collapsed);
++  void SetSeoulCaptionButtonWidthForLayout(int caption_button_width);
+ 
+   // Forces the toolbar (and transitively the location bar) to update its
+   // current state.  If |tab| is non-NULL, we're switching (back?) to this tab
+@@ -464,6 +465,7 @@ class ToolbarView : public views::AccessiblePaneView,
+   bool initialized_ = false;
+   bool seoul_sidebar_mode_ = false;
+   bool seoul_sidebar_collapsed_ = false;
++  int seoul_caption_button_width_ = 0;
+ 
+   // A chevron button that indicates some toolbar elements have overflowed
+   // due to small toolbar view width. Visibility controlled by
+diff --git a/components/webui/version/resources/about_version.css b/components/webui/version/resources/about_version.css
+index 4747686..137cce7 100644
+--- a/components/webui/version/resources/about_version.css
++++ b/components/webui/version/resources/about_version.css
+@@ -60,7 +60,23 @@ body {
+   float: right;
+   margin-inline-start: 40px;
+   text-align: end;
+-  width: 180px;
++  width: 230px;
++}
++
++#product-brand {
++  align-items: center;
++  display: flex;
++  font-size: 24px;
++  font-weight: 600;
++  gap: 9px;
++  justify-content: flex-end;
++  letter-spacing: -0.4px;
++  margin-block-end: 7px;
++}
++
++#product-brand img {
++  height: 32px;
++  width: 32px;
+ }
+ 
+ #company {
+@@ -70,6 +86,7 @@ body {
+ 
+ #copyright {
+   font-size: 0.7em;
++  line-height: 1.35;
+   text-align: end;
+ }
+ 
+diff --git a/components/webui/version/resources/about_version.html b/components/webui/version/resources/about_version.html
+index 3b68920..e1a98cc 100644
+--- a/components/webui/version/resources/about_version.html
++++ b/components/webui/version/resources/about_version.html
+@@ -31,15 +31,11 @@ about:version template page
+       <div id="logo">
+ <if expr="not is_android and not is_ios">
+         <!-- Version for themes. -->
+-        <picture>
+-          <source srcset="chrome://theme/IDR_PRODUCT_LOGO_WHITE,
+-                          chrome://theme/IDR_PRODUCT_LOGO_WHITE@2x 2x"
+-                  media="(prefers-color-scheme: dark)">
+-          <source srcset="chrome://theme/IDR_PRODUCT_LOGO,
+-                          chrome://theme/IDR_PRODUCT_LOGO@2x 2x"
+-                  media="(prefers-color-scheme: light), (prefers-color-scheme: no-preference)">
+-          <img alt="$i18n{logo_alt_text}" src="chrome://theme/IDR_PRODUCT_LOGO">
+-        </picture>
++        <div id="product-brand">
++          <img alt="$i18n{logo_alt_text}"
++              src="chrome://theme/IDR_PRODUCT_LOGO_32">
++          <span>$i18n{application_label}</span>
++        </div>
+ </if>
+ <if expr="is_ios or is_android">
+         <picture>

@@ -711,7 +711,7 @@ MutationResult<EssentialId> OrganizationModel::CreateOrUpdateEssential(
             TabMembershipId()});
     return id;
   }
-  if (essentials_.size() >= kMaxEssentials) {
+  if (essentials_.size() >= kMaxUserEssentials) {
     return Err(OrganizationError::kLimitExceeded);
   }
   EssentialRecord e;

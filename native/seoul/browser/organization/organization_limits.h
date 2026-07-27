@@ -15,6 +15,9 @@ namespace seoul {
 inline constexpr int kOrganizationSchemaVersion = 1;
 
 inline constexpr size_t kMaxWorkspaces = 100;
+// New user mutations follow Zen's visible 12-item Essentials deck. The larger
+// persisted bound remains for safe, lossless parsing of legacy profiles.
+inline constexpr size_t kMaxUserEssentials = 12;
 inline constexpr size_t kMaxEssentials = 100;
 inline constexpr size_t kMaxMembershipsPerWorkspace = 2000;
 inline constexpr size_t kMaxSplitGroupsPerWorkspace = 500;

@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Seoul Harness",
+  "version": "0.1.0",
+  "description": "Milestone 4 vertical slice: a query goes in, element rects come out.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz/KkFuXP19bmHAk6S2QJvRGHxYFqXKV+j1w9Ovkzu8h1NMkvM7eCjjycb6KJ/2KcuEQn6FxxWJcWXqta++2TaneYVbz31H/zp2FyoyXc1taZsTSwgEbewiHP65Bb5CfvRV9vJdL0KqZ/GKXLgmqoeGMRF2YaUjqr+RKEhWd6A5a+C0XsvCpAzK3wfyWjDAl770CZ13DeL2SsEh8kiN5gdGwBKV1KSgs8J9482tXYc96rSH8G11ecad61tMih0d156VCwNL5f9JJ3pBjemf9V0Sj478PXrlwRBzHy/7xLq8Pb7a7cVaM4sZ+liniPY4pn9rtemvs0bUx23fuIhPvrgQIDAQAB",
+  "minimum_chrome_version": "116",
+  "background": {
+    "service_worker": "src/background.mjs",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "dist/content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "permissions": [
+    "nativeMessaging",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ]
+}

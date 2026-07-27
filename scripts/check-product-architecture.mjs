@@ -27,7 +27,8 @@
 //      promotion; opening a replacement may not destroy known-good state before
 //      the new preview is admitted.
 //
-// Pure static scan over tracked source; no build required.
+// Static scan over tracked source plus the materialized Chromium checkout when
+// available; no build required.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -36,6 +37,95 @@ const repoRoot = path.resolve(import.meta.dirname, '..');
 const productRoot = path.join(repoRoot, 'native/seoul/browser/product');
 const seoulRoot = path.join(repoRoot, 'native/seoul');
 const problems = [];
+
+// Chromium-facing product hooks live in the external, patched checkout rather
+// than under native/seoul/. Prefer that materialized source when it contains
+// Seoul changes so local checks validate the exact tree being built. In a
+// checkout-free CI job, fall back to the ordered, manifest-owned patch
+// sections for the requested path. This keeps the gate useful in both
+// environments without accepting an untracked patch as evidence.
+function chromiumIntegrationEvidence(relativePath) {
+  const checkoutRoots = [];
+  if (process.env.SEOUL_CHROMIUM_ROOT) {
+    const configuredRoot = path.resolve(process.env.SEOUL_CHROMIUM_ROOT);
+    checkoutRoots.push(
+      path.basename(configuredRoot) === 'src'
+        ? configuredRoot
+        : path.join(configuredRoot, 'src'),
+    );
+  }
+  checkoutRoots.push(
+    path.resolve(repoRoot, '../seoul-chromium.noindex/src'),
+    path.resolve(repoRoot, '../seoul-chromium/src'),
+  );
+
+  for (const checkoutRoot of [...new Set(checkoutRoots)]) {
+    const sourcePath = path.join(checkoutRoot, relativePath);
+    if (!fs.existsSync(sourcePath)) {
+      continue;
+    }
+    const text = fs.readFileSync(sourcePath, 'utf8');
+    // A clean upstream checkout is not evidence for the Seoul integration;
+    // use the canonical patch series in that case.
+    if (text.includes('Seoul')) {
+      return {
+        text,
+        source: path.relative(repoRoot, sourcePath),
+      };
+    }
+  }
+
+  const manifestPath = path.join(
+    repoRoot, 'native/patches/manifest.json');
+  const patchRoot = path.join(repoRoot, 'native/patches/chromium');
+  if (!fs.existsSync(manifestPath)) {
+    return {text: '', source: 'missing native/patches/manifest.json'};
+  }
+
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch {
+    return {text: '', source: 'invalid native/patches/manifest.json'};
+  }
+
+  const sectionHeader =
+    `diff --git a/${relativePath} b/${relativePath}`;
+  const sections = [];
+  for (const entry of manifest.patches ?? []) {
+    if (typeof entry.file !== 'string') {
+      continue;
+    }
+    const patchPath = path.join(patchRoot, entry.file);
+    if (!fs.existsSync(patchPath)) {
+      continue;
+    }
+    const patch = fs.readFileSync(patchPath, 'utf8');
+    let start = patch.indexOf(sectionHeader);
+    while (start >= 0) {
+      const end = patch.indexOf('\ndiff --git ', start + sectionHeader.length);
+      const section = patch.slice(start, end >= 0 ? end : patch.length);
+      // Reconstruct the new-side searchable text. Removed lines must never
+      // satisfy a current architecture invariant.
+      const newSide = section.split('\n').flatMap((line) => {
+        if (line.startsWith('--- ') || line.startsWith('+++ ') ||
+            line.startsWith('diff --git ') || line.startsWith('index ') ||
+            line.startsWith('@@') || line.startsWith('-')) {
+          return [];
+        }
+        return [line.startsWith('+') || line.startsWith(' ')
+          ? line.slice(1)
+          : line];
+      }).join('\n');
+      sections.push(newSide);
+      start = patch.indexOf(sectionHeader, start + sectionHeader.length);
+    }
+  }
+  return {
+    text: sections.join('\n'),
+    source: 'manifest-owned Chromium patch series',
+  };
+}
 
 function walk(dir, filter) {
   const out = [];
@@ -619,31 +709,260 @@ if (fs.existsSync(launcherPath) &&
   problems.push('The Shell command launcher has no reachable Canvas command.');
 }
 
-// The launcher must be a real local search surface, not a static menu backed
-// by an unused filter or a string-id dispatch chain.
+// Seoul actions extend Chromium's real floating omnibox. Keep the result body
+// local and typed, but do not reintroduce the retired standalone Textfield /
+// dialog implementation: BrowserView owns the shared surface and
+// OmniboxViewViews owns text and keyboard event delivery.
 const launcherViewPath = path.join(
   seoulRoot, 'browser/shell/views/seoul_command_launcher_view.cc');
-if (fs.existsSync(launcherViewPath)) {
+const launcherViewHeaderPath = path.join(
+  seoulRoot, 'browser/shell/views/seoul_command_launcher_view.h');
+if (!fs.existsSync(launcherViewPath) ||
+    !fs.existsSync(launcherViewHeaderPath)) {
+  problems.push('Unified omnibox action-result view source/header is missing.');
+} else {
   const launcherView = fs.readFileSync(launcherViewPath, 'utf8');
+  const launcherViewHeader = fs.readFileSync(launcherViewHeaderPath, 'utf8');
   for (const required of [
-    'views::TextfieldController',
-    'ContentsChanged',
     'CommandLauncherCatalog::Filter',
-    'RunUtilityAction(entry.action)',
-    'VKEY_RETURN',
-    'VKEY_DOWN',
-    'std::ranges::find_if',
-    'result_status_',
-    'SetLiveRegionContainer',
-    'gfx::Animation::PrefersReducedMotion()',
+    'SeoulOmniboxActionView::SetQuery',
+    'SeoulOmniboxActionView::MoveSelection',
+    'SeoulOmniboxActionView::ExecuteSelection',
+    'execute_callback_.Run(visible_entries_[index])',
+    'GetViewAccessibility().SetName',
+    'BrowserView::GetBrowserViewForNativeWindow',
+    'browser_view->ShowSeoulOmniboxActions();',
+    'std::erase_if(available',
+    'SetVisible(!visible_entries_.empty())',
   ]) {
     if (!launcherView.includes(required)) {
-      problems.push(`Shell command launcher is missing searchable UI hook "${required}".`);
+      problems.push(
+        `Unified omnibox action results are missing native hook "${required}".`,
+      );
+    }
+  }
+  for (const required of [
+    'class SeoulOmniboxActionView final : public views::View',
+    'using ExecuteCallback',
+    'void SetQuery(std::string_view query)',
+    'bool MoveSelection(bool forward, bool by_page)',
+    'bool ExecuteSelection()',
+  ]) {
+    if (!launcherViewHeader.includes(required)) {
+      problems.push(
+        `Unified omnibox action results are missing contract "${required}".`,
+      );
+    }
+  }
+  for (const retired of [
+    'views::TextfieldController',
+    'views::DialogDelegateView',
+    'ContentsChanged',
+    'SetInitiallyFocusedView',
+    'result_status_',
+  ]) {
+    if (launcherView.includes(retired) || launcherViewHeader.includes(retired)) {
+      problems.push(
+        `Command launcher retains retired standalone UI hook "${retired}".`,
+      );
     }
   }
   if (/entry\.id\s*==/.test(launcherView)) {
     problems.push(
-      'Shell command launcher dispatches string ids; use typed ShellUtilityAction.',
+      'Unified omnibox actions dispatch string ids; use typed ' +
+        'CommandLauncherEntry data.',
+    );
+  }
+}
+
+const browserViewEvidence = chromiumIntegrationEvidence(
+  'chrome/browser/ui/views/frame/browser_view.cc');
+const browserViewHeaderEvidence = chromiumIntegrationEvidence(
+  'chrome/browser/ui/views/frame/browser_view.h');
+const locationBarEvidence = chromiumIntegrationEvidence(
+  'chrome/browser/ui/views/location_bar/location_bar_view.cc');
+const locationBarHeaderEvidence = chromiumIntegrationEvidence(
+  'chrome/browser/ui/views/location_bar/location_bar_view.h');
+const omniboxViewEvidence = chromiumIntegrationEvidence(
+  'chrome/browser/ui/views/omnibox/omnibox_view_views.cc');
+
+function boundedSourceSection(text, startMarker, endMarker) {
+  const start = text.indexOf(startMarker);
+  if (start < 0) {
+    return '';
+  }
+  const end = text.indexOf(endMarker, start + startMarker.length);
+  return text.slice(start, end < 0 ? text.length : end);
+}
+
+const showActionsSource = boundedSourceSection(
+  browserViewEvidence.text,
+  'void BrowserView::ShowSeoulOmniboxActions()',
+  'bool BrowserView::IsSeoulOmniboxActionMode() const');
+for (const required of [
+  'std::make_unique<seoul::SeoulOmniboxActionView>',
+  'location_bar->SetSeoulActionMode(true)',
+  'seoul_omnibox_action_view_->SetQuery',
+  'weak_ptr_factory_.GetWeakPtr()',
+  'omnibox->SetFocus(',
+]) {
+  if (!showActionsSource.includes(required)) {
+    problems.push(
+      `BrowserView action-surface construction is missing "${required}" ` +
+        `(${browserViewEvidence.source}).`,
+    );
+  }
+}
+
+const actionKeySource = boundedSourceSection(
+  browserViewEvidence.text,
+  'bool BrowserView::HandleSeoulOmniboxActionKeyEvent',
+  'void BrowserView::HideSeoulOmniboxActions');
+for (const required of [
+  'ui::VKEY_TAB',
+  'ui::VKEY_UP',
+  'ui::VKEY_DOWN',
+  'ui::VKEY_PRIOR',
+  'ui::VKEY_NEXT',
+  'ui::VKEY_RETURN',
+  'ui::VKEY_ESCAPE',
+  'MoveSelection(',
+  'ExecuteSelection()',
+  'HideSeoulOmniboxActions(/*restore_page_focus=*/true)',
+]) {
+  if (!actionKeySource.includes(required)) {
+    problems.push(
+      `BrowserView action-key dispatch is missing "${required}" ` +
+        `(${browserViewEvidence.source}).`,
+    );
+  }
+}
+
+const executeActionSource = boundedSourceSection(
+  browserViewEvidence.text,
+  'void BrowserView::ExecuteSeoulOmniboxAction',
+  'void BrowserView::RefreshSeoulOmniboxSurfaceBackground');
+for (const required of [
+  'controller->ExecuteCommandLauncherEntry(entry)',
+  'HideSeoulOmniboxActions(/*restore_page_focus=*/true)',
+  'UpdateSeoulOmniboxActions(',
+]) {
+  if (!executeActionSource.includes(required)) {
+    problems.push(
+      `BrowserView typed action execution is missing "${required}" ` +
+        `(${browserViewEvidence.source}).`,
+    );
+  }
+}
+
+const entranceAnimationSource = boundedSourceSection(
+  browserViewEvidence.text,
+  'void BrowserView::StartSeoulOmniboxEntranceAnimation',
+  'void BrowserView::Layout');
+for (const required of [
+  'gfx::Animation::PrefersReducedMotion()',
+  'SeoulOmniboxEntranceAnimation',
+  'seoul_omnibox_entrance_animation_->Start()',
+]) {
+  if (!entranceAnimationSource.includes(required)) {
+    problems.push(
+      `BrowserView action entrance animation is missing "${required}" ` +
+        `(${browserViewEvidence.source}).`,
+    );
+  }
+}
+for (const required of [
+  'void ShowSeoulOmniboxActions()',
+  'bool IsSeoulOmniboxActionMode() const',
+  'void UpdateSeoulOmniboxActions(const std::u16string& query)',
+  'bool HandleSeoulOmniboxActionKeyEvent(const ui::KeyEvent& event)',
+  'seoul_omnibox_action_view_',
+  'seoul_omnibox_surface_',
+]) {
+  if (!browserViewHeaderEvidence.text.includes(required)) {
+    problems.push(
+      `BrowserView unified omnibox contract is missing "${required}" ` +
+        `(${browserViewHeaderEvidence.source}).`,
+    );
+  }
+}
+const locationBarActionModeSource = boundedSourceSection(
+  locationBarEvidence.text,
+  'void LocationBarView::SetSeoulActionMode(bool enabled)',
+  'void LocationBarView::OnOmniboxHovered');
+for (const required of [
+  'const bool hide_embedded_chrome =',
+  'location_icon_view_->SetVisible(false)',
+  'page_action_icon_container_->SetVisible(false)',
+  'clear_all_button_->SetVisible(false)',
+]) {
+  if (!locationBarActionModeSource.includes(required)) {
+    problems.push(
+      `LocationBar unified action mode is missing "${required}" ` +
+        `(${locationBarEvidence.source}).`,
+    );
+  }
+}
+for (const required of [
+  'void SetSeoulActionMode(bool enabled)',
+  'bool seoul_action_mode() const',
+  'bool seoul_action_mode_ = false',
+]) {
+  if (!locationBarHeaderEvidence.text.includes(required)) {
+    problems.push(
+      `LocationBar unified action-mode contract is missing "${required}" ` +
+        `(${locationBarHeaderEvidence.source}).`,
+    );
+  }
+}
+for (const required of [
+  'browser_view->UpdateSeoulOmniboxActions(GetText())',
+  'controller()->StopAutocomplete(/*clear_result=*/true)',
+  'browser_view->HandleSeoulOmniboxActionKeyEvent(event)',
+  'browser_view->IsSeoulOmniboxActionMode()',
+  'browser_view->ShowSeoulOmniboxActions();',
+  'views::FocusManager::IsTabTraversalKeyEvent(event)',
+]) {
+  if (!omniboxViewEvidence.text.includes(required)) {
+    problems.push(
+      `OmniboxViewViews action dispatch is missing "${required}" ` +
+        `(${omniboxViewEvidence.source}).`,
+    );
+  }
+}
+
+// Cmd/Ctrl+Shift+K is owned by BrowserView's FocusManager registration. The
+// rail header must not register the same accelerator or retain a hidden
+// launcher-button callback.
+const loadAcceleratorsSource = boundedSourceSection(
+  browserViewEvidence.text,
+  'void BrowserView::LoadAccelerators()',
+  'int BrowserView::GetCommandIDForAppCommandID');
+for (const required of [
+  'ui::VKEY_K, ui::EF_PLATFORM_ACCELERATOR | ui::EF_SHIFT_DOWN',
+  'accelerator_table_.contains(seoul_command_launcher)',
+  'focus_manager->RegisterAccelerator(',
+]) {
+  if (!loadAcceleratorsSource.includes(required)) {
+    problems.push(
+      `BrowserView command registration is missing "${required}" ` +
+        `(${browserViewEvidence.source}).`,
+    );
+  }
+}
+const acceleratorPressedSource = boundedSourceSection(
+  browserViewEvidence.text,
+  'bool BrowserView::AcceleratorPressed',
+  'void BrowserView::InfoBarContainerStateChanged');
+for (const required of [
+  'ui::VKEY_K, ui::EF_PLATFORM_ACCELERATOR | ui::EF_SHIFT_DOWN',
+  'accelerator == seoul_command_launcher',
+  'ShowSeoulOmniboxActions();',
+]) {
+  if (!acceleratorPressedSource.includes(required)) {
+    problems.push(
+      `BrowserView command dispatch is missing "${required}" ` +
+        `(${browserViewEvidence.source}).`,
     );
   }
 }
@@ -652,26 +971,42 @@ const shellHeaderViewPath = path.join(
   seoulRoot, 'browser/shell/views/seoul_shell_header_view.cc');
 const shellFooterViewPath = path.join(
   seoulRoot, 'browser/shell/views/seoul_shell_footer_view.cc');
-if (fs.existsSync(shellHeaderViewPath) && fs.existsSync(shellFooterViewPath)) {
+const shellSpaceViewPath = path.join(
+  seoulRoot, 'browser/shell/views/seoul_shell_space_view.cc');
+const commandLauncherCatalogPath = path.join(
+  seoulRoot, 'browser/shell/command_launcher_catalog.cc');
+if (fs.existsSync(shellHeaderViewPath) &&
+    fs.existsSync(shellFooterViewPath) &&
+    fs.existsSync(shellSpaceViewPath) &&
+    fs.existsSync(commandLauncherCatalogPath) &&
+    fs.existsSync(launcherViewPath)) {
   const compactShell = fs.readFileSync(shellHeaderViewPath, 'utf8') +
-      fs.readFileSync(shellFooterViewPath, 'utf8');
-  const normalizedCompactShell = compactShell.replace(/\s+/g, ' ');
+      fs.readFileSync(shellFooterViewPath, 'utf8') +
+      fs.readFileSync(shellSpaceViewPath, 'utf8') +
+      fs.readFileSync(commandLauncherCatalogPath, 'utf8') +
+      fs.readFileSync(launcherViewPath, 'utf8');
+  const shellHeaderView = fs.readFileSync(shellHeaderViewPath, 'utf8');
+  const commandLauncherCatalog =
+      fs.readFileSync(commandLauncherCatalogPath, 'utf8');
   for (const required of [
     'SetPresentationCollapsed',
     'presentation_collapsed_',
     'Orientation::kVertical',
     'workspace.icon',
-    'SetVisible(!collapsed)',
+    'SetVisible(!presentation_collapsed_)',
     'ShellUtilityAction::kOpenBoost',
-    'OnSplitPressed',
+    'ShowSplitChooser',
+    'weak_factory_.GetWeakPtr()',
     'ToggleCompactMode',
-    'essentials_container_->SetVisible(!snapshot.essentials.empty())',
+    'const bool has_essentials = !snapshot.essentials.empty();',
+    'essentials_container_->SetVisible(has_essentials)',
+    'SetVisible(has_essentials)',
     'SetTooltipText',
     'LiveRegionStatus::kPolite',
-    'button_row_layout_->SetOrientation',
+    'row_layout->SetFlexForView',
     'OnEssentialsOverflowPressed',
     'overflow_essentials_',
-    'workspace_accessible_name',
+    'accessible_name',
   ]) {
     if (!compactShell.includes(required)) {
       problems.push(`Native project shell is missing compact/project hook "${required}".`);
@@ -688,15 +1023,39 @@ if (fs.existsSync(shellHeaderViewPath) && fs.existsSync(shellFooterViewPath)) {
       );
     }
   }
-  for (const acceleratorHook of [
+  for (const compactAcceleratorHook of [
     'AddAccelerator(ui::Accelerator(',
-    'EF_PLATFORM_ACCELERATOR | ui::EF_SHIFT_DOWN',
-    'AcceleratorPressed',
-    'OnCommandLauncherPressed();',
+    'ui::VKEY_C, ui::EF_PLATFORM_ACCELERATOR | ui::EF_SHIFT_DOWN',
+    'bool SeoulShellHeaderView::AcceleratorPressed',
+    'controller_->ToggleCompactMode()',
   ]) {
-    if (!normalizedCompactShell.includes(acceleratorHook)) {
-      problems.push(`Window-scoped launcher accelerator is missing hook "${acceleratorHook}".`);
+    if (!shellHeaderView.includes(compactAcceleratorHook)) {
+      problems.push(
+        `Window-scoped compact accelerator is missing hook ` +
+          `"${compactAcceleratorHook}".`,
+      );
     }
+  }
+  for (const retiredLauncherHook of [
+    'ui::VKEY_K',
+    'OnCommandLauncherPressed',
+  ]) {
+    if (shellHeaderView.includes(retiredLauncherHook)) {
+      problems.push(
+        `Rail header retains retired launcher accelerator hook ` +
+          `"${retiredLauncherHook}"; BrowserView owns Command+Shift+K.`,
+      );
+    }
+  }
+  if (!commandLauncherCatalog.includes(
+        'shell.compact_mode.enabled ? "Exit Compact Mode" : "Enter Compact Mode"'
+      ) ||
+      !commandLauncherCatalog.includes(
+        'ShellUtilityAction::kToggleCompactMode')) {
+    problems.push(
+      'Unified action catalog does not expose the current compact-mode state ' +
+        'through a typed toggle action.',
+    );
   }
   for (const taskDeckHook of [
     'task_button_',
@@ -818,13 +1177,21 @@ if (fs.existsSync(splitChooserPath) && fs.existsSync(shellControllerPath) &&
   const shellController = fs.readFileSync(shellControllerPath, 'utf8');
   const shellViewModel = fs.readFileSync(shellViewModelPath, 'utf8');
   for (const required of [
-    'controller->SplitCandidates()',
+    'controller_->SplitCandidates()',
     'CreateSplitWithPartner',
     'CandidateLabel',
+    'std::make_unique<SplitChooserMenuModel>',
+    'std::make_unique<views::MenuRunner>',
   ]) {
     if (!splitChooser.includes(required)) {
       problems.push(`Split chooser is missing explicit-partner UI hook "${required}".`);
     }
+  }
+  if (/views::MenuRunner\s+\w+\s*\(/.test(splitChooser)) {
+    problems.push(
+      'Split chooser stack-owns MenuRunner; keep the runner and menu model ' +
+        'alive in the shell-scoped chooser controller.',
+    );
   }
   if (!splitChooser.includes('ui::MENU_SOURCE_KEYBOARD') &&
       !splitChooser.includes('ui::mojom::MenuSourceType::kKeyboard')) {
@@ -1317,7 +1684,7 @@ console.log(
     `live metadata, authoritative Scene references, ` +
     `executable observable Live Collections, ` +
     `exact-scope agent permissions enforced, ` +
-    `typed task input replans, searchable typed-action launcher, explicit ` +
+    `typed task input replans, unified native omnibox actions, explicit ` +
     `split chooser, persistent shell Task Deck status, exact cross-window ` +
     `Essentials, explicit ephemeral Preview lifecycle, retained-insertion ` +
     `handshake, and native sensitive-field refusal)`,

@@ -1,0 +1,109 @@
+diff --git a/chrome/app/generated_resources.grd b/chrome/app/generated_resources.grd
+--- a/chrome/app/generated_resources.grd
++++ b/chrome/app/generated_resources.grd
+@@ -7503,6 +7503,9 @@ Keep your key file in a safe place. You will need it to create new versions of y
+       <message name="IDS_OMNIBOX_PLACEHOLDER_TEXT" desc="The text displayed in the Omnibox when it is empty and unfocused.">
+         Search <ph name="SEARCH_ENGINE_NAME">$1<ex>Google</ex></ph> or type a URL
+       </message>
++      <message name="IDS_SEOUL_OMNIBOX_PLACEHOLDER_TEXT" desc="The neutral text displayed in Seoul's address field when it is empty and unfocused.">
++        Search or enter an address
++      </message>
+       <message name="IDS_OMNIBOX_AIM_PLACEHOLDER_TEXT" desc="The text displayed in the Omnibox when it is focused with no input and AI Mode is enabled.">
+         &#x21E5; Press tab then enter to ask AI Mode
+       </message>
+diff --git a/chrome/browser/ui/views/omnibox/omnibox_view_views.cc b/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
+index ab3bca8c3e..b878a46b41 100644
+--- a/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
++++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
+@@ -425,25 +425,9 @@ void OmniboxViewViews::InstallPlaceholderText() {
+   } else if (ShouldInstallContextualTasksPlaceholderText()) {
+     // For Contextual Tasks page, use the page title as placeholder text.
+     SetPlaceholderText(location_bar_view_->GetWebContents()->GetTitle());
+-  } else if (const auto* default_provider = controller()
+-                                                ->client()
+-                                                ->GetTemplateURLService()
+-                                                ->GetDefaultSearchProvider()) {
+-    const bool aim_popup_enabled =
+-        location_bar_view_ &&
+-        omnibox::IsAimPopupEnabled(location_bar_view_->GetProfile());
+-    if (aim_popup_enabled &&
+-        search::DefaultSearchProviderIsGoogle(
+-            controller()->client()->GetTemplateURLService())) {
+-      SetPlaceholderText(l10n_util::GetStringFUTF16(
+-          IDS_WEBUI_OMNIBOX_PLACEHOLDER_TEXT, default_provider->short_name()));
+-    } else {
+-      // Otherwise, if a DSE is set, use the DSE placeholder text.
+-      SetPlaceholderText(l10n_util::GetStringFUTF16(
+-          IDS_OMNIBOX_PLACEHOLDER_TEXT, default_provider->short_name()));
+-    }
+   } else {
+-    SetPlaceholderText(std::u16string());
++    SetPlaceholderText(
++        l10n_util::GetStringUTF16(IDS_SEOUL_OMNIBOX_PLACEHOLDER_TEXT));
+   }
+ 
+   UpdatePlaceholderTextColor();
+diff --git a/chrome/browser/ui/views/omnibox/omnibox_view_views.h b/chrome/browser/ui/views/omnibox/omnibox_view_views.h
+index 1a3d572609..73e9c9ae37 100644
+--- a/chrome/browser/ui/views/omnibox/omnibox_view_views.h
++++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.h
+@@ -133,9 +133,8 @@ class OmniboxViewViews
+   static void SetUserTextForTab(content::WebContents* web_contents,
+                                 const std::u16string& text);
+ 
+-  // Installs the placeholder text with the name of the current default search
+-  // provider. For example, if Google is the default search provider, this shows
+-  // "Search Google or type a URL" when the Omnibox is empty and unfocused.
++  // Installs Seoul's neutral address/search placeholder when the Omnibox is
++  // empty and unfocused.
+   void InstallPlaceholderText();
+ 
+   // Indicates if the cursor is at the end of the input. Requires that both
+diff --git a/chrome/browser/ui/views/omnibox/omnibox_view_views_browsertest.cc b/chrome/browser/ui/views/omnibox/omnibox_view_views_browsertest.cc
+index 16170edb8d..e917198834 100644
+--- a/chrome/browser/ui/views/omnibox/omnibox_view_views_browsertest.cc
++++ b/chrome/browser/ui/views/omnibox/omnibox_view_views_browsertest.cc
+@@ -1831,8 +1831,8 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsPlaceholderTest,
+   // Verify the Contextual Tasks placeholder text should NOT be applied.
+   EXPECT_FALSE(omnibox_view()->ShouldInstallContextualTasksPlaceholderText());
+ 
+-  // Verify the placeholder text is set to the default search engine.
+-  EXPECT_EQ(u"Search Google or type a URL",
++  // Verify the placeholder text is Seoul's neutral address/search prompt.
++  EXPECT_EQ(u"Search or enter an address",
+             omnibox_view()->GetPlaceholderText());
+   // Verify the display text is empty.
+   EXPECT_EQ(u"", omnibox_view()->GetText());
+@@ -1853,8 +1853,8 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsPlaceholderTest,
+   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GURL("about:blank")));
+   EXPECT_FALSE(omnibox_view()->ShouldInstallContextualTasksPlaceholderText());
+ 
+-  // Verify the placeholder text is the default search engine.
+-  EXPECT_EQ(u"Search Google or type a URL",
++  // Verify the placeholder text is Seoul's neutral address/search prompt.
++  EXPECT_EQ(u"Search or enter an address",
+             omnibox_view()->GetPlaceholderText());
+   // Verify the display text is set to the page URL.
+   EXPECT_EQ(u"about:blank", omnibox_view()->GetText());
+@@ -1876,8 +1876,8 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsPlaceholderTest,
+       ui_test_utils::ClickOnView(browser(), VIEW_ID_TAB_CONTAINER));
+   EXPECT_FALSE(omnibox_view()->ShouldInstallContextualTasksPlaceholderText());
+ 
+-  // Verify the placeholder text is set to the default search engine.
+-  EXPECT_EQ(u"Search Google or type a URL",
++  // Verify the placeholder text is Seoul's neutral address/search prompt.
++  EXPECT_EQ(u"Search or enter an address",
+             omnibox_view()->GetPlaceholderText());
+   // Verify the display text is empty.
+   EXPECT_EQ(u"", omnibox_view()->GetText());
+@@ -1897,8 +1897,8 @@ IN_PROC_BROWSER_TEST_F(OmniboxViewViewsPlaceholderTest,
+   EXPECT_TRUE(content::WaitForLoadStop(web_contents()));
+   EXPECT_FALSE(omnibox_view()->ShouldInstallContextualTasksPlaceholderText());
+ 
+-  // Verify the placeholder text is set to the default search engine.
+-  EXPECT_EQ(u"Search Google or type a URL",
++  // Verify the placeholder text is Seoul's neutral address/search prompt.
++  EXPECT_EQ(u"Search or enter an address",
+             omnibox_view()->GetPlaceholderText());
+   // Verify the display text is empty.
+   EXPECT_EQ(u"", omnibox_view()->GetText());

@@ -2,6 +2,8 @@
 
 #include "seoul/browser/shell/shell_view_model.h"
 
+#include <algorithm>
+
 #include "seoul/browser/organization/organization_model.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -28,6 +30,31 @@ TEST(ShellViewModelTest, EmptyWorkspaceShowsEmptyState) {
   EXPECT_EQ(snapshot.status, ShellStatus::kEmptyWorkspace);
 }
 
+TEST(ShellViewModelTest,
+     AppearanceActionsFailClosedUntilNativeCallbacksAreInstalled) {
+  OrganizationModel model;
+  ASSERT_TRUE(model.EnsureDefaultWorkspace().has_value());
+  ShellBuildContext context;
+  context.window = LiveWindowKey::FromSessionId(1);
+  WindowProjection projection;
+  projection.window = context.window;
+  LiveWindowSnapshot live;
+
+  const ShellSnapshot snapshot =
+      ShellViewModel::Build(model, context, projection, live, 1);
+  for (ShellUtilityAction expected :
+       {ShellUtilityAction::kSetAppearanceSingle,
+        ShellUtilityAction::kSetAppearanceMultiple,
+        ShellUtilityAction::kSetAppearanceCollapsed}) {
+    const auto action = std::ranges::find(snapshot.actions, expected,
+                                          &ShellActionEnablement::action);
+    ASSERT_NE(action, snapshot.actions.end());
+    EXPECT_FALSE(action->enabled);
+    EXPECT_EQ(action->disabled_reason,
+              "Appearance layouts are unavailable for this window.");
+  }
+}
+
 TEST(ShellViewModelTest, EssentialsComeFromOrganizationModel) {
   OrganizationModel model;
   ASSERT_TRUE(model.EnsureDefaultWorkspace().has_value());
@@ -44,6 +71,32 @@ TEST(ShellViewModelTest, EssentialsComeFromOrganizationModel) {
       ShellViewModel::Build(model, context, projection, live, 1);
   ASSERT_EQ(snapshot.essentials.size(), 1u);
   EXPECT_EQ(snapshot.essentials[0].name, "Mail");
+}
+
+TEST(ShellViewModelTest, SpacesComeFromOrderedUnarchivedWorkspaces) {
+  OrganizationModel model;
+  ASSERT_TRUE(model.EnsureDefaultWorkspace().has_value());
+  const WorkspaceId first = model.default_workspace();
+  const auto second_result = model.CreateWorkspace("Research");
+  ASSERT_TRUE(second_result.has_value());
+  const WorkspaceId second = second_result.value();
+
+  ShellBuildContext context;
+  context.window = LiveWindowKey::FromSessionId(1);
+  ASSERT_TRUE(model.SetActiveWorkspaceForWindow(context.window.value(), second)
+                  .has_value());
+  WindowProjection projection;
+  projection.window = context.window;
+  LiveWindowSnapshot live;
+  const ShellSnapshot snapshot =
+      ShellViewModel::Build(model, context, projection, live, 1);
+
+  ASSERT_EQ(snapshot.spaces.size(), 2u);
+  EXPECT_EQ(snapshot.spaces[0].workspace_id, first);
+  EXPECT_FALSE(snapshot.spaces[0].is_active);
+  EXPECT_EQ(snapshot.spaces[1].workspace_id, second);
+  EXPECT_EQ(snapshot.spaces[1].name, "Research");
+  EXPECT_TRUE(snapshot.spaces[1].is_active);
 }
 
 TEST(ShellViewModelTest, EssentialAssociatesWithExistingOriginInWindow) {

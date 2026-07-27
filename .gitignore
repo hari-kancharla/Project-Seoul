@@ -43,3 +43,7 @@ apps/voice-lab/recordings/
 .build/
 *.xcodeproj
 *.xcworkspace
+
+.build/
+*.xcodeproj
+*.xcworkspace

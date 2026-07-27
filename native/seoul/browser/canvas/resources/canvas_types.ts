@@ -361,6 +361,14 @@ export interface SiteLayerAdjustmentDoc {
   density?: 'compact'|'comfortable'|'spacious';
 }
 
+export interface SiteLayerAdjustmentInputDoc {
+  kind: string;
+  selectors: string[];
+  textValue: string;
+  numericValue: number;
+  density: string;
+}
+
 export interface SiteLayerDoc {
   schema_version: number;
   id: string;
@@ -384,6 +392,92 @@ export interface SiteLayerSnapshotDoc {
   };
   matching_enabled_count?: number;
   layers?: SiteLayerDoc[];
+}
+
+export interface SiteLayerEditorBinding {
+  tabId: string;
+  pageOrigin: string;
+  originPattern: string;
+  sceneScope: string;
+  enabled: boolean;
+}
+
+const BOOST_EDITOR_ADJUSTMENT_KINDS = new Set([
+  'accent_color',
+  'automatic_dark_mode',
+  'background_color',
+  'content_width',
+  'font_family',
+  'font_size_scale',
+  'hide',
+  'increase_contrast',
+  'line_spacing',
+  'reading_mode',
+  'reduce_motion',
+  'text_color',
+  'tint_color',
+]);
+
+export function siteLayerEditorBinding(
+    activePage: SiteLayerSnapshotDoc['active_page'],
+    layer?: SiteLayerDoc): SiteLayerEditorBinding|undefined {
+  if (!activePage?.tab_id ||
+      (!layer && (!activePage.customizable || !activePage.origin))) {
+    return undefined;
+  }
+  return {
+    tabId: activePage.tab_id,
+    pageOrigin: activePage.origin,
+    originPattern: layer?.origin_pattern ?? activePage.origin,
+    sceneScope: layer?.scene_scope ?? '',
+    enabled: layer?.enabled ?? true,
+  };
+}
+
+export function siteLayerEditorBindingMatches(
+    binding: SiteLayerEditorBinding|undefined,
+    activePage: SiteLayerSnapshotDoc['active_page']): boolean {
+  return Boolean(
+      binding && activePage &&
+      binding.tabId === activePage.tab_id &&
+      binding.pageOrigin === activePage.origin);
+}
+
+export function siteLayerAdjustmentToInput(
+    adjustment: SiteLayerAdjustmentDoc): SiteLayerAdjustmentInputDoc {
+  return {
+    kind: adjustment.kind,
+    selectors: [...(adjustment.selectors ?? [])],
+    textValue: adjustment.color_value ?? adjustment.font_family ?? '',
+    numericValue: adjustment.numeric_value ?? 0,
+    density: adjustment.density ?? 'comfortable',
+  };
+}
+
+export function boostPassthroughAdjustments(
+    adjustments: SiteLayerAdjustmentDoc[]): SiteLayerAdjustmentInputDoc[] {
+  return adjustments
+      .filter(adjustment =>
+        !BOOST_EDITOR_ADJUSTMENT_KINDS.has(adjustment.kind))
+      .map(siteLayerAdjustmentToInput);
+}
+
+export function chunkBoostHideSelectors(
+    selectors: string[], chunkSize = 8): SiteLayerAdjustmentInputDoc[] {
+  if (!Number.isInteger(chunkSize) || chunkSize < 1) {
+    throw new RangeError('chunkSize must be a positive integer');
+  }
+  const chunks: SiteLayerAdjustmentInputDoc[] = [];
+  for (let index = 0; index < selectors.length; index += chunkSize) {
+    chunks.push({
+      kind: 'hide',
+      selectors: selectors.slice(index, index + chunkSize),
+      textValue: '',
+      numericValue: 0,
+      density: 'comfortable',
+    });
+  }
+  return chunks;
 }
 
 export function safeHexColor(value: unknown): string {

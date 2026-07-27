@@ -26,10 +26,10 @@ const binary = (process.env.SEOUL_CHROMIUM_BINARY || '').trim()
       'src',
       'out',
       'SeoulBaseline',
-      'Chromium.app',
+      'Seoul.app',
       'Contents',
       'MacOS',
-      'Chromium',
+      'Seoul',
     );
 const output = (process.env.SEOUL_PREVIEW_PATH || '').trim()
   ? path.resolve(process.env.SEOUL_PREVIEW_PATH)
@@ -50,7 +50,7 @@ try {
 if (launchBlocked) {
   fail(launchBlocked);
 } else if (!existsSync(binary)) {
-  fail(`local Seoul Chromium build not found at:\n  ${binary}`);
+  fail(`local Seoul browser build not found at:\n  ${binary}`);
 } else {
   mkdirSync(path.dirname(output), { recursive: true });
   const profile = mkdtempSync(path.join(os.tmpdir(), 'seoul-preview-profile-'));

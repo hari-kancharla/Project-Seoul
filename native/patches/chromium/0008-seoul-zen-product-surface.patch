@@ -1,0 +1,582 @@
+diff --git a/chrome/browser/search/search.cc b/chrome/browser/search/search.cc
+index 8c583b8..eab18ff 100644
+--- a/chrome/browser/search/search.cc
++++ b/chrome/browser/search/search.cc
+@@ -175,13 +175,6 @@ struct NewTabURLDetails {
+ #if BUILDFLAG(IS_ANDROID)
+     const GURL local_url;
+ #else
+-    // Seoul owns the normal-profile start surface. Keeping this decision in
+-    // the canonical NTP rewrite path covers the new-tab command, startup tabs,
+-    // and chrome://newtab without exposing the upstream Google/Chromium page.
+-    if (profile->IsRegularProfile()) {
+-      return NewTabURLDetails(GURL("chrome://seoul-canvas/"),
+-                              NEW_TAB_URL_VALID);
+-    }
+     const bool default_is_google = DefaultSearchProviderIsGoogle(profile);
+     const GURL local_url(default_is_google
+                              ? chrome::ChromeUINewTabPageURLAsGURL()
+diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/views/frame/browser_view.cc
+index a94b450..a430faf 100644
+--- a/chrome/browser/ui/views/frame/browser_view.cc
++++ b/chrome/browser/ui/views/frame/browser_view.cc
+@@ -983,6 +983,10 @@ BrowserView::BrowserView(Browser* browser)
+     // Apply Seoul rail presentation immediately so first layout does not size
+     // the window around a phantom top-toolbar minimum width.
+     toolbar_->SetSeoulSidebarPresentation(/*collapsed=*/false);
++    for (ContentsContainerView* container :
++         multi_contents_view_->contents_container_views()) {
++      container->SetSeoulRoundedContent(true);
++    }
+     if (auto* top = vertical_tab_strip_region_view_->GetTopContainer()) {
+       top->SetVisible(false);
+     }
+@@ -4843,6 +4847,40 @@ gfx::Size BrowserView::GetMinimumSize() const {
+ ///////////////////////////////////////////////////////////////////////////////
+ // BrowserView, views::View overrides:
+ 
++void BrowserView::SetSeoulOmniboxFloating(bool floating) {
++  if (!vertical_tab_strip_region_view_ || !toolbar_ ||
++      seoul_omnibox_reparenting_ || seoul_omnibox_floating_ == floating) {
++    return;
++  }
++
++  LocationBarView* const location_bar = toolbar_->location_bar_view();
++  if (!location_bar) {
++    return;
++  }
++
++  seoul_omnibox_reparenting_ = true;
++  seoul_omnibox_floating_ = floating;
++  if (floating) {
++    auto owned_location_bar = toolbar_->RemoveChildViewT(location_bar);
++    location_bar->SetProperty(views::kViewIgnoredByLayoutKey, true);
++    AddChildView(std::move(owned_location_bar));
++  } else if (location_bar->parent() == this) {
++    auto owned_location_bar = RemoveChildViewT(location_bar);
++    location_bar->SetProperty(views::kViewIgnoredByLayoutKey, false);
++    toolbar_->AddChildView(std::move(owned_location_bar));
++  }
++  seoul_omnibox_reparenting_ = false;
++
++  toolbar_->InvalidateLayout();
++  InvalidateLayout();
++  DeprecatedLayoutImmediately();
++
++  if (floating) {
++    location_bar->FocusLocation(/*is_user_initiated=*/true,
++                                /*clear_focus_if_failed=*/false);
++  }
++}
++
+ void BrowserView::Layout(PassKey) {
+   TRACE_EVENT0("ui", "BrowserView::Layout");
+   if (!initialized_ || in_process_fullscreen_ ||
+@@ -4864,6 +4902,19 @@ void BrowserView::Layout(PassKey) {
+ 
+   LayoutSuperclass<views::View>(this);
+ 
++  if (seoul_omnibox_floating_ && toolbar_ &&
++      toolbar_->location_bar_view()->parent() == this) {
++    constexpr int kZenFloatingOmniboxHeight = 62;
++    constexpr int kZenFloatingResultsHeight = 333;
++    const int width = std::min(750, GetLocalBounds().width() * 2 / 3);
++    const int x = (GetLocalBounds().width() - width) / 2;
++    const int y =
++        std::max(24, (GetLocalBounds().height() - kZenFloatingResultsHeight) /
++                         2);
++    toolbar_->location_bar_view()->SetBounds(x, y, width,
++                                             kZenFloatingOmniboxHeight);
++  }
++
+   // TODO(jamescook): Why was this in the middle of layout code?
+   toolbar_->location_bar()->UpdateFocusBehavior(IsToolbarVisible());
+   GetFrameView()->UpdateMinimumSize();
+diff --git a/chrome/browser/ui/views/frame/browser_view.h b/chrome/browser/ui/views/frame/browser_view.h
+index bb0e095..ac9120e 100644
+--- a/chrome/browser/ui/views/frame/browser_view.h
++++ b/chrome/browser/ui/views/frame/browser_view.h
+@@ -296,6 +296,7 @@ class BrowserView : public BrowserWindow,
+   // Accessor for the Toolbar.
+   const ToolbarView* toolbar() const { return toolbar_; }
+   ToolbarView* toolbar() { return toolbar_; }
++  void SetSeoulOmniboxFloating(bool floating);
+ 
+   // Bookmark bar may be null, for example for pop-ups.
+   BookmarkBarView* bookmark_bar() { return bookmark_bar_view_; }
+@@ -1260,6 +1261,8 @@ class BrowserView : public BrowserWindow,
+ 
+   // The view responsible for housing the contents of the vertical tab strip.
+   raw_ptr<VerticalTabStripRegionView> vertical_tab_strip_region_view_ = nullptr;
++  bool seoul_omnibox_floating_ = false;
++  bool seoul_omnibox_reparenting_ = false;
+ 
+   // Outward-projecting corners of the vertical tab strip.
+   raw_ptr<CustomFloatingCorner> vertical_tab_strip_top_corner_ = nullptr;
+diff --git a/chrome/browser/ui/views/frame/contents_container_view.cc b/chrome/browser/ui/views/frame/contents_container_view.cc
+index 35cf321..4456d76 100644
+--- a/chrome/browser/ui/views/frame/contents_container_view.cc
++++ b/chrome/browser/ui/views/frame/contents_container_view.cc
+@@ -204,7 +204,11 @@ void ContentsContainerView::UpdateBorderAndOverlay(bool is_in_split,
+   if (!is_in_split) {
+     if (split_changed) {
+       SetBorder(nullptr);
+-      ClearBorderRoundedCorners();
++      if (seoul_rounded_content_) {
++        UpdateBorderRoundedCorners();
++      } else {
++        ClearBorderRoundedCorners();
++      }
+ 
+       mini_toolbar_->SetVisible(false);
+       container_outline_->SetVisible(false);
+@@ -237,6 +241,20 @@ void ContentsContainerView::UpdateBorderAndOverlay(bool is_in_split,
+ #endif  //  BUILDFLAG(IS_CHROMEOS)
+ }
+ 
++void ContentsContainerView::SetSeoulRoundedContent(bool rounded) {
++  if (seoul_rounded_content_ == rounded) {
++    return;
++  }
++  seoul_rounded_content_ = rounded;
++  if (!is_in_split_) {
++    if (rounded) {
++      UpdateBorderRoundedCorners();
++    } else {
++      ClearBorderRoundedCorners();
++    }
++  }
++}
++
+ void ContentsContainerView::UpdateBorderRoundedCorners() {
+   // Update devtools rounded corners. Note, devtools exists behind the contents
+   // view so all devtools corners are rounded.
+@@ -340,7 +358,7 @@ void ContentsContainerView::ClearBorderRoundedCorners() {
+ 
+ void ContentsContainerView::ChildVisibilityChanged(View* child) {
+   if ((child == new_tab_footer_view_ || child == devtools_web_view_) &&
+-      is_in_split_) {
++      (is_in_split_ || seoul_rounded_content_)) {
+     UpdateBorderRoundedCorners();
+   }
+ }
+diff --git a/chrome/browser/ui/views/frame/contents_container_view.h b/chrome/browser/ui/views/frame/contents_container_view.h
+index b26ccd8..ac228ee 100644
+--- a/chrome/browser/ui/views/frame/contents_container_view.h
++++ b/chrome/browser/ui/views/frame/contents_container_view.h
+@@ -122,6 +122,10 @@ class ContentsContainerView : public views::View,
+                               bool is_active,
+                               bool is_highlighted);
+ 
++  // Seoul keeps the web surface rounded in normal single-pane browsing, not
++  // only while Chromium's split outline is visible.
++  void SetSeoulRoundedContent(bool rounded);
++
+   void ShowCaptureContentsBorder();
+   void HideCaptureContentsBorder();
+   void SetCaptureContentsBorderLocation(
+@@ -162,6 +166,7 @@ class ContentsContainerView : public views::View,
+       const views::SizeBounds& size_bounds) const override;
+ 
+   bool is_in_split_ = false;
++  bool seoul_rounded_content_ = false;
+ 
+   raw_ptr<BrowserView> browser_view_ = nullptr;
+   raw_ptr<ContentsWebView> contents_view_ = nullptr;
+diff --git a/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc b/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
+index c13a4cd..4bf68d4 100644
+--- a/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
++++ b/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
+@@ -59,6 +59,7 @@ constexpr int kLoadingBarOffset =
+ 
+ // Minimum area next to caption buttons to use as a grab handle.
+ constexpr int kVerticalTabsGrabHandleSize = 40;
++constexpr int kSeoulContentSeparation = 8;
+ 
+ // Maximum portion of the window a "size-restricted" contents-height side panel
+ // can take up. This is not the only limit on side panel size.
+@@ -739,6 +740,7 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+         inset_amount -= 1;
+       }
+       params.InsetHorizontal(inset_amount, /*leading=*/true);
++      params.Inset(gfx::Insets(kSeoulContentSeparation));
+ 
+       // Let the vertical tab strip animate out over the content.
+       if (vertical_tab_strip_animation.current_motion) {
+@@ -753,6 +755,7 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+         unclipped_contents_region.Inset(
+             gfx::Insets::TLBR(0, vertical_tab_strip_width, 0, 0));
+       }
++      unclipped_contents_region.Inset(gfx::Insets(kSeoulContentSeparation));
+     }
+     layout.AddChild(views().vertical_tab_strip_region_view,
+                     vertical_tab_strip_bounds,
+diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
+index aef600b..c6793d1 100644
+--- a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
++++ b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
+@@ -1489,7 +1489,8 @@ void VerticalTabStripRegionView::UpdateSeoulSidebarPresentation(
+   if (tab_strip_view_) {
+     tab_strip_view_->SetCollapsedState(collapsed);
+   }
+-  // Reinforce hide of Chromium organizer / tab-search chrome.
++  // Reinforce the construction-time hide: collapse/hover animation callbacks
++  // must never resurrect Chromium's organizer / tab-search chrome.
+   if (top_button_container_) {
+     top_button_container_->SetVisible(false);
+     top_button_container_->SetProperty(views::kViewIgnoredByLayoutKey, true);
+diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h
+index b9f7a62..bf55a31 100644
+--- a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h
++++ b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h
+@@ -69,8 +69,8 @@ class VerticalTabStripRegionView final
+   static constexpr int kUncollapsedMinWidth = 126;
+   // TODO(crbug.com/465832180): Replace constant based width final max width for
+   // view.
+-  static constexpr int kUncollapsedMaxWidth = 400;
+-  static constexpr int kCollapsedWidth = 56;
++  static constexpr int kUncollapsedMaxWidth = 500;
++  static constexpr int kCollapsedWidth = 60;
+   // TODO(crbug.com/465833741): Determine snapping behavior.
+   static constexpr int kCollapseSnapWidth =
+       (kUncollapsedMinWidth + kCollapsedWidth) / 2;
+@@ -189,7 +189,7 @@ class VerticalTabStripRegionView final
+   }
+   views::View* GetSeoulShellSeparatorAnchor();
+   views::View* GetSeoulShellFooterAnchor();
+-  views::View* GetSeoulTabStripView() { return tab_strip_view_; }
++  VerticalTabStripView* GetSeoulTabStripView() { return tab_strip_view_; }
+   // Production accessor for the initialized vertical-tab root node, used by the
+   // Seoul projection adapter (not a testing-only accessor). Non-null only
+   // between InitializeTabStrip() and ResetTabStrip().
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.cc b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+index f2d0284..b79c3a8 100644
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.cc
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+@@ -1578,6 +1578,11 @@ void LocationBarView::RefreshBackground() {
+   SkColor normal = color_provider->GetColor(kColorLocationBarBackground);
+   SkColor hovered =
+       color_provider->GetColor(kColorLocationBarBackgroundHovered);
++  if (seoul_sidebar_mode_ && !is_caret_visible && !input_in_progress) {
++    normal = SK_ColorTRANSPARENT;
++    hovered = SkColorSetA(
++        color_provider->GetColor(ui::kColorSysOnSurface), 0x14);
++  }
+ 
+   background_color_ = gfx::Tween::ColorValueBetween(opacity, normal, hovered);
+   if (is_caret_visible) {
+@@ -2079,6 +2084,7 @@ const LocationBarModel* LocationBarView::GetLocationBarModel() const {
+ }
+ 
+ void LocationBarView::OnOmniboxFocused() {
++  delegate_->OnOmniboxFocusChanged(true);
+   if (views::FocusRing::Get(this)) {
+     views::FocusRing::Get(this)->SchedulePaint();
+   }
+@@ -2094,6 +2100,7 @@ void LocationBarView::OnOmniboxFocused() {
+ }
+ 
+ void LocationBarView::OnOmniboxBlurred() {
++  delegate_->OnOmniboxFocusChanged(false);
+   if (views::FocusRing::Get(this)) {
+     views::FocusRing::Get(this)->SchedulePaint();
+   }
+@@ -2106,6 +2113,14 @@ void LocationBarView::OnOmniboxBlurred() {
+   location_icon_view_->Update(false, false);
+ }
+ 
++void LocationBarView::SetSeoulSidebarMode(bool enabled) {
++  if (seoul_sidebar_mode_ == enabled) {
++    return;
++  }
++  seoul_sidebar_mode_ = enabled;
++  RefreshBackground();
++}
++
+ void LocationBarView::OnOmniboxHovered(bool is_hovering) {
+   if (is_hovering) {
+     // Only show the hover animation when omnibox is in unfocused steady state.
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.h b/chrome/browser/ui/views/location_bar/location_bar_view.h
+index cea400c..6f566a5 100644
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.h
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.h
+@@ -125,6 +125,10 @@ class LocationBarView
+     virtual ContentSettingBubbleModelDelegate*
+     GetContentSettingBubbleModelDelegate() = 0;
+ 
++    // Invoked when the native omnibox gains or loses focus. Seoul uses this to
++    // present the same LocationBarView as a centered floating command surface.
++    virtual void OnOmniboxFocusChanged(bool focused) {}
++
+    protected:
+     virtual ~Delegate() = default;
+   };
+@@ -289,6 +293,7 @@ class LocationBarView
+ 
+   void OnOmniboxFocused();
+   void OnOmniboxBlurred();
++  void SetSeoulSidebarMode(bool enabled);
+ 
+   // Called when omnibox view receives mouse notifications relevant to hover.
+   // |is_hovering| should be true when mouse is in omnibox; false when exited.
+@@ -624,6 +629,7 @@ class LocationBarView
+   // Whether we're in popup mode (i.e. location bar is situated within a popup
+   // window). This value also controls whether the location bar is read-only.
+   const bool is_popup_mode_;
++  bool seoul_sidebar_mode_ = false;
+ 
+   bool is_initialized_ = false;
+ 
+diff --git a/chrome/browser/ui/views/tabs/shared/tab_strip_flat_edge_button.cc b/chrome/browser/ui/views/tabs/shared/tab_strip_flat_edge_button.cc
+index 9a03965..91d8b82 100644
+--- a/chrome/browser/ui/views/tabs/shared/tab_strip_flat_edge_button.cc
++++ b/chrome/browser/ui/views/tabs/shared/tab_strip_flat_edge_button.cc
+@@ -171,6 +171,14 @@ void TabStripFlatEdgeButton::SetShouldShowLabel(bool show_label) {
+   }
+ }
+ 
++void TabStripFlatEdgeButton::SetPaintBackground(bool paint_background) {
++  if (paint_background_ == paint_background) {
++    return;
++  }
++  paint_background_ = paint_background;
++  SchedulePaint();
++}
++
+ base::CallbackListSubscription
+ TabStripFlatEdgeButton::RegisterWillInvokeActionCallback(
+     base::RepeatingClosure callback) {
+@@ -182,6 +190,9 @@ void TabStripFlatEdgeButton::NotifyWillInvokeAction() {
+ }
+ 
+ void TabStripFlatEdgeButton::OnPaintBackground(gfx::Canvas* canvas) {
++  if (!paint_background_) {
++    return;
++  }
+   const SkColor color = GetColorProvider()->GetColor(GetBackgroundColor());
+ 
+   cc::PaintFlags flags;
+diff --git a/chrome/browser/ui/views/tabs/shared/tab_strip_flat_edge_button.h b/chrome/browser/ui/views/tabs/shared/tab_strip_flat_edge_button.h
+index 37bfed7..e70af29 100644
+--- a/chrome/browser/ui/views/tabs/shared/tab_strip_flat_edge_button.h
++++ b/chrome/browser/ui/views/tabs/shared/tab_strip_flat_edge_button.h
+@@ -51,6 +51,7 @@ class TabStripFlatEdgeButton : public views::LabelButton,
+   float GetFlatEdgeFactor() const { return flat_edge_factor_; }
+ 
+   void SetShouldShowLabel(bool show_label);
++  void SetPaintBackground(bool paint_background);
+ 
+   // Sets the text that will be displayed when the label is shown.
+   void SetLabelText(const std::u16string& text);
+@@ -79,6 +80,7 @@ class TabStripFlatEdgeButton : public views::LabelButton,
+ 
+   // Whether the label should be shown, if there is space.
+   bool should_show_label_ = false;
++  bool paint_background_ = true;
+   std::u16string label_text_;
+   int icon_size_ = 0;
+   float expansion_factor_ = 1.0f;
+diff --git a/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_bottom_container.cc b/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_bottom_container.cc
+index 32c64e7..b5ff05b 100644
+--- a/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_bottom_container.cc
++++ b/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_bottom_container.cc
+@@ -36,6 +36,8 @@ VerticalTabStripBottomContainer::VerticalTabStripBottomContainer(
+       GetLayoutConstant(LayoutConstant::kVerticalTabStripNewTabButtonSize),
+       GetLayoutConstant(LayoutConstant::kVerticalTabStripButtonIconSize));
+   new_tab_button->set_context_menu_controller(this);
++  new_tab_button->SetShouldShowLabel(true);
++  new_tab_button->SetPaintBackground(false);
+ 
+   new_tab_button_pressed_subscription_ =
+       new_tab_button->RegisterWillInvokeActionCallback(
+diff --git a/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.cc b/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.cc
+index d09396a..80b7321 100644
+--- a/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.cc
++++ b/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.h"
+ 
++#include <utility>
++
+ #include "base/callback_list.h"
+ #include "base/functional/bind.h"
+ #include "base/metrics/histogram_macros.h"
+@@ -153,6 +155,10 @@ views::ProposedLayout VerticalTabStripView::CalculateProposedLayout(
+           .height();
+   const int unpinned_preferred_height =
+       unpinned_tabs_scroll_view_->GetPreferredSize(size_bounds).height();
++  const int space_indicator_height =
++      seoul_space_indicator_ && seoul_space_indicator_->GetVisible()
++          ? seoul_space_indicator_->GetPreferredSize(size_bounds).height()
++          : 0;
+ 
+   const bool should_show_separator = pinned_preferred_height != 0 &&
+                                      unpinned_preferred_height != 0 &&
+@@ -163,6 +169,7 @@ views::ProposedLayout VerticalTabStripView::CalculateProposedLayout(
+   int remaining_height = 0;
+   if (size_bounds.height().is_bounded()) {
+     remaining_height = size_bounds.height().value();
++    remaining_height -= space_indicator_height;
+     if (pinned_preferred_height != 0 && unpinned_preferred_height != 0) {
+       remaining_height -= region_vertical_padding;
+     }
+@@ -220,6 +227,15 @@ views::ProposedLayout VerticalTabStripView::CalculateProposedLayout(
+                                        gfx::Rect());
+   }
+ 
++  if (seoul_space_indicator_) {
++    const gfx::Rect space_indicator_bounds(
++        0, y, size_bounds.width().value(), space_indicator_height);
++    layouts.child_layouts.emplace_back(
++        seoul_space_indicator_.get(), seoul_space_indicator_->GetVisible(),
++        space_indicator_bounds);
++    y += space_indicator_height;
++  }
++
+   // Place the unpinned container using the entire available width, we do not
+   // inset the x value by |region_horizontal_padding| here because, when the tab
+   // strip is collapsed, tab groups need to draw the group colored line in this
+@@ -358,6 +374,25 @@ VerticalTabStripView::GetUnpinnedTabsContainer() {
+   return unpinned_tabs_container_view_;
+ }
+ 
++views::View* VerticalTabStripView::SetSeoulSpaceIndicator(
++    std::unique_ptr<views::View> view) {
++  CHECK(view);
++  CHECK(!seoul_space_indicator_);
++  seoul_space_indicator_ = AddChildView(std::move(view));
++  InvalidateLayout();
++  PreferredSizeChanged();
++  return seoul_space_indicator_;
++}
++
++void VerticalTabStripView::ClearSeoulSpaceIndicator() {
++  if (!seoul_space_indicator_) {
++    return;
++  }
++  RemoveChildViewT(std::exchange(seoul_space_indicator_, nullptr));
++  InvalidateLayout();
++  PreferredSizeChanged();
++}
++
+ void VerticalTabStripView::SetCollapsedState(bool is_collapsed) {
+   if (is_collapsed != is_collapsed_) {
+     is_collapsed_ = is_collapsed;
+diff --git a/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.h b/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.h
+index ff6f86f..84f2329 100644
+--- a/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.h
++++ b/chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.h
+@@ -5,6 +5,8 @@
+ #ifndef CHROME_BROWSER_UI_VIEWS_TABS_VERTICAL_VERTICAL_TAB_STRIP_VIEW_H_
+ #define CHROME_BROWSER_UI_VIEWS_TABS_VERTICAL_VERTICAL_TAB_STRIP_VIEW_H_
+ 
++#include <memory>
++
+ #include "base/memory/raw_ptr.h"
+ #include "base/scoped_observation.h"
+ #include "components/tabs/public/tab_interface.h"
+@@ -45,6 +47,12 @@ class VerticalTabStripView final : public views::View,
+   VerticalPinnedTabContainerView* GetPinnedTabsContainer();
+   VerticalUnpinnedTabContainerView* GetUnpinnedTabsContainer();
+ 
++  // Seoul presents the active Space between pinned and regular tabs. The
++  // vertical strip owns this optional product view so its height participates
++  // in the same scroll-space calculation as the native tab containers.
++  views::View* SetSeoulSpaceIndicator(std::unique_ptr<views::View> view);
++  void ClearSeoulSpaceIndicator();
++
+   void SetCollapsedState(bool is_collapsed);
+   void SetIsAnimatingSize(bool is_animating);
+ 
+@@ -101,6 +109,7 @@ class VerticalTabStripView final : public views::View,
+   raw_ptr<views::ScrollView> unpinned_tabs_scroll_view_ = nullptr;
+   raw_ptr<VerticalUnpinnedTabContainerView> unpinned_tabs_container_view_ =
+       nullptr;
++  raw_ptr<views::View> seoul_space_indicator_ = nullptr;
+   bool is_collapsed_ = false;
+ 
+   // Used for seek time metrics from the time the mouse enters the tabstrip.
+diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.cc b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+index b0a4d63..ae048b3 100644
+--- a/chrome/browser/ui/views/toolbar/toolbar_view.cc
++++ b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+@@ -151,6 +151,7 @@
+ #include "ui/views/background.h"
+ #include "ui/views/cascading_property.h"
+ #include "ui/views/controls/button/label_button.h"
++#include "ui/views/controls/focus_ring.h"
+ #include "ui/views/controls/separator.h"
+ #include "ui/views/layout/fill_layout.h"
+ #include "ui/views/layout/flex_layout.h"
+@@ -680,6 +681,14 @@ void ToolbarView::SetSeoulSidebarPresentation(bool collapsed) {
+   }
+   seoul_sidebar_mode_ = true;
+   seoul_sidebar_collapsed_ = collapsed;
++  if (location_bar_view_) {
++    location_bar_view_->SetSeoulSidebarMode(true);
++  }
++  if (location_bar_view_ && views::FocusRing::Get(location_bar_view_)) {
++    views::FocusRing::Get(location_bar_view_)
++        ->SetHasFocusPredicate(
++            base::BindRepeating([](const views::View*) { return false; }));
++  }
+   if (initialized_) {
+     ApplySeoulSidebarPresentation();
+   } else {
+@@ -1379,6 +1388,13 @@ ToolbarView::GetContentSettingBubbleModelDelegate() {
+   return browser_->GetFeatures().content_setting_bubble_model_delegate();
+ }
+ 
++void ToolbarView::OnOmniboxFocusChanged(bool focused) {
++  if (seoul_sidebar_mode_ && display_mode_ == DisplayMode::kNormal &&
++      browser_view_) {
++    browser_view_->SetSeoulOmniboxFloating(focused);
++  }
++}
++
+ ////////////////////////////////////////////////////////////////////////////////
+ // ToolbarView, CommandObserver implementation:
+ 
+@@ -1418,7 +1434,8 @@ gfx::Size ToolbarView::CalculatePreferredSize(
+     // Two-row rail: nav buttons, then a full-width omnibox.
+     const int nav_height = GetBackForwardButtonSize().height();
+     const int location_height =
+-        location_bar_ && location_bar_->IsVisible()
++        location_bar_ && location_bar_->IsVisible() &&
++                location_bar_view_->parent() == this
+             ? location_bar_->PreferredSize().height()
+             : 0;
+     const int margins =
+@@ -1464,7 +1481,8 @@ gfx::Size ToolbarView::GetMinimumSize() const {
+     const int nav_height =
+         GetBackForwardButtonSize(/*minimum_size=*/true).height();
+     const int location_height =
+-        location_bar_ && location_bar_->IsVisible()
++        location_bar_ && location_bar_->IsVisible() &&
++                location_bar_view_->parent() == this
+             ? location_bar_->MinimumSize().height()
+             : 0;
+     const int margins =
+@@ -1538,7 +1556,8 @@ void ToolbarView::Layout(PassKey) {
+       x += size.width();
+     }
+     y += nav_height + 2;
+-    if (location_bar_view_ && location_bar_view_->GetVisible()) {
++    if (location_bar_view_ && location_bar_view_->GetVisible() &&
++        location_bar_view_->parent() == this) {
+       const int location_height =
+           location_bar_view_->GetPreferredSize().height();
+       location_bar_view_->SetBounds(
+diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.h b/chrome/browser/ui/views/toolbar/toolbar_view.h
+index b4b37f7..7bc282d 100644
+--- a/chrome/browser/ui/views/toolbar/toolbar_view.h
++++ b/chrome/browser/ui/views/toolbar/toolbar_view.h
+@@ -218,6 +218,7 @@ class ToolbarView : public views::AccessiblePaneView,
+   const LocationBarModel* GetLocationBarModel() const override;
+   ContentSettingBubbleModelDelegate* GetContentSettingBubbleModelDelegate()
+       override;
++  void OnOmniboxFocusChanged(bool focused) override;
+ 
+   // CommandObserver:
+   void EnabledStateChangedForCommand(int id, bool enabled) override;

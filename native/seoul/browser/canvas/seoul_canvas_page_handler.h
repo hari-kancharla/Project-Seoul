@@ -134,7 +134,8 @@ public:
       OpenLiveCollectionItemCallback callback) override;
   void GetSiteLayerSnapshot(GetSiteLayerSnapshotCallback callback) override;
   void UpsertSiteLayer(
-      const std::string &layer_id, const std::string &name,
+      const std::string &layer_id, const std::string &expected_tab_id,
+      const std::string &expected_page_origin, const std::string &name,
       const std::string &origin_pattern, const std::string &scene_scope,
       bool enabled,
       std::vector<canvas::mojom::SiteLayerAdjustmentInputPtr> adjustments,
@@ -144,6 +145,9 @@ public:
   void DeleteSiteLayer(const std::string &layer_id,
                        DeleteSiteLayerCallback callback) override;
   void ZapSiteLayer(const std::string &layer_id,
+                    const std::string &expected_tab_id,
+                    const std::string &expected_page_origin,
+                    bool remove_layer_on_cancel,
                     ZapSiteLayerCallback callback) override;
   void CancelSiteLayerZap() override;
   void GetStudioSnapshot(GetStudioSnapshotCallback callback) override;
@@ -228,6 +232,8 @@ private:
   void PushPageContext();
   void OnBoostEditorRequested(const LiveWindowKey &window);
   std::optional<LiveWindowKey> ResolveBoundWindow() const;
+  bool MatchesActivePageBinding(const std::string &expected_tab_id,
+                                const std::string &expected_page_origin) const;
   TaskId StartBoundGoal(const std::string &goal);
   std::string LibrarySnapshotJson() const;
   std::string ThreadSnapshotJson(const std::string& thread_id) const;
