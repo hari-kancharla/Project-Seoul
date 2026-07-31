@@ -12,6 +12,7 @@
 #include "seoul/browser/organization/organization_model.h"
 #include "seoul/browser/organization/organization_types.h"
 #include "seoul/browser/shell/shell_controller.h"
+#include "seoul/browser/shell/views/seoul_workspace_icon_picker.h"
 #include "seoul/browser/shell/views/seoul_workspace_name_dialog.h"
 #include "ui/base/mojom/menu_source_type.mojom.h"
 #include "ui/menus/simple_menu_model.h"
@@ -23,6 +24,7 @@ namespace seoul {
 constexpr int kCreateWorkspace = 1000;
 constexpr int kRenameWorkspace = 1001;
 constexpr int kArchiveWorkspace = 1002;
+constexpr int kChangeWorkspaceIcon = 1003;
 constexpr int kWorkspaceBase = 2000;
 
 class WorkspaceMenuModel : public ui::SimpleMenuModel,
@@ -30,10 +32,12 @@ class WorkspaceMenuModel : public ui::SimpleMenuModel,
  public:
   WorkspaceMenuModel(ShellController* controller,
                      gfx::NativeWindow parent,
+                     views::View* anchor,
                      std::vector<WorkspaceId> ids)
       : ui::SimpleMenuModel(this),
         controller_(controller),
         parent_(parent),
+        anchor_(anchor),
         workspace_ids_(std::move(ids)) {
     if (!controller_ || !controller_->model()) {
       return;
@@ -50,6 +54,7 @@ class WorkspaceMenuModel : public ui::SimpleMenuModel,
     AddSeparator(ui::NORMAL_SEPARATOR);
     AddItem(kCreateWorkspace, u"Create Space");
     AddItem(kRenameWorkspace, u"Rename Space");
+    AddItem(kChangeWorkspaceIcon, u"Change Space Icon");
     AddItem(kArchiveWorkspace, u"Archive Space");
   }
 
@@ -103,6 +108,10 @@ class WorkspaceMenuModel : public ui::SimpleMenuModel,
                 controller, id));
         return;
       }
+      case kChangeWorkspaceIcon:
+        ShowWorkspaceIconPicker(anchor_, controller_,
+                                controller_->snapshot().workspace.workspace_id);
+        return;
       case kArchiveWorkspace: {
         BrowserCommand command;
         command.id = CommandId::Next();
@@ -119,6 +128,7 @@ class WorkspaceMenuModel : public ui::SimpleMenuModel,
  private:
   raw_ptr<ShellController> controller_;
   gfx::NativeWindow parent_;
+  raw_ptr<views::View> anchor_;
   std::vector<WorkspaceId> workspace_ids_;
 };
 
@@ -137,7 +147,7 @@ bool SeoulWorkspaceMenu::Show(base::RepeatingClosure on_menu_closed) {
   // MenuRunner may run asynchronously (and its API explicitly forbids
   // stack-local ownership), so keep both it and the backing model alive for
   // the lifetime of this menu controller.
-  model_ = std::make_unique<WorkspaceMenuModel>(controller_, parent_,
+  model_ = std::make_unique<WorkspaceMenuModel>(controller_, parent_, anchor_,
                                                 std::vector<WorkspaceId>());
   menu_runner_ = std::make_unique<views::MenuRunner>(
       model_.get(), views::MenuRunner::HAS_MNEMONICS,
