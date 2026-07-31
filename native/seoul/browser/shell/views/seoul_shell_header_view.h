@@ -14,7 +14,6 @@
 #include "components/favicon_base/favicon_callback.h"
 #include "seoul/browser/shell/shell_observer.h"
 #include "seoul/browser/shell/shell_types.h"
-#include "ui/base/accelerators/accelerator.h"
 #include "ui/base/models/image_model.h"
 #include "ui/views/view.h"
 #include "url/gurl.h"
@@ -61,7 +60,6 @@ public:
   void SetPresentationCollapsed(bool collapsed);
   void OnShellSnapshotChanged(const ShellChange &change,
                               const ShellSnapshot &snapshot) override;
-  bool AcceleratorPressed(const ui::Accelerator &accelerator) override;
 
   void SetCachedFaviconLookupForTesting(CachedFaviconLookupForTesting lookup);
   ui::ImageModel EssentialIconForTesting(const EssentialId &id) const;
