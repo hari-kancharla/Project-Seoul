@@ -10,12 +10,15 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "cc/paint/paint_flags.h"
+#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ui/color/chrome_color_id.h"
-#include "components/vector_icons/vector_icons.h"
 #include "seoul/browser/shell/shell_controller.h"
 #include "seoul/browser/shell/space_visuals.h"
 #include "seoul/browser/shell/views/seoul_command_launcher_view.h"
 #include "seoul/browser/shell/views/seoul_split_chooser_view.h"
+#include "seoul/browser/shell/workspace_icon_painter.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/models/image_model.h"
 #include "ui/color/color_id.h"
@@ -24,6 +27,9 @@
 #include "ui/gfx/animation/animation.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/geometry/rect_f.h"
+#include "ui/gfx/geometry/transform.h"
+#include "ui/gfx/geometry/transform_util.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/ink_drop.h"
 #include "ui/views/border.h"
@@ -37,6 +43,7 @@ namespace {
 
 constexpr int kFooterButtonSize = 34;
 constexpr base::TimeDelta kSpaceVisualTransition = base::Milliseconds(200);
+constexpr base::TimeDelta kCreateNewRotationDuration = base::Milliseconds(200);
 
 void StyleFooterButton(views::LabelButton* button) {
   button->SetHorizontalAlignment(gfx::ALIGN_CENTER);
@@ -44,6 +51,75 @@ void StyleFooterButton(views::LabelButton* button) {
   button->SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(4, 7)));
   button->SetEnabledTextColors(kColorToolbarText);
 }
+
+void SetFooterIcon(views::LabelButton* button, const gfx::VectorIcon& icon) {
+  button->SetImageModel(
+      views::Button::STATE_NORMAL,
+      ui::ImageModel::FromVectorIcon(icon, kColorToolbarButtonIcon, 18));
+  button->SetImageModel(
+      views::Button::STATE_HOVERED,
+      ui::ImageModel::FromVectorIcon(icon, kColorToolbarButtonIconHovered, 18));
+  button->SetImageModel(
+      views::Button::STATE_PRESSED,
+      ui::ImageModel::FromVectorIcon(icon, kColorToolbarButtonIconPressed, 18));
+  button->SetImageModel(views::Button::STATE_DISABLED,
+                        ui::ImageModel::FromVectorIcon(
+                            icon, kColorToolbarButtonIconDisabled, 18));
+}
+
+class CreateNewButton final : public views::LabelButton {
+ public:
+  METADATA_HEADER(CreateNewButton, views::LabelButton)
+
+ public:
+  explicit CreateNewButton(views::Button::PressedCallback callback)
+      : views::LabelButton(std::move(callback), std::u16string()) {
+    image_container_view()->SetPaintToLayer();
+    image_container_view()->layer()->SetFillsBoundsOpaquely(false);
+  }
+
+  void SetLauncherVisible(bool visible) {
+    if (launcher_visible_ == visible) {
+      return;
+    }
+    launcher_visible_ = visible;
+    ApplyRotation(/*animate=*/true);
+  }
+
+  views::View* icon_view_for_testing() const {
+    return const_cast<views::View*>(image_container_view());
+  }
+
+ private:
+  void ApplyRotation(bool animate) {
+    views::View* const icon = image_container_view();
+    if (!icon->layer()) {
+      return;
+    }
+
+    gfx::Transform rotation;
+    rotation.Rotate(launcher_visible_ ? 45.0 : 0.0);
+    const gfx::Transform target = gfx::TransformAboutPivot(
+        gfx::PointF(icon->GetLocalBounds().CenterPoint()), rotation);
+
+    if (animate && gfx::Animation::ShouldRenderRichAnimation()) {
+      ui::ScopedLayerAnimationSettings settings(icon->layer()->GetAnimator());
+      settings.SetTransitionDuration(kCreateNewRotationDuration);
+      settings.SetTweenType(gfx::Tween::EASE_IN_OUT);
+      settings.SetPreemptionStrategy(
+          ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET);
+      icon->layer()->SetTransform(target);
+      return;
+    }
+    icon->layer()->GetAnimator()->StopAnimating();
+    icon->layer()->SetTransform(target);
+  }
+
+  bool launcher_visible_ = false;
+};
+
+BEGIN_METADATA(CreateNewButton)
+END_METADATA
 
 class SpaceSwitcherButton final : public views::LabelButton {
  public:
@@ -80,9 +156,27 @@ class SpaceSwitcherButton final : public views::LabelButton {
   }
 
   void UpdateSpace(const ShellSpaceItem& space, bool animate) {
-    const std::u16string icon = base::UTF8ToUTF16(space.icon);
-    draw_empty_icon_ = icon.empty();
-    SetText(icon);
+    builtin_icon_ref_.clear();
+    if (IsWorkspaceBuiltinIcon(space.icon)) {
+      builtin_icon_ref_ = space.icon;
+    }
+    const std::u16string icon = builtin_icon_ref_.empty()
+                                    ? base::UTF8ToUTF16(space.icon)
+                                    : std::u16string();
+    uses_empty_icon_dot_ = space.icon.empty();
+    if (uses_empty_icon_dot_ || !builtin_icon_ref_.empty()) {
+      SetText(std::u16string());
+      SetImageModel(views::Button::STATE_NORMAL, ui::ImageModel());
+      SetImageModel(views::Button::STATE_HOVERED, ui::ImageModel());
+      SetImageModel(views::Button::STATE_PRESSED, ui::ImageModel());
+      SetImageModel(views::Button::STATE_DISABLED, ui::ImageModel());
+    } else {
+      SetImageModel(views::Button::STATE_NORMAL, ui::ImageModel());
+      SetImageModel(views::Button::STATE_HOVERED, ui::ImageModel());
+      SetImageModel(views::Button::STATE_PRESSED, ui::ImageModel());
+      SetImageModel(views::Button::STATE_DISABLED, ui::ImageModel());
+      SetText(icon);
+    }
     SetActive(space.is_active, animate);
 
     const std::u16string name = base::UTF8ToUTF16(space.name);
@@ -99,7 +193,42 @@ class SpaceSwitcherButton final : public views::LabelButton {
     SchedulePaint();
   }
 
+  bool uses_empty_icon_dot_for_testing() const { return uses_empty_icon_dot_; }
+
  private:
+  void PaintButtonContents(gfx::Canvas* canvas) override {
+    if (!GetColorProvider()) {
+      return;
+    }
+    if (!builtin_icon_ref_.empty()) {
+      ui::ColorId color_id = kColorToolbarButtonIcon;
+      if (GetState() == views::Button::STATE_HOVERED) {
+        color_id = kColorToolbarButtonIconHovered;
+      } else if (GetState() == views::Button::STATE_PRESSED) {
+        color_id = kColorToolbarButtonIconPressed;
+      } else if (GetState() == views::Button::STATE_DISABLED) {
+        color_id = kColorToolbarButtonIconDisabled;
+      }
+      gfx::Rect icon_bounds = GetLocalBounds();
+      icon_bounds.ClampToCenteredSize(gfx::Size(18, 18));
+      PaintWorkspaceBuiltinIcon(canvas, builtin_icon_ref_, icon_bounds,
+                                GetColorProvider()->GetColor(color_id));
+      return;
+    }
+    if (!uses_empty_icon_dot_) {
+      return;
+    }
+    cc::PaintFlags flags;
+    flags.setAntiAlias(true);
+    flags.setStyle(cc::PaintFlags::kFill_Style);
+    flags.setColor(
+        SkColorSetA(GetColorProvider()->GetColor(kColorToolbarButtonIcon),
+                    /*a=*/102));
+    canvas->DrawCircle(
+        gfx::RectF(GetLocalBounds()).CenterPoint(),
+        static_cast<float>(space_visuals::kEmptyIconDiameter) / 2.0f, flags);
+  }
+
   void SetActive(bool active, bool animate) {
     if (active_ == active && animate) {
       return;
@@ -137,21 +266,9 @@ class SpaceSwitcherButton final : public views::LabelButton {
     ApplyVisualState(/*animate=*/true);
   }
 
-  void PaintButtonContents(gfx::Canvas* canvas) override {
-    views::LabelButton::PaintButtonContents(canvas);
-    if (!draw_empty_icon_ || !GetColorProvider()) {
-      return;
-    }
-    cc::PaintFlags flags;
-    flags.setAntiAlias(true);
-    flags.setColor(
-        SkColorSetA(GetColorProvider()->GetColor(kColorToolbarText), 0x66));
-    canvas->DrawCircle(gfx::PointF(GetLocalBounds().CenterPoint()),
-                       space_visuals::kEmptyIconDiameter / 2.0f, flags);
-  }
-
   bool active_ = false;
-  bool draw_empty_icon_ = false;
+  bool uses_empty_icon_dot_ = false;
+  std::string builtin_icon_ref_;
 };
 
 }  // namespace
@@ -170,21 +287,16 @@ SeoulShellFooterView::SeoulShellFooterView(ShellController* controller) {
   controls_layout_->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kCenter);
 
-  // Zen's production default is intentionally only Downloads, Workspaces, and
-  // Create New, in that order. The flexible middle control produces the same
-  // expanded space-between distribution without placeholder controls.
-  downloads_button_ =
+  // Zen's production default is intentionally only Toggle Sidebar, Workspaces,
+  // and Create New, in that order. The flexible middle control produces the
+  // same expanded space-between distribution without placeholder controls.
+  toggle_sidebar_button_ =
       controls_row_->AddChildView(std::make_unique<views::LabelButton>(
-          base::BindRepeating(&SeoulShellFooterView::OnDownloadsPressed,
+          base::BindRepeating(&SeoulShellFooterView::OnToggleSidebarPressed,
                               base::Unretained(this)),
           std::u16string()));
-  StyleFooterButton(downloads_button_);
-  downloads_button_->SetImageModel(
-      views::Button::STATE_NORMAL,
-      ui::ImageModel::FromVectorIcon(vector_icons::kFileDownloadIcon,
-                                     kColorToolbarButtonIcon, 16));
-  downloads_button_->SetTooltipText(u"Downloads");
-  downloads_button_->GetViewAccessibility().SetName(u"Open Downloads");
+  StyleFooterButton(toggle_sidebar_button_);
+  SetFooterIcon(toggle_sidebar_button_, kSeoulExpandSidebarIcon);
 
   spaces_container_ =
       controls_row_->AddChildView(std::make_unique<views::View>());
@@ -200,16 +312,11 @@ SeoulShellFooterView::SeoulShellFooterView(ShellController* controller) {
   spaces_container_->GetViewAccessibility().SetName(u"Workspaces");
   controls_layout_->SetFlexForView(spaces_container_, 1);
 
-  create_new_button_ =
-      controls_row_->AddChildView(std::make_unique<views::LabelButton>(
-          base::BindRepeating(&SeoulShellFooterView::OnCreateNewPressed,
-                              base::Unretained(this)),
-          std::u16string()));
+  create_new_button_ = controls_row_->AddChildView(
+      std::make_unique<CreateNewButton>(base::BindRepeating(
+          &SeoulShellFooterView::OnCreateNewPressed, base::Unretained(this))));
   StyleFooterButton(create_new_button_);
-  create_new_button_->SetImageModel(
-      views::Button::STATE_NORMAL,
-      ui::ImageModel::FromVectorIcon(vector_icons::kAddIcon,
-                                     kColorToolbarButtonIcon, 16));
+  SetFooterIcon(create_new_button_, kSeoulPlusIcon);
   create_new_button_->SetTooltipText(u"Create New");
   create_new_button_->GetViewAccessibility().SetName(u"Create New");
 
@@ -290,7 +397,15 @@ void SeoulShellFooterView::RebuildFromSnapshot(const ShellSnapshot& snapshot) {
     UpdateSpaceButtons(snapshot, /*animate=*/true);
   }
 
-  downloads_button_->SetVisible(true);
+  toggle_sidebar_button_->SetVisible(true);
+  const bool sidebar_collapsed =
+      snapshot.appearance_layout.available &&
+      snapshot.appearance_layout.mode == ShellAppearanceLayoutMode::kCollapsed;
+  const std::u16string toggle_sidebar_label =
+      sidebar_collapsed ? u"Expand Sidebar" : u"Collapse Sidebar";
+  toggle_sidebar_button_->SetTooltipText(toggle_sidebar_label);
+  toggle_sidebar_button_->GetViewAccessibility().SetName(toggle_sidebar_label);
+  toggle_sidebar_button_->SetEnabled(snapshot.appearance_layout.available);
   spaces_container_->SetVisible(!snapshot.spaces.empty());
   create_new_button_->SetVisible(true);
 
@@ -363,11 +478,20 @@ void SeoulShellFooterView::OnSpacePressed(WorkspaceId workspace_id) {
   }
 }
 
-void SeoulShellFooterView::OnDownloadsPressed() {
-  if (controller_) {
-    std::ignore =
-        controller_->RunUtilityAction(ShellUtilityAction::kOpenDownloads);
+void SeoulShellFooterView::OnToggleSidebarPressed() {
+  if (!controller_) {
+    return;
   }
+  const ShellAppearanceLayoutState& appearance =
+      controller_->snapshot().appearance_layout;
+  if (!appearance.available) {
+    return;
+  }
+  const ShellAppearanceLayoutMode target =
+      appearance.mode == ShellAppearanceLayoutMode::kCollapsed
+          ? ShellAppearanceLayoutMode::kSingle
+          : ShellAppearanceLayoutMode::kCollapsed;
+  std::ignore = controller_->SetAppearanceLayoutMode(target);
 }
 
 bool SeoulShellFooterView::ShowCommandLauncher() {
@@ -379,6 +503,30 @@ bool SeoulShellFooterView::ShowCommandLauncher() {
       base::BindRepeating(&SeoulShellFooterView::ShowSplitChooser,
                           weak_factory_.GetWeakPtr()));
   return true;
+}
+
+void SeoulShellFooterView::SetCommandLauncherVisible(bool visible) {
+  if (command_launcher_visible_ == visible) {
+    return;
+  }
+  command_launcher_visible_ = visible;
+  if (create_new_button_) {
+    static_cast<CreateNewButton*>(create_new_button_.get())
+        ->SetLauncherVisible(visible);
+  }
+}
+
+views::View* SeoulShellFooterView::create_new_icon_for_testing() const {
+  return create_new_button_
+             ? static_cast<CreateNewButton*>(create_new_button_.get())
+                   ->icon_view_for_testing()
+             : nullptr;
+}
+
+bool SeoulShellFooterView::first_space_uses_empty_icon_dot_for_testing() const {
+  return !space_buttons_.empty() &&
+         static_cast<const SpaceSwitcherButton*>(space_buttons_.front().get())
+             ->uses_empty_icon_dot_for_testing();
 }
 
 void SeoulShellFooterView::OnCreateNewPressed() {
