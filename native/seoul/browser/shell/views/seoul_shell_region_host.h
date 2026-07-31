@@ -35,11 +35,14 @@ public:
               BrowserWindowInterface *browser_window, Profile *profile);
   void SetPresentationCollapsed(bool collapsed);
   bool ShowCommandLauncher();
+  void SetCommandLauncherVisible(bool visible);
   // Removes the shell child views from the region. Idempotent.
   void Detach();
 
   VerticalTabStripRegionView *region() const { return region_; }
-  SeoulShellHeaderView *header_for_testing() const { return header_; }
+  SeoulShellHeaderView* header_for_testing() const { return header_; }
+  SeoulShellFooterView* footer_for_testing() const { return footer_; }
+  SeoulShellSpaceView* space_for_testing() const { return space_; }
 
 private:
   raw_ptr<VerticalTabStripRegionView> region_ = nullptr;
