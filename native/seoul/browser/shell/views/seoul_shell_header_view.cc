@@ -33,8 +33,6 @@
 #include "ui/base/models/image_model.h"
 #include "ui/base/mojom/menu_source_type.mojom.h"
 #include "ui/color/color_id.h"
-#include "ui/events/event_constants.h"
-#include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/menus/simple_menu_model.h"
 #include "ui/views/accessibility/view_accessibility.h"
@@ -181,8 +179,6 @@ SeoulShellHeaderView::SeoulShellHeaderView(
       4));
   layout->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kStretch);
-  AddAccelerator(ui::Accelerator(ui::VKEY_C, ui::EF_PLATFORM_ACCELERATOR |
-                                                 ui::EF_SHIFT_DOWN));
   BindController(controller);
 }
 
@@ -251,20 +247,6 @@ void SeoulShellHeaderView::OnShellSnapshotChanged(
     const ShellChange &change, const ShellSnapshot &snapshot) {
   (void)change;
   RebuildFromSnapshot(snapshot);
-}
-
-bool SeoulShellHeaderView::AcceleratorPressed(
-    const ui::Accelerator &accelerator) {
-  const ui::Accelerator compact(
-      ui::VKEY_C, ui::EF_PLATFORM_ACCELERATOR | ui::EF_SHIFT_DOWN);
-  if (!controller_ || !GetWidget()) {
-    return false;
-  }
-  if (accelerator == compact) {
-    std::ignore = controller_->ToggleCompactMode();
-    return true;
-  }
-  return false;
 }
 
 void SeoulShellHeaderView::SetCachedFaviconLookupForTesting(
