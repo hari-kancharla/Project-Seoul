@@ -5,10 +5,11 @@
 #include <memory>
 #include <optional>
 
+#include "base/functional/bind.h"
 // nogncheck: //chrome/browser/ui reaches this target through the side-panel
 // Canvas registration, so a declared dep would be a dependency cycle; the
 // symbols link through //chrome/browser like the other circular includes.
-#include "chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h" // nogncheck
+#include "chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h"  // nogncheck
 #include "seoul/browser/shell/views/seoul_shell_footer_view.h"
 #include "seoul/browser/shell/views/seoul_shell_header_view.h"
 #include "seoul/browser/shell/views/seoul_shell_space_view.h"
@@ -20,12 +21,14 @@ namespace seoul {
 
 SeoulShellRegionHost::SeoulShellRegionHost() = default;
 
-SeoulShellRegionHost::~SeoulShellRegionHost() { Detach(); }
+SeoulShellRegionHost::~SeoulShellRegionHost() {
+  Detach();
+}
 
-void SeoulShellRegionHost::Attach(VerticalTabStripRegionView *region,
-                                  ShellController *controller,
-                                  BrowserWindowInterface *browser_window,
-                                  Profile *profile) {
+void SeoulShellRegionHost::Attach(VerticalTabStripRegionView* region,
+                                  ShellController* controller,
+                                  BrowserWindowInterface* browser_window,
+                                  Profile* profile) {
   if (!region || !controller || !browser_window || !profile) {
     return;
   }
@@ -45,9 +48,9 @@ void SeoulShellRegionHost::Attach(VerticalTabStripRegionView *region,
     footer_->BindController(controller);
   }
   if (!space_) {
-    if (VerticalTabStripView *tab_strip = region->GetSeoulTabStripView()) {
+    if (VerticalTabStripView* tab_strip = region->GetSeoulTabStripView()) {
       auto space = std::make_unique<SeoulShellSpaceView>(controller);
-      space_ = static_cast<SeoulShellSpaceView *>(
+      space_ = static_cast<SeoulShellSpaceView*>(
           tab_strip->SetSeoulSpaceIndicator(std::move(space)));
       // Chromium's default vertical strip reserves eight DIPs above its first
       // row. The integrated Seoul toolbar already owns the titlebar spacing,
@@ -57,14 +60,21 @@ void SeoulShellRegionHost::Attach(VerticalTabStripRegionView *region,
   } else {
     space_->BindController(controller);
   }
+  if (space_) {
+    if (VerticalTabStripView* tab_strip = region->GetSeoulTabStripView()) {
+      space_->SetPinnedCollapsedChangedCallback(base::BindRepeating(
+          &VerticalTabStripView::SetSeoulPinnedTabsCollapsed,
+          base::Unretained(tab_strip)));
+    }
+  }
 
-  views::View *separator = region->GetSeoulShellSeparatorAnchor();
-  views::View *bottom = region->GetSeoulShellFooterAnchor();
+  views::View* separator = region->GetSeoulShellSeparatorAnchor();
+  views::View* bottom = region->GetSeoulShellFooterAnchor();
   if (separator) {
     std::optional<size_t> separator_index = region->GetIndexOf(separator);
     if (separator_index.has_value()) {
       region->ReorderChildView(header_, separator_index.value() + 1);
-      if (views::View *tab_strip = region->GetSeoulTabStripView()) {
+      if (views::View* tab_strip = region->GetSeoulTabStripView()) {
         region->ReorderChildView(tab_strip, separator_index.value() + 2);
       }
     }
@@ -92,9 +102,15 @@ bool SeoulShellRegionHost::ShowCommandLauncher() {
   return footer_ && footer_->ShowCommandLauncher();
 }
 
+void SeoulShellRegionHost::SetCommandLauncherVisible(bool visible) {
+  if (footer_) {
+    footer_->SetCommandLauncherVisible(visible);
+  }
+}
+
 void SeoulShellRegionHost::Detach() {
   if (region_ && space_) {
-    if (VerticalTabStripView *tab_strip = region_->GetSeoulTabStripView()) {
+    if (VerticalTabStripView* tab_strip = region_->GetSeoulTabStripView()) {
       tab_strip->ClearSeoulSpaceIndicator();
     }
   }
@@ -110,4 +126,4 @@ void SeoulShellRegionHost::Detach() {
   region_ = nullptr;
 }
 
-} // namespace seoul
+}  // namespace seoul
