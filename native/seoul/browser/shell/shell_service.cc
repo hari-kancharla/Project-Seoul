@@ -251,6 +251,20 @@ SeoulShellHeaderView* ShellService::GetHeaderForTesting(ShellWindowKey window) {
              : nullptr;
 }
 
+SeoulShellFooterView* ShellService::GetFooterForTesting(ShellWindowKey window) {
+  auto host = hosts_.find(window);
+  return host != hosts_.end() && host->second
+             ? host->second->footer_for_testing()
+             : nullptr;
+}
+
+SeoulShellSpaceView* ShellService::GetSpaceForTesting(ShellWindowKey window) {
+  auto host = hosts_.find(window);
+  return host != hosts_.end() && host->second
+             ? host->second->space_for_testing()
+             : nullptr;
+}
+
 void ShellService::OnCollapseStateChanged(ShellWindowKey window,
                                           bool collapsed) {
   if (ShellController* controller = GetController(window)) {
@@ -268,6 +282,13 @@ void ShellService::OnSidebarPresentationChanged(ShellWindowKey window,
 bool ShellService::ShowCommandLauncher(ShellWindowKey window) {
   const auto it = hosts_.find(window);
   return it != hosts_.end() && it->second && it->second->ShowCommandLauncher();
+}
+
+void ShellService::SetCommandLauncherVisible(ShellWindowKey window,
+                                             bool visible) {
+  if (auto it = hosts_.find(window); it != hosts_.end() && it->second) {
+    it->second->SetCommandLauncherVisible(visible);
+  }
 }
 
 void ShellService::RefreshCompactModeState(ShellWindowKey window) {
