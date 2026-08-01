@@ -226,6 +226,29 @@ TEST(CommandLauncherCatalogTest, SkipsIneligibleAndInvalidLiveTargets) {
   EXPECT_EQ(entries.size(), 10u);
 }
 
+TEST(CommandLauncherCatalogTest, SkipsNewTabPlaceholderLiveTarget) {
+  ShellSnapshot shell;
+  shell.window = LiveWindowKey::FromSessionId(1);
+  LiveWindowSnapshot window;
+  window.window = shell.window;
+
+  LiveTabDescriptor placeholder;
+  placeholder.tab = LiveTabKey::FromSessionId(2);
+  placeholder.title = "New Tab";
+  placeholder.is_new_tab_placeholder = true;
+  window.tabs.push_back(placeholder);
+
+  LiveTabDescriptor ordinary_new_tab_page;
+  ordinary_new_tab_page.tab = LiveTabKey::FromSessionId(3);
+  ordinary_new_tab_page.title = "New Tab";
+  window.tabs.push_back(ordinary_new_tab_page);
+
+  const auto entries = CommandLauncherCatalog::BuildEntries(
+      shell, OrganizationSnapshot(), {window});
+  EXPECT_FALSE(FindEntry(entries, "tab:w-1:t-2"));
+  EXPECT_TRUE(FindEntry(entries, "tab:w-1:t-3"));
+}
+
 TEST(CommandLauncherCatalogTest,
      AppearanceEntriesCarryTypedTargetsAndMarkCurrentMode) {
   ShellSnapshot shell;
@@ -292,6 +315,7 @@ TEST(CommandLauncherCatalogTest, CompactEntryReflectsLiveModeAndAvailability) {
   ASSERT_TRUE(entry);
   EXPECT_TRUE(entry->enabled);
   EXPECT_EQ(entry->label, "Enter Compact Mode");
+  EXPECT_EQ(entry->shortcut, "⌘S");
 
   shell.compact_mode.enabled = true;
   entries =
