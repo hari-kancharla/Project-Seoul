@@ -33,6 +33,8 @@ source_set("lifecycle") {
   sources = [
     "live_window_state.cc",
     "live_window_state.h",
+    "new_tab_placeholder_provenance.cc",
+    "new_tab_placeholder_provenance.h",
     "session_restore_metadata.cc",
     "session_restore_metadata.h",
     "session_restore_watcher.cc",
