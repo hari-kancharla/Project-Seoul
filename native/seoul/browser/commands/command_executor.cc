@@ -29,6 +29,7 @@ bool CommandExecutor::IsModelOnlyKind(CommandKind kind) const {
   switch (kind) {
     case CommandKind::kCreateWorkspace:
     case CommandKind::kRenameWorkspace:
+    case CommandKind::kSetWorkspaceIcon:
     case CommandKind::kReorderWorkspace:
     case CommandKind::kArchiveWorkspace:
     case CommandKind::kRestoreWorkspace:
@@ -117,7 +118,8 @@ CommandResult<CommandStatus> CommandExecutor::DispatchChromiumCommand(
     if (!tab.has_value()) {
       return base::unexpected(CommandError::kTabNotFound);
     }
-    if (!adapter_->NavigateTab(profile_, tab.value(), command.url).has_value()) {
+    if (!adapter_->NavigateTab(profile_, tab.value(), command.url)
+             .has_value()) {
       return base::unexpected(CommandError::kDispatchFailure);
     }
     return base::ok(CommandStatus::kApplied);
@@ -189,9 +191,9 @@ CommandResult<CommandStatus> CommandExecutor::DispatchChromiumCommand(
       }
       LiveTabKey inserted;
       std::string token;
-      dispatch = adapter_->OpenTabInSplit(
-          profile_, window.value(), command.tab, command.url,
-          command.split_ratio, &inserted, &token);
+      dispatch = adapter_->OpenTabInSplit(profile_, window.value(), command.tab,
+                                          command.url, command.split_ratio,
+                                          &inserted, &token);
       break;
     }
     case CommandKind::kActivateTab: {
@@ -225,12 +227,11 @@ CommandResult<CommandStatus> CommandExecutor::DispatchChromiumCommand(
           model_->FindMembershipIdByTabKey(command.tab.value());
       const TabMembershipRecord* record =
           membership.is_valid() ? model_->FindMembership(membership) : nullptr;
-      if (!tab.has_value() || !record ||
-          record->role != TabRole::kTemporary ||
+      if (!tab.has_value() || !record || record->role != TabRole::kTemporary ||
           !command.membership_id.has_value() ||
           command.membership_id.value() != membership || !lifecycle_ ||
-          !lifecycle_->ExpectTabArchival(
-              command.window, command.tab, command.url.spec(), command.name)) {
+          !lifecycle_->ExpectTabArchival(command.window, command.tab,
+                                         command.url.spec(), command.name)) {
         registry_.Consume(command.id);
         pending_commands_.erase(command.id);
         return base::unexpected(CommandError::kInvalidCommand);
@@ -545,7 +546,8 @@ bool CommandExecutor::VerifyPostcondition(const BrowserCommand& command) const {
       return !model_->FindMembershipIdByTabKey(command.tab.value()).is_valid();
     case CommandKind::kArchiveTab:
       return command.membership_id.has_value() &&
-             !model_->FindMembershipIdByTabKey(command.tab.value()).is_valid() &&
+             !model_->FindMembershipIdByTabKey(command.tab.value())
+                  .is_valid() &&
              model_->FindArchivedTab(command.membership_id.value());
     case CommandKind::kPinTab:
     case CommandKind::kUnpinTab: {
