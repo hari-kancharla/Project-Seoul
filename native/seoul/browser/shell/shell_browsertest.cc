@@ -9,6 +9,8 @@
 // the native-core integration patch.
 
 #include <algorithm>
+#include <array>
+#include <map>
 #include <optional>
 #include <string_view>
 #include <utility>
@@ -17,32 +19,62 @@
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/test/run_until.h"
+#include "chrome/app/chrome_command_ids.h"
+#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/search/search.h"
+#include "chrome/browser/search_engines/template_url_service_factory.h"
+#include "chrome/browser/ui/actions/chrome_action_id.h"
+#include "chrome/browser/ui/animation/browser_animation_controller.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_actions.h"
 #include "chrome/browser/ui/browser_commands.h"
+#include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_view_prefs.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
+#include "chrome/browser/ui/layout_constants.h"
+#include "chrome/browser/ui/omnibox/omnibox_controller.h"
+#include "chrome/browser/ui/tab_ui_helper.h"
 #include "chrome/browser/ui/tabs/features.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/vertical_tab_strip_state_controller.h"
+#include "chrome/browser/ui/views/animations/tab_strip_animations.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/top_container_view.h"
 #include "chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/location_bar/location_icon_view.h"
+#include "chrome/browser/ui/views/omnibox/omnibox_popup_view_views.h"
+#include "chrome/browser/ui/views/omnibox/omnibox_result_view.h"
+#include "chrome/browser/ui/views/omnibox/omnibox_row_view.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_view_views.h"
 #include "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_top_container.h"
+#include "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_view.h"
+#include "chrome/browser/ui/views/tabs/vertical/vertical_tab_view.h"
+#include "chrome/browser/ui/views/toolbar/reload_button.h"
+#include "chrome/browser/ui/views/toolbar/toolbar_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "chrome/test/base/ui_test_utils.h"
 #include "components/favicon_base/favicon_callback.h"
 #include "components/favicon_base/favicon_types.h"
+#include "components/omnibox/browser/autocomplete_controller.h"
+#include "components/omnibox/browser/autocomplete_match.h"
+#include "components/omnibox/browser/autocomplete_match_type.h"
 #include "components/prefs/pref_service.h"
+#include "components/search_engines/template_url.h"
+#include "components/search_engines/template_url_service.h"
 #include "components/vector_icons/vector_icons.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
+#include "seoul/browser/lifecycle/new_tab_placeholder_provenance.h"
+#include "seoul/browser/lifecycle/session_restore_metadata.h"
 #include "seoul/browser/lifecycle/tab_strip_bridge.h"
 #include "seoul/browser/organization/organization_model.h"
 #include "seoul/browser/organization/seoul_organization_service.h"
@@ -53,25 +85,35 @@
 #include "seoul/browser/shell/views/seoul_command_launcher_view.h"
 #include "seoul/browser/shell/views/seoul_shell_footer_view.h"
 #include "seoul/browser/shell/views/seoul_shell_header_view.h"
+#include "seoul/browser/shell/views/seoul_shell_space_view.h"
 #include "seoul/browser/shell/views/seoul_workspace_name_dialog.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/actions/actions.h"
 #include "ui/base/accelerators/accelerator.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/image_model.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/compositor/layer.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/events/test/event_generator.h"
 #include "ui/gfx/animation/animation.h"
+#include "ui/gfx/animation/animation_test_api.h"
 #include "ui/gfx/favicon_size.h"
+#include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/image/image.h"
+#include "ui/gfx/scoped_animation_duration_scale_mode.h"
 #include "ui/views/controls/button/label_button.h"
+#include "ui/views/controls/label.h"
+#include "ui/views/controls/scroll_view.h"
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/view_utils.h"
 #include "ui/views/widget/widget.h"
 #include "url/gurl.h"
+#include "url/url_constants.h"
 
 namespace seoul {
 namespace {
@@ -98,6 +140,27 @@ favicon_base::FaviconImageResult SolidFavicon(SkColor color) {
   favicon_base::FaviconImageResult result;
   result.image = gfx::Image::CreateFrom1xBitmap(bitmap);
   return result;
+}
+
+std::u16string ExpectedSeoulPlaceholder(Browser* browser) {
+  const TemplateURL* const default_provider =
+      TemplateURLServiceFactory::GetForProfile(browser->profile())
+          ->GetDefaultSearchProvider();
+  return default_provider
+             ? l10n_util::GetStringFUTF16(
+                   IDS_SEOUL_OMNIBOX_PLACEHOLDER_TEXT_WITH_ENGINE,
+                   default_provider->short_name())
+             : l10n_util::GetStringUTF16(IDS_SEOUL_OMNIBOX_PLACEHOLDER_TEXT);
+}
+
+void CollectVerticalTabViews(views::View* root,
+                             std::vector<VerticalTabView*>* tabs) {
+  if (auto* tab = views::AsViewClass<VerticalTabView>(root)) {
+    tabs->push_back(tab);
+  }
+  for (views::View* child : root->children()) {
+    CollectVerticalTabViews(child, tabs);
+  }
 }
 
 }  // namespace
@@ -152,6 +215,59 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
             "Showing all tabs while the layout recovers.");
 }
 
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       DefaultWorkspaceHeaderHasNoSyntheticInitial) {
+  SeoulOrganizationService* svc = service();
+  ASSERT_TRUE(svc);
+  SeoulShellSpaceView* space =
+      svc->shell_service()->GetSpaceForTesting(WindowKey());
+  ASSERT_TRUE(space);
+  EXPECT_EQ(u"Default", space->text_for_testing());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       SpaceIndicatorPrecedesPinnedTabsAndOwnsCollapseState) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  auto* const vertical_region =
+      browser_view->vertical_tab_strip_region_view_for_testing();
+  ASSERT_TRUE(vertical_region);
+  VerticalTabStripView* const tab_strip =
+      vertical_region->GetSeoulTabStripView();
+  ASSERT_TRUE(tab_strip);
+  SeoulShellSpaceView* const space =
+      service()->shell_service()->GetSpaceForTesting(WindowKey());
+  ASSERT_TRUE(space);
+
+  const views::ProposedLayout layout = tab_strip->CalculateProposedLayout(
+      views::SizeBounds(gfx::Size(280, 720)));
+  const views::ChildLayout* const indicator_layout = layout.GetLayoutFor(space);
+  const views::ChildLayout* const pinned_layout =
+      layout.GetLayoutFor(tab_strip->pinned_tabs_scroll_view_for_testing());
+  ASSERT_TRUE(indicator_layout);
+  ASSERT_TRUE(pinned_layout);
+  EXPECT_EQ(indicator_layout->bounds.bottom(), pinned_layout->bounds.y());
+
+  tab_strip->SetSeoulPinnedTabsCollapsed(true);
+  EXPECT_TRUE(tab_strip->seoul_pinned_tabs_collapsed_for_testing());
+  tab_strip->SetSeoulPinnedTabsCollapsed(false);
+  EXPECT_FALSE(tab_strip->seoul_pinned_tabs_collapsed_for_testing());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest, NewTabUsesNeutralGlobeGlyph) {
+  ASSERT_NE(nullptr, ui_test_utils::NavigateToURL(
+                         browser(), GURL(chrome::kChromeUINewTabURL)));
+  tabs::TabInterface* const tab = browser()->tab_strip_model()->GetActiveTab();
+  ASSERT_TRUE(tab);
+  TabUIHelper* const helper = TabUIHelper::From(tab);
+  ASSERT_TRUE(helper);
+  const ui::ImageModel favicon = helper->GetFavicon();
+  ASSERT_TRUE(favicon.IsVectorIcon());
+  EXPECT_EQ(&kGlobeIcon, favicon.GetVectorIcon().vector_icon());
+  EXPECT_EQ(gfx::Size(gfx::kFaviconSize, gfx::kFaviconSize), favicon.Size());
+}
+
 // Seoul's defining shell is the default product surface. It must not disappear
 // behind an upstream feature flag or a fresh-profile preference.
 IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest, VerticalShellIsOnByDefault) {
@@ -164,6 +280,54 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest, VerticalShellIsOnByDefault) {
   auto* controller = tabs::VerticalTabStripStateController::From(browser());
   ASSERT_TRUE(controller);
   EXPECT_TRUE(controller->ShouldDisplayVerticalTabs());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest, SingleToolbarUsesZenTabGeometry) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  auto* const vertical_region =
+      browser_view->vertical_tab_strip_region_view_for_testing();
+  ASSERT_TRUE(vertical_region);
+
+  browser_view->DeprecatedLayoutImmediately();
+  std::vector<VerticalTabView*> tabs;
+  CollectVerticalTabViews(vertical_region, &tabs);
+  ASSERT_EQ(1u, tabs.size());
+  VerticalTabView* const tab = tabs.front();
+
+  EXPECT_EQ(40, GetLayoutConstant(LayoutConstant::kVerticalTabHeight));
+  EXPECT_EQ(
+      6, GetLayoutConstant(LayoutConstant::kVerticalTabStripHorizontalPadding));
+  EXPECT_EQ(40, tab->height());
+  EXPECT_EQ(gfx::Rect(2, 2, tab->width() - 4, 36),
+            tab->GetBackgroundBoundsForTesting());
+
+  const gfx::Rect region_bounds = vertical_region->GetBoundsInScreen();
+  const gfx::Rect tab_bounds = tab->GetBoundsInScreen();
+  EXPECT_EQ(6, tab_bounds.x() - region_bounds.x());
+  EXPECT_EQ(6, region_bounds.right() - tab_bounds.right());
+}
+
+// Reapplying the already-active product mode must be harmless. This occurs
+// during preference restore and used to reset an uninitialized horizontal tab
+// strip when Seoul started directly in vertical mode.
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       ReapplyingVerticalModeIsIdempotent) {
+  auto* controller = tabs::VerticalTabStripStateController::From(browser());
+  ASSERT_TRUE(controller);
+  ASSERT_TRUE(controller->ShouldDisplayVerticalTabs());
+
+  controller->SetVerticalTabsEnabled(true);
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_TRUE(controller->ShouldDisplayVerticalTabs());
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  EXPECT_EQ(static_cast<views::View*>(
+                browser_view->vertical_tab_strip_region_view_for_testing()),
+            browser_view->toolbar()->parent());
 }
 
 IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
@@ -206,6 +370,383 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       SingleToolbarControlsUseCenteredZenPressMotion) {
+  auto render_mode_lock = gfx::AnimationTestApi::SetRichAnimationRenderMode(
+      gfx::Animation::RichAnimationRenderMode::FORCE_ENABLED);
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  ToolbarView* const toolbar = browser_view->toolbar();
+  ASSERT_TRUE(toolbar);
+  browser_view->DeprecatedLayoutImmediately();
+
+  const std::array<views::Button*, 4> controls = {
+      browser_view->toolbar_button_provider()->GetBackButton(),
+      toolbar->forward_button(), toolbar->reload_button(),
+      toolbar->seoul_compact_button_for_testing()};
+  for (size_t i = 0; i < controls.size(); ++i) {
+    views::Button* const control = controls[i];
+    ASSERT_TRUE(control);
+    ASSERT_TRUE(control->GetVisible());
+    ASSERT_FALSE(control->layer());
+    const bool was_enabled = control->GetEnabled();
+    control->SetEnabled(true);
+
+    control->SetState(views::Button::STATE_PRESSED);
+    ASSERT_TRUE(control->layer());
+    const gfx::Transform target = control->layer()->GetTargetTransform();
+    const gfx::Vector2dF scale = target.To2dScale();
+    EXPECT_NEAR(0.95f, scale.x(), 0.001f);
+    EXPECT_NEAR(0.95f, scale.y(), 0.001f);
+    const gfx::PointF center(control->width() / 2.0f, control->height() / 2.0f);
+    const gfx::PointF mapped_center = target.MapPoint(center);
+    EXPECT_NEAR(center.x(), mapped_center.x(), 0.001f);
+    EXPECT_NEAR(center.y(), mapped_center.y(), 0.001f);
+
+    // Hover models a pointer release over the control; normal models a
+    // cancelled press after the pointer or capture leaves it.
+    control->SetState(i % 2 == 0 ? views::Button::STATE_HOVERED
+                                 : views::Button::STATE_NORMAL);
+    ASSERT_TRUE(control->layer());
+    EXPECT_TRUE(control->layer()->GetTargetTransform().IsIdentity());
+    EXPECT_TRUE(
+        base::test::RunUntil([&]() { return control->layer() == nullptr; }));
+    control->SetState(views::Button::STATE_NORMAL);
+    control->SetEnabled(was_enabled);
+  }
+
+  // Leaving Single Toolbar must synchronously restore the transform, release
+  // the owned layer, and unsubscribe from the now-hidden Seoul controls.
+  views::Button* const compact = toolbar->seoul_compact_button_for_testing();
+  compact->SetEnabled(true);
+  compact->SetState(views::Button::STATE_PRESSED);
+  ASSERT_TRUE(compact->layer());
+  browser_view->SetSeoulLayoutMode(seoul::SeoulLayoutMode::kMultiple);
+  EXPECT_FALSE(toolbar->is_seoul_sidebar_presentation());
+  EXPECT_FALSE(compact->layer());
+
+  compact->SetState(views::Button::STATE_NORMAL);
+  compact->SetState(views::Button::STATE_PRESSED);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(compact->layer());
+  compact->SetState(views::Button::STATE_NORMAL);
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       SingleToolbarPressMotionSnapsWhenReduced) {
+  auto render_mode_lock = gfx::AnimationTestApi::SetRichAnimationRenderMode(
+      gfx::Animation::RichAnimationRenderMode::FORCE_DISABLED);
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  ToolbarView* const toolbar = browser_view->toolbar();
+  ASSERT_TRUE(toolbar);
+  browser_view->DeprecatedLayoutImmediately();
+
+  const std::array<views::Button*, 4> controls = {
+      browser_view->toolbar_button_provider()->GetBackButton(),
+      toolbar->forward_button(), toolbar->reload_button(),
+      toolbar->seoul_compact_button_for_testing()};
+  for (views::Button* control : controls) {
+    ASSERT_TRUE(control);
+    ASSERT_FALSE(control->layer());
+    const bool was_enabled = control->GetEnabled();
+    control->SetEnabled(true);
+
+    control->SetState(views::Button::STATE_PRESSED);
+    ASSERT_TRUE(control->layer());
+    const gfx::Vector2dF scale = control->layer()->transform().To2dScale();
+    EXPECT_NEAR(0.95f, scale.x(), 0.001f);
+    EXPECT_NEAR(0.95f, scale.y(), 0.001f);
+
+    control->SetState(views::Button::STATE_NORMAL);
+    EXPECT_FALSE(control->layer());
+    control->SetEnabled(was_enabled);
+  }
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       IntegratedRailDoesNotPaintChromiumSeamCorners) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  ASSERT_TRUE(browser_view->IsSeoulToolbarIntegrated());
+  views::View* const top_corner =
+      browser_view->vertical_tab_strip_top_corner_for_testing();
+  views::View* const bottom_corner =
+      browser_view->vertical_tab_strip_bottom_corner_for_testing();
+  ASSERT_TRUE(top_corner);
+  ASSERT_TRUE(bottom_corner);
+
+  browser_view->DeprecatedLayoutImmediately();
+  EXPECT_FALSE(top_corner->GetVisible());
+  EXPECT_FALSE(bottom_corner->GetVisible());
+  EXPECT_TRUE(top_corner->bounds().IsEmpty());
+  EXPECT_TRUE(bottom_corner->bounds().IsEmpty());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       SingleToolbarOwnsFocusedStartupPlaceholder) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  ToolbarView* const toolbar = browser_view->toolbar();
+  ASSERT_TRUE(toolbar);
+  LocationBarView* const location_bar = toolbar->location_bar_view();
+  ASSERT_TRUE(location_bar);
+  OmniboxViewViews* const omnibox = location_bar->omnibox_view();
+  ASSERT_TRUE(omnibox);
+
+  location_bar->FocusLocation(/*is_user_initiated=*/false,
+                              /*clear_focus_if_failed=*/false);
+  omnibox->InstallPlaceholderText();
+  browser_view->DeprecatedLayoutImmediately();
+
+  EXPECT_EQ(static_cast<views::View*>(toolbar), location_bar->parent());
+  EXPECT_TRUE(location_bar->seoul_sidebar_mode());
+  EXPECT_FALSE(location_bar->seoul_floating_mode());
+  EXPECT_EQ(ExpectedSeoulPlaceholder(browser()), omnibox->GetPlaceholderText());
+
+  location_bar->SetSeoulSidebarMode(false);
+  location_bar->SetSeoulSidebarMode(true);
+  EXPECT_EQ(ExpectedSeoulPlaceholder(browser()), omnibox->GetPlaceholderText());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       SingleToolbarUsesZenLeadingSearchTreatment) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  LocationBarView* const location_bar =
+      browser_view->toolbar()->location_bar_view();
+  ASSERT_TRUE(location_bar);
+  ASSERT_TRUE(location_bar->location_icon_view());
+  ASSERT_TRUE(location_bar->seoul_floating_search_icon_for_testing());
+
+  location_bar->Revert();
+  location_bar->Update(browser()->tab_strip_model()->GetActiveWebContents());
+  browser_view->DeprecatedLayoutImmediately();
+
+  EXPECT_TRUE(location_bar->IsEditingOrEmpty());
+  EXPECT_TRUE(
+      location_bar->seoul_floating_search_icon_for_testing()->GetVisible());
+  EXPECT_FALSE(location_bar->location_icon_view()->GetVisible());
+
+  ASSERT_NE(nullptr,
+            ui_test_utils::NavigateToURL(browser(), GURL(url::kAboutBlankURL)));
+  location_bar->Revert();
+  location_bar->Update(browser()->tab_strip_model()->GetActiveWebContents());
+  browser_view->DeprecatedLayoutImmediately();
+
+  EXPECT_FALSE(location_bar->IsEditingOrEmpty());
+  EXPECT_FALSE(
+      location_bar->seoul_floating_search_icon_for_testing()->GetVisible());
+  EXPECT_FALSE(location_bar->location_icon_view()->GetVisible());
+
+  // Zen temporarily restores the page identity on implicit hover, then
+  // collapses it again when the pointer leaves.
+  gfx::ScopedAnimationDurationScaleMode disable_animation(
+      gfx::ScopedAnimationDurationScaleMode::ZERO_DURATION);
+  location_bar->OnOmniboxHovered(true);
+  base::RunLoop().RunUntilIdle();
+  browser_view->DeprecatedLayoutImmediately();
+  EXPECT_TRUE(location_bar->location_icon_view()->GetVisible());
+  ASSERT_TRUE(location_bar->location_icon_view()->layer());
+  EXPECT_FLOAT_EQ(1.0f, location_bar->location_icon_view()->layer()->opacity());
+
+  location_bar->OnOmniboxHovered(false);
+  base::RunLoop().RunUntilIdle();
+  browser_view->DeprecatedLayoutImmediately();
+  EXPECT_FALSE(location_bar->location_icon_view()->GetVisible());
+  EXPECT_FLOAT_EQ(0.0f, location_bar->location_icon_view()->layer()->opacity());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       FirstEditKeepsTextAndEmbedsAutocompleteResults) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  LocationBarView* const location_bar =
+      browser_view->toolbar()->location_bar_view();
+  ASSERT_TRUE(location_bar);
+  OmniboxViewViews* const omnibox = location_bar->omnibox_view();
+  ASSERT_TRUE(omnibox);
+  OmniboxPopupView* const popup_interface =
+      location_bar->GetOmniboxPopupViewForTesting();
+  auto* const popup = static_cast<OmniboxPopupViewViews*>(popup_interface);
+  ASSERT_TRUE(popup);
+
+  omnibox->SetFocus(/*is_user_initiated=*/false);
+  omnibox->SetUserText(u"example.com", /*update_popup=*/true);
+  ASSERT_TRUE(base::test::RunUntil([&] { return popup_interface->IsOpen(); }));
+  browser_view->DeprecatedLayoutImmediately();
+
+  EXPECT_EQ(u"example.com",
+            location_bar->GetOmniboxController()->edit_model()->user_text());
+  EXPECT_TRUE(browser_view->IsHostingSeoulOmniboxPopup(popup));
+  EXPECT_EQ(browser_view->seoul_omnibox_surface_for_testing(),
+            location_bar->parent());
+  EXPECT_GT(browser_view->seoul_omnibox_surface_for_testing()->height(), 62);
+  EXPECT_EQ(browser_view->seoul_omnibox_surface_for_testing()->size(),
+            browser_view->seoul_omnibox_backdrop_for_testing()->size());
+
+  location_bar->GetOmniboxController()->StopAutocomplete(
+      /*clear_result=*/true);
+  popup->UpdatePopupAppearance();
+  EXPECT_FALSE(popup_interface->IsOpen());
+  EXPECT_FALSE(browser_view->IsHostingSeoulOmniboxPopup(popup));
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       EmbeddedAutocompleteClickStaysInsideSurface) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  LocationBarView* const location_bar =
+      browser_view->toolbar()->location_bar_view();
+  ASSERT_TRUE(location_bar);
+  OmniboxViewViews* const omnibox = location_bar->omnibox_view();
+  ASSERT_TRUE(omnibox);
+  OmniboxPopupView* const popup_interface =
+      location_bar->GetOmniboxPopupViewForTesting();
+  auto* const popup = static_cast<OmniboxPopupViewViews*>(popup_interface);
+  ASSERT_TRUE(popup);
+
+  omnibox->SetFocus(/*is_user_initiated=*/false);
+  omnibox->SetUserText(u"chrome://version/", /*update_popup=*/true);
+  ASSERT_TRUE(base::test::RunUntil([&] { return popup_interface->IsOpen(); }));
+  browser_view->DeprecatedLayoutImmediately();
+  ASSERT_FALSE(popup->children().empty());
+  auto* const first_row =
+      views::AsViewClass<OmniboxRowView>(popup->children().front());
+  ASSERT_TRUE(first_row);
+  OmniboxResultView* const first_result = first_row->result_view();
+  ASSERT_TRUE(first_result);
+  const GURL destination = location_bar->GetOmniboxController()
+                               ->autocomplete_controller()
+                               ->result()
+                               .match_at(first_row->line())
+                               .destination_url;
+  ASSERT_TRUE(destination.is_valid());
+
+  ui::MouseEvent press(ui::EventType::kMousePressed, gfx::Point(), gfx::Point(),
+                       base::TimeTicks::Now(), ui::EF_LEFT_MOUSE_BUTTON,
+                       ui::EF_LEFT_MOUSE_BUTTON);
+  ui::Event::DispatcherApi(&press).set_target(first_result);
+  EXPECT_FALSE(location_bar->ShouldCloseOmniboxPopup(&press));
+
+  gfx::NativeWindow event_window = browser()->window()->GetNativeWindow();
+#if defined(USE_AURA)
+  event_window = event_window->GetRootWindow();
+#endif
+  ui::test::EventGenerator generator(event_window);
+  generator.MoveMouseTo(first_result->GetBoundsInScreen().CenterPoint());
+  generator.PressLeftButton();
+  EXPECT_TRUE(popup_interface->IsOpen());
+  EXPECT_TRUE(browser_view->IsHostingSeoulOmniboxPopup(popup));
+  generator.ReleaseLeftButton();
+
+  content::WebContents* const contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+  ASSERT_TRUE(content::WaitForLoadStop(contents));
+  EXPECT_EQ(destination, contents->GetLastCommittedURL());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       EmbeddedAutocompleteOverflowScrolls) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  LocationBarView* const location_bar =
+      browser_view->toolbar()->location_bar_view();
+  ASSERT_TRUE(location_bar);
+  OmniboxViewViews* const omnibox = location_bar->omnibox_view();
+  ASSERT_TRUE(omnibox);
+  OmniboxPopupView* const popup_interface =
+      location_bar->GetOmniboxPopupViewForTesting();
+  auto* const popup = static_cast<OmniboxPopupViewViews*>(popup_interface);
+  ASSERT_TRUE(popup);
+
+  omnibox->SetFocus(/*is_user_initiated=*/false);
+  omnibox->SetUserText(u"overflow", /*update_popup=*/true);
+  ASSERT_TRUE(base::test::RunUntil([&] { return popup_interface->IsOpen(); }));
+
+  OmniboxController* const controller = location_bar->GetOmniboxController();
+  ASSERT_TRUE(controller);
+  AutocompleteController* const autocomplete =
+      controller->autocomplete_controller();
+  ASSERT_TRUE(autocomplete);
+  ASSERT_FALSE(autocomplete->result().empty());
+  AutocompleteProvider* const provider =
+      autocomplete->result().match_at(0).provider;
+  ASSERT_TRUE(provider);
+  controller->StopAutocomplete(/*clear_result=*/false);
+
+  const size_t initial_result_count = autocomplete->result().size();
+  constexpr size_t kInjectedResultCount = 12;
+  for (size_t i = 0; i < kInjectedResultCount; ++i) {
+    const std::string suffix = base::NumberToString(i);
+    AutocompleteMatch match(provider, 100 - static_cast<int>(i),
+                            /*deletable=*/false,
+                            AutocompleteMatchType::HISTORY_URL);
+    match.contents = u"overflow.example/" + base::NumberToString16(i);
+    match.contents_class = {{0, AutocompleteMatch::ACMatchClassification::URL}};
+    match.fill_into_edit = match.contents;
+    match.destination_url = GURL("https://overflow.example/" + suffix);
+    match.transition = ui::PAGE_TRANSITION_TYPED;
+    autocomplete->InjectAdHocMatch(std::move(match));
+  }
+  ASSERT_TRUE(base::test::RunUntil([&] {
+    return autocomplete->result().size() ==
+           initial_result_count + kInjectedResultCount;
+  }));
+  popup->UpdatePopupAppearance();
+  browser_view->DeprecatedLayoutImmediately();
+
+  views::ScrollView* const scroll_view =
+      browser_view->seoul_omnibox_popup_scroll_view_for_testing();
+  ASSERT_TRUE(scroll_view);
+  ASSERT_TRUE(scroll_view->contents());
+  EXPECT_EQ(252, scroll_view->height());
+  EXPECT_GT(scroll_view->contents()->height(), scroll_view->height());
+  EXPECT_TRUE(scroll_view->IsVerticalContentOverflowing());
+  EXPECT_EQ(scroll_view->contents()->height() -
+                scroll_view->GetVisibleRect().height(),
+            scroll_view->vertical_scroll_bar()->GetMaxPosition());
+  EXPECT_FLOAT_EQ(0.0f, scroll_view->CurrentOffset().y());
+
+  const size_t last_line = autocomplete->result().size() - 1;
+  OmniboxRowView* last_row = nullptr;
+  for (views::View* child : popup->children()) {
+    auto* const row = views::AsViewClass<OmniboxRowView>(child);
+    if (row && row->line() == last_line) {
+      last_row = row;
+      break;
+    }
+  }
+  ASSERT_TRUE(last_row);
+
+  browser()->window()->Activate();
+  gfx::NativeWindow event_window = browser()->window()->GetNativeWindow();
+#if defined(USE_AURA)
+  event_window = event_window->GetRootWindow();
+#endif
+  ui::test::EventGenerator generator(event_window);
+  generator.PressAndReleaseKey(ui::VKEY_NEXT);
+  ASSERT_TRUE(base::test::RunUntil(
+      [&] { return popup->GetSelectedIndex() == last_line; }));
+  ASSERT_TRUE(base::test::RunUntil(
+      [&] { return scroll_view->CurrentOffset().y() > 0.0f; }));
+  const gfx::Rect last_row_rect = views::View::ConvertRectToTarget(
+      last_row, scroll_view->contents(), last_row->GetLocalBounds());
+  EXPECT_TRUE(scroll_view->GetVisibleRect().Contains(last_row_rect));
+
+  controller->StopAutocomplete(/*clear_result=*/true);
+  popup->UpdatePopupAppearance();
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
                        FooterMatchesZenDefaultControlsAndLayout) {
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
   ASSERT_TRUE(browser_view);
@@ -225,23 +766,24 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   footer->SetPresentationCollapsed(false);
   browser_view->GetWidget()->LayoutRootViewIfNecessary();
   views::View* controls = footer->controls_row_for_testing();
-  views::LabelButton* downloads = footer->downloads_button_for_testing();
+  views::LabelButton* toggle_sidebar =
+      footer->toggle_sidebar_button_for_testing();
   views::View* workspaces = footer->workspaces_control_for_testing();
   views::LabelButton* create_new = footer->create_new_button_for_testing();
   ASSERT_TRUE(controls);
-  ASSERT_TRUE(downloads);
+  ASSERT_TRUE(toggle_sidebar);
   ASSERT_TRUE(workspaces);
   ASSERT_TRUE(create_new);
 
   const auto& children = controls->children();
   ASSERT_EQ(3u, children.size());
-  EXPECT_EQ(downloads, children[0]);
+  EXPECT_EQ(toggle_sidebar, children[0]);
   EXPECT_EQ(workspaces, children[1]);
   EXPECT_EQ(create_new, children[2]);
-  EXPECT_TRUE(downloads->GetVisible());
+  EXPECT_TRUE(toggle_sidebar->GetVisible());
   EXPECT_TRUE(workspaces->GetVisible());
   EXPECT_TRUE(create_new->GetVisible());
-  EXPECT_EQ(u"Open Downloads", downloads->GetAccessibleName());
+  EXPECT_EQ(u"Collapse Sidebar", toggle_sidebar->GetAccessibleName());
   EXPECT_EQ(u"Workspaces", workspaces->GetAccessibleName());
   EXPECT_EQ(u"Create New", create_new->GetAccessibleName());
 
@@ -249,30 +791,93 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
       create_new->GetImageModel(views::Button::STATE_NORMAL);
   ASSERT_TRUE(create_new_icon);
   ASSERT_TRUE(create_new_icon->IsVectorIcon());
-  EXPECT_EQ(&vector_icons::kAddIcon,
-            create_new_icon->GetVectorIcon().vector_icon());
+  EXPECT_EQ(&kSeoulPlusIcon, create_new_icon->GetVectorIcon().vector_icon());
+
+  const std::optional<ui::ImageModel>& toggle_sidebar_icon =
+      toggle_sidebar->GetImageModel(views::Button::STATE_NORMAL);
+  ASSERT_TRUE(toggle_sidebar_icon);
+  ASSERT_TRUE(toggle_sidebar_icon->IsVectorIcon());
+  EXPECT_EQ(&kSeoulExpandSidebarIcon,
+            toggle_sidebar_icon->GetVectorIcon().vector_icon());
+
+  ASSERT_EQ(1u, workspaces->children().size());
+  auto* workspace_button =
+      views::AsViewClass<views::LabelButton>(workspaces->children().front());
+  ASSERT_TRUE(workspace_button);
+  const std::optional<ui::ImageModel>& workspace_icon =
+      workspace_button->GetImageModel(views::Button::STATE_NORMAL);
+  EXPECT_TRUE(!workspace_icon || workspace_icon->IsEmpty());
+  EXPECT_TRUE(footer->first_space_uses_empty_icon_dot_for_testing());
 
   // Equal edge controls and a flexible centered workspace control reproduce
   // Zen's expanded `justify-content: space-between` footer.
-  EXPECT_EQ(downloads->width(), create_new->width());
+  EXPECT_EQ(toggle_sidebar->width(), create_new->width());
   EXPECT_EQ(controls->GetLocalBounds().CenterPoint().x(),
             workspaces->bounds().CenterPoint().x());
-  EXPECT_LT(downloads->bounds().CenterPoint().x(),
+  EXPECT_LT(toggle_sidebar->bounds().CenterPoint().x(),
             workspaces->bounds().CenterPoint().x());
   EXPECT_LT(workspaces->bounds().CenterPoint().x(),
             create_new->bounds().CenterPoint().x());
 
   footer->SetPresentationCollapsed(true);
   browser_view->GetWidget()->LayoutRootViewIfNecessary();
-  EXPECT_TRUE(downloads->GetVisible());
+  EXPECT_TRUE(toggle_sidebar->GetVisible());
   EXPECT_TRUE(workspaces->GetVisible());
   EXPECT_TRUE(create_new->GetVisible());
-  EXPECT_LT(downloads->bounds().CenterPoint().y(),
+  EXPECT_LT(toggle_sidebar->bounds().CenterPoint().y(),
             workspaces->bounds().CenterPoint().y());
   EXPECT_LT(workspaces->bounds().CenterPoint().y(),
             create_new->bounds().CenterPoint().y());
 
   footer->SetPresentationCollapsed(false);
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       CreateNewIconTracksCommandSurfaceLikeZen) {
+  SeoulOrganizationService* const organization = service();
+  ASSERT_TRUE(organization);
+  ASSERT_TRUE(organization->shell_service());
+  SeoulShellFooterView* const footer =
+      organization->shell_service()->GetFooterForTesting(WindowKey());
+  ASSERT_TRUE(footer);
+  views::View* const icon = footer->create_new_icon_for_testing();
+  ASSERT_TRUE(icon);
+  ASSERT_TRUE(icon->layer());
+
+  const bool originally_preferred_reduced_motion =
+      gfx::Animation::PrefersReducedMotion();
+  base::ScopedClosureRunner restore_reduced_motion(base::BindOnce(
+      [](bool value) {
+        gfx::Animation::SetPrefersReducedMotionForTesting(value);
+      },
+      originally_preferred_reduced_motion));
+  gfx::Animation::SetPrefersReducedMotionForTesting(true);
+
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  browser_view->GetWidget()->LayoutRootViewIfNecessary();
+  ASSERT_FALSE(icon->GetLocalBounds().IsEmpty());
+  EXPECT_FALSE(footer->is_command_launcher_visible_for_testing());
+  EXPECT_TRUE(icon->layer()->transform().IsIdentity());
+
+  ASSERT_TRUE(footer->ShowCommandLauncher());
+  EXPECT_TRUE(browser_view->IsSeoulOmniboxActionMode());
+  EXPECT_TRUE(footer->is_command_launcher_visible_for_testing());
+  EXPECT_FALSE(icon->layer()->transform().IsIdentity());
+
+  // Zen's rotated plus is a close affordance, not a one-way status icon.
+  ASSERT_TRUE(footer->ShowCommandLauncher());
+  EXPECT_FALSE(browser_view->IsSeoulOmniboxActionMode());
+  EXPECT_FALSE(footer->is_command_launcher_visible_for_testing());
+  EXPECT_TRUE(icon->layer()->transform().IsIdentity());
+
+  ASSERT_TRUE(footer->ShowCommandLauncher());
+  EXPECT_TRUE(browser_view->HandleSeoulOmniboxActionKeyEvent(
+      ui::KeyEvent(ui::EventType::kKeyPressed, ui::VKEY_ESCAPE, ui::EF_NONE)));
+  EXPECT_FALSE(browser_view->IsSeoulOmniboxActionMode());
+  EXPECT_FALSE(footer->is_command_launcher_visible_for_testing());
+  EXPECT_TRUE(icon->layer()->transform().IsIdentity());
 }
 
 IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
@@ -294,12 +899,19 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   EXPECT_EQ(static_cast<views::View*>(vertical_region),
             original_toolbar->parent());
 
-  // Compact is independent of Appearance. Seed it while Single is active so
-  // the durable modes must defer and later restore it.
-  controller->SetExpandOnHoverEnabledForWindow(true);
+  // Compact is independent of Appearance. Enable it after the rail is already
+  // durably collapsed to cover the real preference-toggle ordering; the
+  // presentation must hide immediately without another collapse transition.
   controller->RequestCollapse(true);
   ASSERT_TRUE(
       base::test::RunUntil([&]() { return controller->IsCollapsed(); }));
+  controller->SetExpandOnHoverEnabledForWindow(true);
+  browser_view->GetWidget()->LayoutRootViewIfNecessary();
+  EXPECT_EQ(VerticalTabStripRegionView::kCompactCollapsedWidth,
+            vertical_region->width());
+  EXPECT_EQ(8, browser_view->contents_container()->x());
+  EXPECT_TRUE(vertical_region->layer()->GetMasksToBounds())
+      << "Enabling Compact after an existing collapse must clip immediately";
 
   const gfx::Rect original_bounds = browser_view->bounds();
   browser_view->SetBoundsRect(gfx::Rect(0, 0, 640, 500));
@@ -335,6 +947,8 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   EXPECT_FALSE(vertical_region->is_expanded_on_hover());
   EXPECT_EQ(VerticalTabStripRegionView::kCollapsedWidth,
             vertical_region->width());
+  EXPECT_FALSE(vertical_region->layer()->GetMasksToBounds())
+      << "The ordinary 60-DIP rail must never use Compact clipping";
   EXPECT_GE(browser_view->contents_container()->x(),
             vertical_region->bounds().right());
 
@@ -347,12 +961,311 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   EXPECT_TRUE(browser_view->IsSeoulToolbarIntegrated());
   EXPECT_TRUE(controller->IsExpandOnHoverEnabled())
       << "Compact state must be restored after durable layout modes";
+  browser_view->GetWidget()->LayoutRootViewIfNecessary();
+  EXPECT_EQ(VerticalTabStripRegionView::kCompactCollapsedWidth,
+            vertical_region->width())
+      << "Single + Compact must leave only Zen's edge reveal target";
+  EXPECT_LT(vertical_region->width(),
+            VerticalTabStripRegionView::kCollapsedWidth);
+  EXPECT_EQ(8, browser_view->contents_container()->x())
+      << "The hidden compact rail must not reserve a permanent icon column";
 
   controller->SetExpandOnHoverEnabledForWindow(false);
   controller->RequestCollapse(false);
   ASSERT_TRUE(
       base::test::RunUntil([&]() { return !controller->IsCollapsed(); }));
   browser_view->SetBoundsRect(original_bounds);
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       CompactShortcutTogglesExactlyOncePerPress) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  views::FocusManager* const focus_manager = browser_view->GetFocusManager();
+  ASSERT_TRUE(focus_manager);
+  auto* const vertical_tabs =
+      tabs::VerticalTabStripStateController::From(browser());
+  ASSERT_TRUE(vertical_tabs);
+
+  SeoulOrganizationService* const svc = service();
+  ASSERT_TRUE(svc);
+  ASSERT_TRUE(svc->shell_service());
+  ShellController* const shell =
+      svc->shell_service()->GetController(WindowKey());
+  ASSERT_TRUE(shell);
+  ASSERT_TRUE(shell->snapshot().compact_mode.available);
+
+  const ui::Accelerator compact(ui::VKEY_S, ui::EF_PLATFORM_ACCELERATOR);
+  EXPECT_TRUE(focus_manager->HasPriorityHandler(compact));
+  const bool initially_enabled = shell->snapshot().compact_mode.enabled;
+
+  EXPECT_TRUE(focus_manager->ProcessAccelerator(compact));
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    return shell->snapshot().compact_mode.enabled != initially_enabled;
+  }));
+  EXPECT_EQ(!initially_enabled, vertical_tabs->IsExpandOnHoverEnabled());
+
+  EXPECT_TRUE(focus_manager->ProcessAccelerator(compact));
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    return shell->snapshot().compact_mode.enabled == initially_enabled;
+  }));
+  EXPECT_EQ(initially_enabled, vertical_tabs->IsExpandOnHoverEnabled());
+}
+
+IN_PROC_BROWSER_TEST_F(
+    SeoulShellBrowserTest,
+    CompactMultipleRoundTripKeepsFiveDipEndpointAndPresentation) {
+  gfx::ScopedAnimationDurationScaleMode animation_duration(
+      gfx::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  auto* const controller =
+      tabs::VerticalTabStripStateController::From(browser());
+  auto* const region =
+      browser_view->vertical_tab_strip_region_view_for_testing();
+  ASSERT_TRUE(controller);
+  ASSERT_TRUE(region);
+
+  controller->SetExpandOnHoverEnabledForWindow(true);
+  controller->RequestCollapse(true);
+  auto* const animations = BrowserAnimationController::From(browser());
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    return controller->IsCollapsed() &&
+           !animations->IsAnimating(TabStripAnimations::kVerticalTabStrip);
+  }));
+  browser_view->GetWidget()->LayoutRootViewIfNecessary();
+  ASSERT_EQ(VerticalTabStripRegionView::kCompactCollapsedWidth,
+            region->width());
+  EXPECT_TRUE(region->layer()->GetMasksToBounds())
+      << "The five-DIP endpoint must clip retained shell controls";
+
+  browser_view->SetSeoulLayoutMode(SeoulLayoutMode::kMultiple);
+  ASSERT_TRUE(animations->IsAnimating(TabStripAnimations::kVerticalTabStrip));
+  EXPECT_TRUE(region->IsSeoulCompactExitAnimation());
+  EXPECT_FALSE(region->layer()->GetMasksToBounds())
+      << "Compact exit must unclip before its first reveal frame";
+  EXPECT_EQ(VerticalTabStripRegionView::kCompactCollapsedWidth,
+            region->GetPreferredSize().width());
+
+  int previous_width = region->GetPreferredSize().width();
+  bool monotonic = true;
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    browser_view->GetWidget()->LayoutRootViewIfNecessary();
+    const int current_width = region->GetPreferredSize().width();
+    monotonic &= current_width >= previous_width;
+    previous_width = current_width;
+    return !animations->IsAnimating(TabStripAnimations::kVerticalTabStrip);
+  }));
+  EXPECT_TRUE(monotonic);
+  EXPECT_EQ(controller->GetUncollapsedWidth(),
+            region->GetPreferredSize().width());
+
+  // Returning to Single restores the deferred Compact state. Hover semantics
+  // must be restored before collapse starts so the complete sidebar remains
+  // painted during travel and hides only at the five-DIP endpoint.
+  browser_view->SetSeoulLayoutMode(SeoulLayoutMode::kSingle);
+  ASSERT_TRUE(animations->IsAnimating(TabStripAnimations::kVerticalTabStrip));
+  EXPECT_TRUE(controller->IsExpandOnHoverEnabled());
+  EXPECT_TRUE(browser_view->toolbar()->GetVisible());
+  EXPECT_FALSE(region->layer()->GetMasksToBounds())
+      << "Returning to Compact must remain unmasked while the rail travels";
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    return !animations->IsAnimating(TabStripAnimations::kVerticalTabStrip);
+  }));
+  browser_view->GetWidget()->LayoutRootViewIfNecessary();
+  EXPECT_TRUE(controller->IsCollapsed());
+  EXPECT_EQ(VerticalTabStripRegionView::kCompactCollapsedWidth,
+            region->width());
+  EXPECT_TRUE(region->layer()->GetMasksToBounds());
+  EXPECT_FALSE(browser_view->toolbar()->GetVisible());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       CompactCollapsedMultipleStartsFromRealSixtyDipEndpoint) {
+  gfx::ScopedAnimationDurationScaleMode animation_duration(
+      gfx::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  auto* const controller =
+      tabs::VerticalTabStripStateController::From(browser());
+  auto* const region =
+      browser_view->vertical_tab_strip_region_view_for_testing();
+  ASSERT_TRUE(controller);
+  ASSERT_TRUE(region);
+
+  controller->SetExpandOnHoverEnabledForWindow(true);
+  controller->RequestCollapse(true);
+  auto* const animations = BrowserAnimationController::From(browser());
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    return controller->IsCollapsed() &&
+           !animations->IsAnimating(TabStripAnimations::kVerticalTabStrip);
+  }));
+
+  browser_view->SetSeoulLayoutMode(SeoulLayoutMode::kCollapsed);
+  browser_view->GetWidget()->LayoutRootViewIfNecessary();
+  ASSERT_FALSE(region->IsSeoulCompactExitAnimation());
+  ASSERT_EQ(VerticalTabStripRegionView::kCollapsedWidth, region->width());
+
+  browser_view->SetSeoulLayoutMode(SeoulLayoutMode::kMultiple);
+  ASSERT_TRUE(animations->IsAnimating(TabStripAnimations::kVerticalTabStrip));
+  EXPECT_FALSE(region->IsSeoulCompactExitAnimation());
+  EXPECT_EQ(VerticalTabStripRegionView::kCollapsedWidth,
+            region->GetPreferredSize().width());
+
+  int previous_width = region->GetPreferredSize().width();
+  bool monotonic = true;
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    browser_view->GetWidget()->LayoutRootViewIfNecessary();
+    const int current_width = region->GetPreferredSize().width();
+    monotonic &= current_width >= previous_width;
+    previous_width = current_width;
+    return !animations->IsAnimating(TabStripAnimations::kVerticalTabStrip);
+  }));
+  EXPECT_TRUE(monotonic);
+  EXPECT_EQ(controller->GetUncollapsedWidth(),
+            region->GetPreferredSize().width());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       CompactHoverRevealAndReturnCollapseClipOnlyAtEndpoints) {
+  gfx::ScopedAnimationDurationScaleMode animation_duration(
+      gfx::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  auto* const controller =
+      tabs::VerticalTabStripStateController::From(browser());
+  auto* const region =
+      browser_view->vertical_tab_strip_region_view_for_testing();
+  auto* const animations = BrowserAnimationController::From(browser());
+  ASSERT_TRUE(controller);
+  ASSERT_TRUE(region);
+  ASSERT_TRUE(animations);
+
+  controller->SetExpandOnHoverEnabledForWindow(true);
+  controller->RequestCollapse(true);
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    return controller->IsCollapsed() &&
+           !animations->IsAnimating(TabStripAnimations::kVerticalTabStrip);
+  }));
+  browser_view->GetWidget()->LayoutRootViewIfNecessary();
+  ASSERT_EQ(VerticalTabStripRegionView::kCompactCollapsedWidth,
+            region->width());
+  ASSERT_TRUE(region->layer()->GetMasksToBounds());
+
+  auto paint_as_active = browser_view->GetWidget()->LockPaintAsActive();
+  const gfx::Point hover_point = region->GetLocalBounds().CenterPoint();
+  const ui::MouseEvent mouse_enter(ui::EventType::kMouseEntered, hover_point,
+                                   hover_point, base::TimeTicks::Now(),
+                                   ui::EF_NONE, ui::EF_NONE);
+  region->OnMouseEntered(mouse_enter);
+  ASSERT_TRUE(animations->IsAnimating(TabStripAnimations::kVerticalTabStrip));
+  EXPECT_FALSE(region->layer()->GetMasksToBounds())
+      << "Hover reveal must unclip before its first animation frame";
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    browser_view->GetWidget()->LayoutRootViewIfNecessary();
+    return region->is_expanded_on_hover() &&
+           !animations->IsAnimating(TabStripAnimations::kVerticalTabStrip);
+  }));
+  EXPECT_EQ(controller->GetUncollapsedWidth(), region->width());
+  EXPECT_FALSE(region->layer()->GetMasksToBounds());
+
+  const gfx::Point exit_point(-1, -1);
+  const ui::MouseEvent mouse_exit(ui::EventType::kMouseExited, exit_point,
+                                  exit_point, base::TimeTicks::Now(),
+                                  ui::EF_NONE, ui::EF_NONE);
+  region->OnMouseExited(mouse_exit);
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    browser_view->GetWidget()->LayoutRootViewIfNecessary();
+    return !region->is_expanded_on_hover() &&
+           !animations->IsAnimating(TabStripAnimations::kVerticalTabStrip);
+  }));
+  EXPECT_EQ(VerticalTabStripRegionView::kCompactCollapsedWidth,
+            region->width());
+  EXPECT_TRUE(region->layer()->GetMasksToBounds())
+      << "Hover return must clip only after reaching the five-DIP endpoint";
+  EXPECT_FALSE(browser_view->toolbar()->GetVisible());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       HoverExpandedCompactExitKeepsRailAndContentContinuous) {
+  gfx::ScopedAnimationDurationScaleMode animation_duration(
+      gfx::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  auto* const controller =
+      tabs::VerticalTabStripStateController::From(browser());
+  auto* const region =
+      browser_view->vertical_tab_strip_region_view_for_testing();
+  auto* const animations = BrowserAnimationController::From(browser());
+  ASSERT_TRUE(controller);
+  ASSERT_TRUE(region);
+  ASSERT_TRUE(animations);
+
+  controller->SetExpandOnHoverEnabledForWindow(true);
+  controller->RequestCollapse(true);
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    return controller->IsCollapsed() &&
+           !animations->IsAnimating(TabStripAnimations::kVerticalTabStrip);
+  }));
+
+  // The region itself is intentionally not focusable. Keep the otherwise
+  // inactive browser-test widget in the same frame-active state required by
+  // production hover handling, then deliver the real mouse-enter callback.
+  auto paint_as_active = browser_view->GetWidget()->LockPaintAsActive();
+  browser_view->GetWidget()->LayoutRootViewIfNecessary();
+  ASSERT_TRUE(browser_view->GetWidget()->ShouldPaintAsActive());
+  ASSERT_FALSE(region->GetLocalBounds().IsEmpty());
+  const gfx::Point hover_point = region->GetLocalBounds().CenterPoint();
+  const ui::MouseEvent mouse_enter(ui::EventType::kMouseEntered, hover_point,
+                                   hover_point, base::TimeTicks::Now(),
+                                   ui::EF_NONE, ui::EF_NONE);
+  region->OnMouseEntered(mouse_enter);
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    browser_view->GetWidget()->LayoutRootViewIfNecessary();
+    return region->is_expanded_on_hover() &&
+           !animations->IsAnimating(TabStripAnimations::kVerticalTabStrip);
+  }));
+  browser_view->GetWidget()->LayoutRootViewIfNecessary();
+  const int revealed_width = region->width();
+  const int compact_content_x = browser_view->contents_container()->x();
+  ASSERT_EQ(controller->GetUncollapsedWidth(), revealed_width);
+  ASSERT_EQ(8, compact_content_x);
+
+  // Disabling Compact first starts hover collapse. The following durable
+  // expand replaces that motion synchronously, which must not discard the
+  // armed five-DIP logical endpoint.
+  controller->SetExpandOnHoverEnabledForWindow(false);
+  ASSERT_TRUE(animations->IsAnimating(TabStripAnimations::kVerticalTabStrip));
+  controller->RequestCollapse(false);
+  ASSERT_TRUE(animations->IsAnimating(TabStripAnimations::kVerticalTabStrip));
+  ASSERT_TRUE(region->IsSeoulCompactExitAnimation());
+  browser_view->GetWidget()->LayoutRootViewIfNecessary();
+  EXPECT_NEAR(revealed_width, region->width(), 1);
+  EXPECT_NEAR(compact_content_x, browser_view->contents_container()->x(), 1);
+
+  int previous_content_x = browser_view->contents_container()->x();
+  bool content_moved_monotonically = true;
+  bool compact_exit_cleared_early = false;
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    browser_view->GetWidget()->LayoutRootViewIfNecessary();
+    const bool is_animating =
+        animations->IsAnimating(TabStripAnimations::kVerticalTabStrip);
+    const int content_x = browser_view->contents_container()->x();
+    content_moved_monotonically &= content_x >= previous_content_x;
+    previous_content_x = content_x;
+    compact_exit_cleared_early |=
+        is_animating && !region->IsSeoulCompactExitAnimation();
+    return !is_animating;
+  }));
+  EXPECT_TRUE(content_moved_monotonically);
+  EXPECT_FALSE(compact_exit_cleared_early);
+  EXPECT_FALSE(region->IsSeoulCompactExitAnimation());
+  EXPECT_EQ(controller->GetUncollapsedWidth(), region->width());
 }
 
 IN_PROC_BROWSER_TEST_F(
@@ -372,10 +1285,13 @@ IN_PROC_BROWSER_TEST_F(
   ASSERT_TRUE(
       base::test::RunUntil([&]() { return !controller->IsCollapsed(); }));
 
-  browser_view->SetFocusToLocationBar(/*is_user_initiated=*/false);
+  // Exercise the user-visible Cmd+L path. Programmatic focus intentionally
+  // leaves the integrated address row docked so startup/background work cannot
+  // surface browser chrome or steal focus.
+  browser_view->SetFocusToLocationBar(/*is_user_initiated=*/true);
   ASSERT_EQ(original_location_bar->omnibox_view(),
             browser_view->GetFocusManager()->GetFocusedView());
-  ASSERT_EQ(static_cast<views::View*>(browser_view),
+  ASSERT_EQ(browser_view->seoul_omnibox_surface_for_testing(),
             original_location_bar->parent());
 
   browser_view->SetSeoulLayoutMode(seoul::SeoulLayoutMode::kMultiple);
@@ -397,7 +1313,7 @@ IN_PROC_BROWSER_TEST_F(
   browser_view->SetSeoulLayoutMode(seoul::SeoulLayoutMode::kSingle);
   EXPECT_TRUE(browser_view->IsSeoulToolbarIntegrated());
   EXPECT_EQ(original_toolbar, browser_view->toolbar());
-  EXPECT_EQ(static_cast<views::View*>(browser_view),
+  EXPECT_EQ(browser_view->seoul_omnibox_surface_for_testing(),
             original_location_bar->parent());
   EXPECT_EQ(original_location_bar->omnibox_view(),
             browser_view->GetFocusManager()->GetFocusedView());
@@ -526,12 +1442,12 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
       << "rail=" << rail.ToString() << " contents=" << contents.ToString();
   EXPECT_FALSE(vertical_region->GetTopContainer()->GetVisible());
 
-  // The address row is intentionally transient and uses the compact 36px rail
-  // height while it is docked.
-  EXPECT_EQ(36, browser_view->toolbar()->height());
+  // Zen Single Toolbar keeps both 38-DIP rows and their 4-DIP gap stable.
+  EXPECT_EQ(80, browser_view->toolbar()->height());
 }
 
-IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest, NewTabUsesChromiumNewTab) {
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       ProgrammaticNewTabKeepsChromiumContract) {
   EXPECT_EQ(GURL(chrome::kChromeUINewTabURL), browser()->GetNewTabURL());
   const int previous_count = browser()->tab_strip_model()->count();
   chrome::NewTab(browser());
@@ -541,6 +1457,215 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest, NewTabUsesChromiumNewTab) {
   ASSERT_TRUE(contents);
   ASSERT_TRUE(content::WaitForLoadStop(contents));
   EXPECT_EQ(GURL(chrome::kChromeUINewTabURL), contents->GetVisibleURL());
+  EXPECT_EQ(search::GetNewTabPageURL(browser()->profile()),
+            contents->GetLastCommittedURL());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       SyntheticPlaceholderNeverLoadsNormalProfileNtp) {
+  content::WebContents* const placeholder = chrome::AddAndReturnTabAt(
+      browser(), chrome::ChromeUINewTabURLAsGURL(), -1,
+      /*foreground=*/true, std::nullopt, /*pinned=*/false,
+      /*synthetic_new_tab_placeholder=*/true);
+  ASSERT_TRUE(placeholder);
+  ASSERT_TRUE(content::WaitForLoadStop(placeholder));
+  EXPECT_EQ(GURL(url::kAboutBlankURL), placeholder->GetLastCommittedURL());
+  EXPECT_EQ(GURL(url::kAboutBlankURL), placeholder->GetVisibleURL());
+  EXPECT_TRUE(HasSyntheticNewTabPlaceholderProvenance(placeholder));
+  EXPECT_FALSE(placeholder->IsLoading());
+
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  LocationBarView* const location_bar =
+      browser_view->toolbar()->location_bar_view();
+  ASSERT_TRUE(location_bar);
+  EXPECT_TRUE(location_bar->omnibox_view()->GetText().empty());
+  EXPECT_EQ(ExpectedSeoulPlaceholder(browser()),
+            location_bar->omnibox_view()->GetPlaceholderText());
+  ASSERT_TRUE(location_bar->seoul_floating_search_icon_for_testing());
+  EXPECT_TRUE(
+      location_bar->seoul_floating_search_icon_for_testing()->GetVisible());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       OrdinaryAboutBlankKeepsChromiumPresentation) {
+  content::WebContents* const ordinary_blank =
+      chrome::AddAndReturnTabAt(browser(), GURL(url::kAboutBlankURL), -1,
+                                /*foreground=*/true);
+  ASSERT_TRUE(ordinary_blank);
+  ASSERT_TRUE(content::WaitForLoadStop(ordinary_blank));
+  EXPECT_FALSE(HasSyntheticNewTabPlaceholderProvenance(ordinary_blank));
+
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  LocationBarView* const location_bar =
+      browser_view->toolbar()->location_bar_view();
+  ASSERT_TRUE(location_bar);
+  EXPECT_EQ(u"about:blank", location_bar->omnibox_view()->GetText());
+  ASSERT_TRUE(location_bar->seoul_floating_search_icon_for_testing());
+  EXPECT_FALSE(
+      location_bar->seoul_floating_search_icon_for_testing()->GetVisible());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       SyntheticPlaceholderProvenanceRoundTripsExactly) {
+  content::WebContents* const placeholder = chrome::AddAndReturnTabAt(
+      browser(), chrome::ChromeUINewTabURLAsGURL(), -1,
+      /*foreground=*/true, std::nullopt, /*pinned=*/false,
+      /*synthetic_new_tab_placeholder=*/true);
+  ASSERT_TRUE(placeholder);
+  ASSERT_TRUE(content::WaitForLoadStop(placeholder));
+
+  std::map<std::string, std::string> metadata;
+  PopulateSeoulSessionMetadata(placeholder, &metadata);
+  ASSERT_TRUE(metadata.contains(kSeoulSyntheticNewTabPlaceholderSessionKey));
+  EXPECT_EQ("1", metadata[kSeoulSyntheticNewTabPlaceholderSessionKey]);
+
+  content::WebContents* const ordinary_blank =
+      chrome::AddAndReturnTabAt(browser(), GURL(url::kAboutBlankURL), -1,
+                                /*foreground=*/true);
+  ASSERT_TRUE(ordinary_blank);
+  ASSERT_TRUE(content::WaitForLoadStop(ordinary_blank));
+  std::map<std::string, std::string> ordinary_metadata;
+  PopulateSeoulSessionMetadata(ordinary_blank, &ordinary_metadata);
+  EXPECT_FALSE(
+      ordinary_metadata.contains(kSeoulSyntheticNewTabPlaceholderSessionKey));
+
+  RestoreSeoulSessionMetadata(ordinary_blank, metadata);
+  EXPECT_TRUE(HasSyntheticNewTabPlaceholderProvenance(ordinary_blank));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(),
+                                           GURL(chrome::kChromeUIVersionURL)));
+  std::map<std::string, std::string> navigated_metadata;
+  PopulateSeoulSessionMetadata(ordinary_blank, &navigated_metadata);
+  EXPECT_FALSE(
+      navigated_metadata.contains(kSeoulSyntheticNewTabPlaceholderSessionKey));
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       NewTabCommandTogglesZenSurfaceWithoutMutation) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  TabStripModel* const tab_strip = browser()->tab_strip_model();
+  content::WebContents* const source = tab_strip->GetActiveWebContents();
+  ASSERT_TRUE(source);
+  const GURL source_url = source->GetVisibleURL();
+  const int tab_count = tab_strip->count();
+  const gfx::Rect contents_bounds =
+      browser_view->contents_container()->bounds();
+
+  ASSERT_TRUE(chrome::ExecuteCommand(browser(), IDC_NEW_TAB));
+  EXPECT_EQ(tab_count, tab_strip->count());
+  EXPECT_EQ(source, tab_strip->GetActiveWebContents());
+  EXPECT_EQ(source_url, source->GetVisibleURL());
+  EXPECT_TRUE(browser_view->is_seoul_new_tab_surface_pending());
+  ASSERT_TRUE(browser_view->seoul_omnibox_surface_for_testing());
+  ASSERT_TRUE(browser_view->seoul_omnibox_toolbar_placeholder_for_testing());
+  EXPECT_EQ(contents_bounds, browser_view->contents_container()->bounds());
+  LocationBarView* const location_bar =
+      browser_view->toolbar()->location_bar_view();
+  ASSERT_TRUE(location_bar);
+  EXPECT_TRUE(location_bar->seoul_floating_mode());
+  EXPECT_TRUE(location_bar->omnibox_view()->GetText().empty());
+  EXPECT_EQ(ExpectedSeoulPlaceholder(browser()),
+            location_bar->omnibox_view()->GetPlaceholderText());
+
+  ASSERT_TRUE(chrome::ExecuteCommand(browser(), IDC_NEW_TAB));
+  EXPECT_EQ(tab_count, tab_strip->count());
+  EXPECT_EQ(source, tab_strip->GetActiveWebContents());
+  EXPECT_FALSE(browser_view->is_seoul_new_tab_surface_pending());
+  EXPECT_FALSE(browser_view->seoul_omnibox_surface_for_testing());
+  EXPECT_FALSE(browser_view->seoul_omnibox_toolbar_placeholder_for_testing());
+  EXPECT_FALSE(location_bar->seoul_floating_mode());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       NewTabSurfaceEscapeRestoresSourcePage) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  TabStripModel* const tab_strip = browser()->tab_strip_model();
+  content::WebContents* const source = tab_strip->GetActiveWebContents();
+  ASSERT_TRUE(source);
+  const GURL source_url = source->GetVisibleURL();
+  const int tab_count = tab_strip->count();
+
+  ASSERT_TRUE(chrome::ExecuteCommand(browser(), IDC_NEW_TAB));
+  OmniboxViewViews* const omnibox =
+      browser_view->toolbar()->location_bar_view()->omnibox_view();
+  ASSERT_TRUE(omnibox);
+  browser()->window()->Activate();
+  gfx::NativeWindow event_window = browser()->window()->GetNativeWindow();
+#if defined(USE_AURA)
+  event_window = event_window->GetRootWindow();
+#endif
+  ui::test::EventGenerator generator(event_window);
+  generator.PressAndReleaseKey(ui::VKEY_ESCAPE);
+
+  EXPECT_EQ(tab_count, tab_strip->count());
+  EXPECT_EQ(source, tab_strip->GetActiveWebContents());
+  EXPECT_EQ(source_url, source->GetVisibleURL());
+  EXPECT_FALSE(browser_view->is_seoul_new_tab_surface_pending());
+  EXPECT_FALSE(browser_view->seoul_omnibox_surface_for_testing());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       NewTabSurfaceEnterCreatesForegroundTab) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  TabStripModel* const tab_strip = browser()->tab_strip_model();
+  content::WebContents* const source = tab_strip->GetActiveWebContents();
+  ASSERT_TRUE(source);
+  const int tab_count = tab_strip->count();
+
+  ASSERT_TRUE(chrome::ExecuteCommand(browser(), IDC_NEW_TAB));
+  LocationBarView* const location_bar =
+      browser_view->toolbar()->location_bar_view();
+  ASSERT_TRUE(location_bar);
+  OmniboxViewViews* const omnibox = location_bar->omnibox_view();
+  ASSERT_TRUE(omnibox);
+  omnibox->SetUserText(u"chrome://version/", /*update_popup=*/true);
+  ASSERT_TRUE(base::test::RunUntil(
+      [&] { return location_bar->GetOmniboxPopupViewForTesting()->IsOpen(); }));
+  browser()->window()->Activate();
+  gfx::NativeWindow event_window = browser()->window()->GetNativeWindow();
+#if defined(USE_AURA)
+  event_window = event_window->GetRootWindow();
+#endif
+  ui::test::EventGenerator generator(event_window);
+  generator.PressAndReleaseKey(ui::VKEY_RETURN);
+
+  ASSERT_TRUE(base::test::RunUntil(
+      [&] { return tab_strip->count() == tab_count + 1; }));
+  content::WebContents* const destination = tab_strip->GetActiveWebContents();
+  ASSERT_TRUE(destination);
+  EXPECT_NE(source, destination);
+  ASSERT_TRUE(content::WaitForLoadStop(destination));
+  EXPECT_EQ(GURL("chrome://version/"), destination->GetLastCommittedURL());
+  EXPECT_FALSE(browser_view->is_seoul_new_tab_surface_pending());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest, NewTabActionUsesSameZenSurface) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  const int tab_count = browser()->tab_strip_model()->count();
+  actions::ActionItem* const action = actions::ActionManager::Get().FindAction(
+      kActionNewTab, browser()->GetActions()->root_action_item());
+  ASSERT_TRUE(action);
+
+  action->InvokeAction();
+  EXPECT_EQ(tab_count, browser()->tab_strip_model()->count());
+  EXPECT_TRUE(browser_view->is_seoul_new_tab_surface_pending());
+  EXPECT_TRUE(browser_view->seoul_omnibox_surface_for_testing());
+
+  action->InvokeAction();
+  EXPECT_EQ(tab_count, browser()->tab_strip_model()->count());
+  EXPECT_FALSE(browser_view->is_seoul_new_tab_surface_pending());
+  EXPECT_FALSE(browser_view->seoul_omnibox_surface_for_testing());
 }
 
 IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
@@ -581,12 +1706,13 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   EXPECT_FALSE(surface->layer()->GetMasksToBounds());
   EXPECT_FALSE(location_bar->location_icon_view()->GetVisible());
 
-  EXPECT_EQ(gfx::Rect(32, 83, 576, 62), location_bar->bounds());
+  EXPECT_EQ(gfx::Rect(0, 0, 427, 62), location_bar->bounds());
   EXPECT_EQ(location_bar->x(), actions->x());
   EXPECT_EQ(location_bar->width(), actions->width());
   EXPECT_EQ(location_bar->bounds().bottom(), actions->y());
   EXPECT_LE(actions->height(), 270);
-  EXPECT_EQ(location_bar->bounds().origin(), surface->bounds().origin());
+  EXPECT_EQ(gfx::Point(), location_bar->bounds().origin());
+  EXPECT_EQ(gfx::Point(106, 83), surface->bounds().origin());
   EXPECT_EQ(location_bar->width(), surface->width());
   EXPECT_EQ(location_bar->height() + actions->height(), surface->height());
   EXPECT_TRUE(browser_view->GetLocalBounds().Contains(surface->bounds()));
@@ -601,7 +1727,7 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   EXPECT_GE(browser_view->seoul_omnibox_glow_opacity_for_testing(), 0.0f);
   EXPECT_LE(browser_view->seoul_omnibox_glow_opacity_for_testing(), 1.0f);
 
-  EXPECT_EQ(576, BrowserView::CalculateSeoulOmniboxWidthForTesting(640));
+  EXPECT_EQ(427, BrowserView::CalculateSeoulOmniboxWidthForTesting(640));
   EXPECT_EQ(750, BrowserView::CalculateSeoulOmniboxWidthForTesting(1280));
 
   browser_view->HandleSeoulOmniboxActionKeyEvent(
@@ -682,6 +1808,36 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       UnifiedOmniboxKeepsZenSelectedForegroundWhite) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  ToolbarView* const toolbar = browser_view->toolbar();
+  ASSERT_TRUE(toolbar);
+  LocationBarView* const location_bar = toolbar->location_bar_view();
+  ASSERT_TRUE(location_bar);
+
+  browser_view->ShowSeoulOmniboxActions();
+  SeoulOmniboxActionView* const actions =
+      browser_view->seoul_omnibox_action_view_for_testing();
+  ASSERT_TRUE(actions);
+  ASSERT_GT(actions->result_count(), 0u);
+  views::Label* const mode_label =
+      location_bar->seoul_action_mode_label_for_testing();
+  ASSERT_TRUE(mode_label);
+
+  const SkColor selected_foreground =
+      browser_view->GetColorProvider()->GetColor(
+          kColorOmniboxResultsTextSelected);
+  EXPECT_EQ(SK_ColorWHITE, selected_foreground);
+  EXPECT_EQ(selected_foreground, actions->selected_title_color_for_testing());
+  EXPECT_EQ(selected_foreground, mode_label->GetEnabledColor());
+
+  EXPECT_TRUE(browser_view->HandleSeoulOmniboxActionKeyEvent(
+      ui::KeyEvent(ui::EventType::kKeyPressed, ui::VKEY_ESCAPE, ui::EF_NONE)));
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
                        UnifiedOmniboxActionSurfaceRoutesKeyboardSelection) {
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
   ASSERT_TRUE(browser_view);
@@ -720,6 +1876,31 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   EXPECT_TRUE(press(ui::VKEY_ESCAPE));
   EXPECT_FALSE(browser_view->IsSeoulOmniboxActionMode());
   EXPECT_FALSE(browser_view->seoul_omnibox_action_view_for_testing());
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       CommandLauncherNewTabTransitionsWithoutNtp) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  const int tab_count = browser()->tab_strip_model()->count();
+
+  browser_view->ShowSeoulOmniboxActions();
+  auto* const actions = browser_view->seoul_omnibox_action_view_for_testing();
+  ASSERT_TRUE(actions);
+  ASSERT_GT(actions->result_count(), 0u);
+  EXPECT_EQ(0u, actions->selected_index_for_testing());
+
+  EXPECT_TRUE(browser_view->HandleSeoulOmniboxActionKeyEvent(
+      ui::KeyEvent(ui::EventType::kKeyPressed, ui::VKEY_RETURN, ui::EF_NONE)));
+  EXPECT_EQ(tab_count, browser()->tab_strip_model()->count());
+  EXPECT_FALSE(browser_view->IsSeoulOmniboxActionMode());
+  EXPECT_TRUE(browser_view->is_seoul_new_tab_surface_pending());
+  EXPECT_TRUE(browser_view->seoul_omnibox_surface_for_testing());
+
+  EXPECT_TRUE(browser_view->ShowSeoulNewTabSurface());
+  EXPECT_FALSE(browser_view->is_seoul_new_tab_surface_pending());
+  EXPECT_FALSE(browser_view->seoul_omnibox_surface_for_testing());
 }
 
 // Seoul projects the tab strip; it never replaces it. Adding a tab through the
