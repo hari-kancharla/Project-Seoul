@@ -87,6 +87,11 @@ public:
     title_ = AddChildView(std::make_unique<views::Label>(
         base::UTF8ToUTF16(entry.label), views::style::CONTEXT_LABEL,
         views::style::STYLE_PRIMARY));
+    // Zen explicitly forces selected result descendants to white. Label's
+    // automatic readability adjustment otherwise evaluates that white against
+    // its default dialog background instead of the row's painted background
+    // and silently remaps it to gray.
+    title_->SetAutoColorReadabilityEnabled(false);
     title_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     title_->SetElideBehavior(gfx::ELIDE_TAIL);
     title_->SetFontList(
@@ -100,6 +105,7 @@ public:
       shortcut_->SetFontList(
           shortcut_->font_list().DeriveWithSizeDelta(-2).DeriveWithWeight(
               gfx::Font::Weight::SEMIBOLD));
+      shortcut_->SetAutoColorReadabilityEnabled(false);
       shortcut_->SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(6, 8)));
     }
     UpdateStyle();
@@ -122,7 +128,9 @@ public:
     UpdateStyle();
   }
 
-private:
+  SkColor title_color_for_testing() const { return title_->GetEnabledColor(); }
+
+ private:
   void StateChanged(ButtonState old_state) override {
     views::Button::StateChanged(old_state);
     UpdateStyle();
@@ -138,18 +146,30 @@ private:
                       ? views::CreateRoundedRectBackground(background, 8)
                       : nullptr);
 
-    const ui::ColorId foreground =
-        selected_ ? kColorOmniboxResultsTextSelected : kColorOmniboxText;
+    const ui::ColorId foreground = selected_ ? kColorOmniboxResultsTextSelected
+                                             : kColorSeoulOmniboxResultsText;
+    ui::ColorId title_background = kColorOmniboxResultsBackground;
+    if (selected_) {
+      title_background = kColorOmniboxResultsBackgroundSelected;
+    } else if (hovered) {
+      title_background = kColorOmniboxResultsBackgroundHovered;
+    }
+    title_->SetBackgroundColor(title_background);
     title_->SetEnabledColor(foreground);
+    const ui::ColorId icon_color = selected_ ? kColorOmniboxResultsIconSelected
+                                             : kColorSeoulOmniboxResultsText;
     icon_view_->SetImage(
-        ui::ImageModel::FromVectorIcon(*icon_, foreground, 16));
+        ui::ImageModel::FromVectorIcon(*icon_, icon_color, 16));
     if (shortcut_) {
-      shortcut_->SetEnabledColor(selected_ ? kColorOmniboxResultsTextSelected
-                                           : kColorOmniboxResultsTextDimmed);
-      shortcut_->SetBackground(views::CreateRoundedRectBackground(
-          selected_ ? kColorOmniboxResultsBackgroundHovered
-                    : kColorToolbarBackgroundSubtleEmphasis,
-          4));
+      const ui::ColorId shortcut_background =
+          selected_ ? kColorSeoulOmniboxShortcutBackgroundSelected
+                    : kColorSeoulOmniboxShortcutBackground;
+      shortcut_->SetBackgroundColor(shortcut_background);
+      shortcut_->SetEnabledColor(
+          selected_ ? kColorSeoulOmniboxShortcutForegroundSelected
+                    : kColorOmniboxResultsTextDimmed);
+      shortcut_->SetBackground(
+          views::CreateRoundedRectBackground(shortcut_background, 4));
     }
     SchedulePaint();
   }
@@ -226,6 +246,14 @@ bool SeoulOmniboxActionView::ExecuteSelection() {
   }
   ExecuteIndex(selected_index_);
   return true;
+}
+
+SkColor SeoulOmniboxActionView::selected_title_color_for_testing() const {
+  if (rows_.empty() || selected_index_ >= rows_.size()) {
+    return SK_ColorTRANSPARENT;
+  }
+  return static_cast<ActionRowView*>(rows_[selected_index_].get())
+      ->title_color_for_testing();
 }
 
 gfx::Size SeoulOmniboxActionView::CalculatePreferredSize(
