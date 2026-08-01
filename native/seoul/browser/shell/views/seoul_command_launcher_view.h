@@ -11,6 +11,7 @@
 #include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "seoul/browser/shell/command_launcher_catalog.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/native_ui_types.h"
 #include "ui/views/view.h"
@@ -48,6 +49,7 @@ public:
 
   size_t result_count() const { return visible_entries_.size(); }
   size_t selected_index_for_testing() const { return selected_index_; }
+  SkColor selected_title_color_for_testing() const;
 
   gfx::Size CalculatePreferredSize(
       const views::SizeBounds &available_size) const override;
