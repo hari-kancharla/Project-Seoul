@@ -29,6 +29,10 @@ struct LiveTabDescriptor {
   std::string upstream_split_token;
   std::string upstream_group_token;
   bool is_active = false;
+  // True only for the one inert startup tab adopted as this window's
+  // reusable new-tab placeholder. This is ephemeral lifecycle state, not a
+  // URL-derived label for every New Tab Page.
+  bool is_new_tab_placeholder = false;
 
   friend bool operator==(const LiveTabDescriptor&,
                          const LiveTabDescriptor&) = default;
