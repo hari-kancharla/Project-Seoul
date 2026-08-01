@@ -22,6 +22,11 @@ CommandStatusResult ModelCommandFacade::Execute(const BrowserCommand& command) {
                      .has_value()
                  ? CommandOk()
                  : CommandErr(CommandError::kInvalidCommand);
+    case CommandKind::kSetWorkspaceIcon:
+      return model_->SetWorkspaceIcon(*command.workspace_id, command.icon)
+                     .has_value()
+                 ? CommandOk()
+                 : CommandErr(CommandError::kInvalidCommand);
     case CommandKind::kReorderWorkspace:
       return model_->ReorderWorkspace(*command.workspace_id, command.order)
                      .has_value()
