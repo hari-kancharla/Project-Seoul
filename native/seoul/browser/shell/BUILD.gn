@@ -10,6 +10,8 @@ source_set("shell_core") {
   sources = [
     "command_launcher_catalog.cc",
     "command_launcher_catalog.h",
+    "download_animation_geometry.cc",
+    "download_animation_geometry.h",
     "essential_grid_layout.h",
     "shell_actions.h",
     "shell_errors.cc",
@@ -40,6 +42,8 @@ source_set("shell_chromium") {
     "shell_service.h",
     "views/seoul_command_launcher_view.cc",
     "views/seoul_command_launcher_view.h",
+    "views/seoul_download_animation_view.cc",
+    "views/seoul_download_animation_view.h",
     "views/seoul_shell_footer_view.cc",
     "views/seoul_shell_footer_view.h",
     "views/seoul_shell_header_view.cc",
@@ -50,10 +54,18 @@ source_set("shell_chromium") {
     "views/seoul_shell_space_view.h",
     "views/seoul_split_chooser_view.cc",
     "views/seoul_split_chooser_view.h",
+    "views/seoul_workspace_icon_picker.cc",
+    "views/seoul_workspace_icon_picker.h",
     "views/seoul_workspace_menu.cc",
     "views/seoul_workspace_menu.h",
     "views/seoul_workspace_name_dialog.cc",
     "views/seoul_workspace_name_dialog.h",
+    "workspace_emoji_data.cc",
+    "workspace_emoji_data.h",
+    "workspace_icon_data.cc",
+    "workspace_icon_data.h",
+    "workspace_icon_painter.cc",
+    "workspace_icon_painter.h",
   ]
 
   public_deps = [
@@ -63,6 +75,7 @@ source_set("shell_chromium") {
 
   deps = [
     "//base",
+    "//chrome/app/vector_icons",
     "//chrome/browser/favicon",
     "//chrome/browser/ui/color:color_headers",
     "//chrome/browser/ui/side_panel",
@@ -80,6 +93,7 @@ source_set("shell_chromium") {
     "//seoul/browser/organization:organization_model",
     "//seoul/browser/projection:projection_chromium",
     "//seoul/browser/projection:projection_core",
+    "//skia",
     "//ui/accessibility:ax_enums_mojo",
     "//ui/base",
     "//ui/compositor",
@@ -93,6 +107,7 @@ test("seoul_shell_core_unittests") {
   testonly = true
   sources = [
     "command_launcher_catalog_unittest.cc",
+    "download_animation_geometry_unittest.cc",
     "essential_grid_layout_unittest.cc",
     "shell_view_model_unittest.cc",
     "space_visuals_unittest.cc",
@@ -113,14 +128,23 @@ test("seoul_shell_view_unittests") {
   sources = [
     "views/seoul_workspace_name_dialog.cc",
     "views/seoul_workspace_name_dialog_unittest.cc",
+    "workspace_emoji_data.cc",
+    "workspace_emoji_data.h",
+    "workspace_icon_data.cc",
+    "workspace_icon_data.h",
+    "workspace_icon_data_unittest.cc",
+    "workspace_icon_painter.cc",
+    "workspace_icon_painter.h",
   ]
   deps = [
     "//base",
     "//base/test:run_all_unittests",
     "//base/test:test_support",
     "//components/constrained_window",
+    "//skia",
     "//testing/gtest",
     "//ui/base",
+    "//ui/gfx",
     "//ui/views",
   ]
 }
@@ -137,10 +161,10 @@ source_set("shell_browser_tests") {
     "//chrome/test:test_support",
     "//components/favicon_base",
     "//content/test:test_support",
-    "//skia",
     "//seoul/browser/organization",
     "//seoul/browser/organization:organization_model",
     "//seoul/browser/projection:projection_chromium",
+    "//skia",
     "//testing/gtest",
     "//ui/compositor",
     "//ui/gfx",
