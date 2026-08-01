@@ -31,6 +31,16 @@ TEST_F(ModelCommandFacadeTest, CreateWorkspace) {
   EXPECT_EQ(model_.workspace_count(), 2u);
 }
 
+TEST_F(ModelCommandFacadeTest, SetWorkspaceIcon) {
+  BrowserCommand command;
+  command.id = CommandId::Next();
+  command.kind = CommandKind::kSetWorkspaceIcon;
+  command.workspace_id = model_.default_workspace();
+  command.icon = "🌱";
+  EXPECT_TRUE(facade_.Execute(command).has_value());
+  EXPECT_EQ(model_.FindWorkspace(model_.default_workspace())->icon, "🌱");
+}
+
 TEST_F(ModelCommandFacadeTest, RejectsUnsupportedBrowserCommand) {
   BrowserCommand command;
   command.id = CommandId::Next();
