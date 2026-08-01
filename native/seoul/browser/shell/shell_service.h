@@ -24,8 +24,10 @@ class LiveWindowStateProvider;
 class OrganizationModel;
 class ProjectionService;
 class ShellController;
+class SeoulShellFooterView;
 class SeoulShellHeaderView;
 class SeoulShellRegionHost;
+class SeoulShellSpaceView;
 
 class ShellService : public OrganizationModelObserver {
  public:
@@ -70,6 +72,7 @@ class ShellService : public OrganizationModelObserver {
   // mutate the durable collapsed preference.
   void OnSidebarPresentationChanged(ShellWindowKey window, bool collapsed);
   bool ShowCommandLauncher(ShellWindowKey window);
+  void SetCommandLauncherVisible(ShellWindowKey window, bool visible);
   void RefreshCompactModeState(ShellWindowKey window);
   void RefreshAppearanceLayoutModeState(ShellWindowKey window);
   void RefreshProjectResources();
@@ -87,6 +90,8 @@ class ShellService : public OrganizationModelObserver {
   void Shutdown();
 
   SeoulShellHeaderView* GetHeaderForTesting(ShellWindowKey window);
+  SeoulShellFooterView* GetFooterForTesting(ShellWindowKey window);
+  SeoulShellSpaceView* GetSpaceForTesting(ShellWindowKey window);
 
   void OnOrganizationChanged(const OrganizationChange& change) override;
 
