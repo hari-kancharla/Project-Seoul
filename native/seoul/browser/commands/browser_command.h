@@ -33,6 +33,7 @@ struct BrowserCommand {
   std::optional<EssentialId> essential_id;
   std::optional<RoutingRuleId> routing_rule_id;
   std::string name;
+  std::string icon;
   int order = 0;
   RoutingRule routing_rule;
   std::string saved_root_url;
