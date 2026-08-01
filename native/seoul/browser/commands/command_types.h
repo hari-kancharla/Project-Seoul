@@ -17,6 +17,7 @@ enum class CommandKind {
   // Model-only.
   kCreateWorkspace,
   kRenameWorkspace,
+  kSetWorkspaceIcon,
   kReorderWorkspace,
   kArchiveWorkspace,
   kRestoreWorkspace,
