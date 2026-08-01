@@ -212,7 +212,7 @@ std::vector<CommandLauncherEntry> CommandLauncherCatalog::BuildEntries(
       {"compact", "focus", "hide", "chrome", "toolbar", "zen"}, compact.enabled,
       compact.disabled_reason));
   entries.back().action = ShellUtilityAction::kToggleCompactMode;
-  entries.back().shortcut = "⌘⇧C";
+  entries.back().shortcut = "⌘S";
   entries.push_back(MakeEntry("reconcile", "Run Reconciliation",
                               {"reconcile", "recovery", "degraded"},
                               reconcile.enabled, reconcile.disabled_reason));
@@ -262,7 +262,7 @@ std::vector<CommandLauncherEntry> CommandLauncherCatalog::BuildEntries(
       if (entries.size() >= kMaxCatalogEntries) {
         break;
       }
-      if (!tab.tab.is_valid()) {
+      if (!tab.tab.is_valid() || tab.is_new_tab_placeholder) {
         continue;
       }
       CommandLauncherEntry entry;
