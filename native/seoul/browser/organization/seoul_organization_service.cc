@@ -97,6 +97,37 @@ void SeoulOrganizationService::RegisterProfilePrefs(
 }
 
 void SeoulOrganizationService::Shutdown() {
+  if (shutdown_) {
+    return;
+  }
+  shutdown_ = true;
+
+  // Tear down dependants before the objects they observe or call:
+  //
+  //  * ShellController observes both ProjectionService controllers and the
+  //    live-state provider, and ShellService owns Views hosts backed by those
+  //    controllers.
+  //  * ProjectionService observes the live-state provider, while its
+  //    WorkspaceSwitchers observe CommandExecutor.
+  //  * WindowWatcher owns the live-state provider.
+  //
+  // Reversing any of these three stages leaves a dangling CheckedObserver (or
+  // a destructor that calls through a dead raw pointer) during profile
+  // shutdown.
+  if (shell_service_) {
+    shell_service_->Shutdown();
+    shell_service_.reset();
+  }
+  if (projection_service_) {
+    projection_service_->Shutdown();
+    projection_service_.reset();
+  }
+  if (session_restore_watcher_) {
+    session_restore_watcher_->StopObserving();
+    session_restore_watcher_.reset();
+  }
+  window_watcher_.reset();
+
   if (command_executor_) {
     command_executor_->Shutdown();
   }
@@ -110,11 +141,6 @@ void SeoulOrganizationService::Shutdown() {
   command_executor_.reset();
   mutation_adapter_.reset();
   target_resolver_.reset();
-  if (session_restore_watcher_) {
-    session_restore_watcher_->StopObserving();
-    session_restore_watcher_.reset();
-  }
-  window_watcher_.reset();
   if (coordinator_) {
     NormalizedEvent event;
     event.type = NormalizedEventType::kShutdownBegan;
@@ -123,14 +149,6 @@ void SeoulOrganizationService::Shutdown() {
   if (scheduler_) {
     scheduler_->Flush();
     scheduler_->Shutdown();
-  }
-  if (shell_service_) {
-    shell_service_->Shutdown();
-    shell_service_.reset();
-  }
-  if (projection_service_) {
-    projection_service_->Shutdown();
-    projection_service_.reset();
   }
 }
 
