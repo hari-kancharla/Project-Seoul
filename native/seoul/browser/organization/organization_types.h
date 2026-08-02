@@ -241,6 +241,7 @@ enum class OrganizationChangeType {
   kInitialized,
   kWorkspaceCreated,
   kWorkspaceRenamed,
+  kWorkspaceIconChanged,
   kWorkspaceReordered,
   kWorkspaceArchived,
   kWorkspaceRestored,
