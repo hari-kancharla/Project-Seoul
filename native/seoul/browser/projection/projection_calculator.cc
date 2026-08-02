@@ -40,6 +40,11 @@ WindowProjection ProjectionCalculator::Compute(const OrganizationModel& model,
   projection.window = live.window;
   projection.active_workspace = active_workspace;
   projection.generation = generation;
+  for (const LiveTabDescriptor& tab : live.tabs) {
+    if (tab.is_new_tab_placeholder && tab.tab.is_valid()) {
+      projection.hidden_tabs.push_back(tab.tab);
+    }
+  }
 
   const WorkspaceRecord* ws = model.FindWorkspace(active_workspace);
   if (!active_workspace.is_valid() || !ws) {
@@ -63,6 +68,12 @@ WindowProjection ProjectionCalculator::Compute(const OrganizationModel& model,
   if (fail_open) {
     projection.status = ProjectionStatus::kFailOpen;
     for (const LiveTabDescriptor& tab : live.tabs) {
+      // Fail-open exposes real tabs across workspace boundaries, but the
+      // window's inert new-tab placeholder is browser chrome rather than a
+      // user tab and must remain hidden.
+      if (tab.is_new_tab_placeholder) {
+        continue;
+      }
       ProjectedTab pt;
       pt.tab = tab.tab;
       pt.strip_order = tab.strip_order;
@@ -77,13 +88,20 @@ WindowProjection ProjectionCalculator::Compute(const OrganizationModel& model,
       }
       projection.tabs.push_back(pt);
     }
-    projection.active_tab = live.active_tab;
+    const auto active =
+        std::ranges::find(projection.tabs, live.active_tab, &ProjectedTab::tab);
+    if (active != projection.tabs.end()) {
+      projection.active_tab = live.active_tab;
+    }
     return projection;
   }
 
   std::set<std::string> seen_keys;
   std::vector<ProjectedTab> candidates;
   for (const LiveTabDescriptor& tab : live.tabs) {
+    if (tab.is_new_tab_placeholder) {
+      continue;
+    }
     if (!tab.tab.is_valid()) {
       continue;
     }
@@ -134,13 +152,21 @@ WindowProjection ProjectionCalculator::Compute(const OrganizationModel& model,
   }
 
   LiveTabKey committed_active;
+  bool active_is_placeholder = false;
+  for (const LiveTabDescriptor& tab : live.tabs) {
+    if (tab.tab == live.active_tab) {
+      active_is_placeholder = tab.is_new_tab_placeholder;
+      break;
+    }
+  }
   for (const ProjectedTab& pt : projection.tabs) {
     if (pt.tab == live.active_tab) {
       committed_active = pt.tab;
       break;
     }
   }
-  if (live.active_tab.is_valid() && !committed_active.is_valid()) {
+  if (live.active_tab.is_valid() && !committed_active.is_valid() &&
+      !active_is_placeholder) {
     ProjectionInconsistency inc;
     inc.kind = ProjectionInconsistencyKind::kActiveTabNotProjected;
     inc.tab = live.active_tab;
