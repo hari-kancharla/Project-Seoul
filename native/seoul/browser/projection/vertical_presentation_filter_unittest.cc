@@ -25,6 +25,20 @@ TEST(VerticalPresentationFilterTest, FailOpenDisabledFilterShowsAll) {
   EXPECT_TRUE(filter.ShouldPresentTab(LiveTabKey::FromSessionId(99)));
 }
 
+TEST(VerticalPresentationFilterTest,
+     ExplicitHiddenTabStaysHiddenDuringFailOpenAndDisabledRecovery) {
+  WindowProjection projection;
+  projection.status = ProjectionStatus::kFailOpen;
+  const LiveTabKey placeholder = LiveTabKey::FromSessionId(1);
+  projection.hidden_tabs.push_back(placeholder);
+  VerticalPresentationFilter filter(projection);
+  filter.SetDisabled(true);
+
+  EXPECT_TRUE(filter.IsExplicitlyHiddenTab(placeholder));
+  EXPECT_FALSE(filter.ShouldPresentTab(placeholder));
+  EXPECT_TRUE(filter.ShouldPresentTab(LiveTabKey::FromSessionId(2)));
+}
+
 TEST(VerticalPresentationFilterTest, SplitRequiresBothPanesProjected) {
   WindowProjection projection;
   ProjectedTab a;
