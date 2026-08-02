@@ -82,6 +82,9 @@ struct WindowProjection {
   ProjectionGeneration generation;
   ProjectionStatus status = ProjectionStatus::kCoherent;
   std::vector<ProjectedTab> tabs;
+  // Tabs that are browser-owned chrome rather than user-visible workspace
+  // items. Presentation keeps these hidden even during fail-open recovery.
+  std::vector<LiveTabKey> hidden_tabs;
   LiveTabKey active_tab;
   std::vector<ProjectedSplit> splits;
   bool empty_workspace = false;
