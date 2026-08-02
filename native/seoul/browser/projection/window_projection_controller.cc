@@ -15,10 +15,15 @@ bool ProjectionsEqual(const WindowProjection& a, const WindowProjection& b) {
          a.splits.size() == b.splits.size() && a.generation == b.generation;
 }
 
-bool ContainsActiveTab(const WindowProjection& projection,
-                       const LiveWindowTabState& live) {
+bool ContainsActiveTabOrPlaceholder(const WindowProjection& projection,
+                                    const LiveWindowTabState& live) {
   if (!live.active_tab.is_valid()) {
     return true;
+  }
+  for (const LiveTabDescriptor& tab : live.tabs) {
+    if (tab.tab == live.active_tab && tab.is_new_tab_placeholder) {
+      return true;
+    }
   }
   for (const ProjectedTab& tab : projection.tabs) {
     if (tab.tab == live.active_tab) {
@@ -115,12 +120,11 @@ void WindowProjectionController::Recompute(bool publish) {
   // Probe the authoritative projection on every later recompute and recover as
   // soon as the active tab is coherently projected. A genuinely missing active
   // membership continues to fail open.
-  if (fail_open_ &&
-      !(lifecycle_ && lifecycle_->lifecycle_degraded())) {
+  if (fail_open_ && !(lifecycle_ && lifecycle_->lifecycle_degraded())) {
     WindowProjection recovered = ProjectionCalculator::Compute(
         *model_, live_, active, generation_, /*fail_open=*/false);
     if (recovered.status != ProjectionStatus::kFailOpen &&
-        ContainsActiveTab(recovered, live_)) {
+        ContainsActiveTabOrPlaceholder(recovered, live_)) {
       fail_open_ = false;
     }
   }
@@ -129,7 +133,7 @@ void WindowProjectionController::Recompute(bool publish) {
       *model_, live_, active, generation_, fail_open_);
   if (!fail_open_ && live_.active_tab.is_valid() &&
       next.status != ProjectionStatus::kFailOpen) {
-    if (!ContainsActiveTab(next, live_)) {
+    if (!ContainsActiveTabOrPlaceholder(next, live_)) {
       fail_open_ = true;
       generation_ = generation_.Next();
       next = ProjectionCalculator::Compute(*model_, live_, active, generation_,
