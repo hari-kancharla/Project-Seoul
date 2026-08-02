@@ -84,3 +84,23 @@ test("seoul_organization_unittests") {
     "//testing/gtest",
   ]
 }
+
+source_set("organization_browser_tests") {
+  testonly = true
+  defines = [ "HAS_OUT_OF_PROC_TEST_RUNNER" ]
+  sources = [ "seoul_organization_service_browsertest.cc" ]
+  deps = [
+    ":organization",
+    "//chrome/browser:browser_public_dependencies",
+    "//chrome/browser/profiles:profile",
+    "//chrome/test:test_support",
+    "//content/test:test_support",
+    "//seoul/browser/lifecycle:lifecycle_core",
+    "//seoul/browser/product/browser:product_chromium",
+    "//seoul/browser/projection:projection_chromium",
+    "//seoul/browser/shell:shell_chromium",
+    "//testing/gtest",
+    "//ui/base",
+    "//url",
+  ]
+}
