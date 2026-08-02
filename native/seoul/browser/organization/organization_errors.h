@@ -13,6 +13,7 @@ namespace seoul {
 enum class OrganizationError {
   kInvalidId,
   kInvalidName,
+  kInvalidIcon,
   kInvalidUrl,
   kInvalidOrder,
   kWorkspaceNotFound,
@@ -39,11 +40,11 @@ enum class OrganizationError {
   kPersistenceFailure,
   kCorruptState,
   kResourceInUse,
-  kNoOpRejected, // a mutation that would change nothing because of invalid
-                 // state
+  kNoOpRejected,  // a mutation that would change nothing because of invalid
+                  // state
 };
 
-const char *OrganizationErrorToString(OrganizationError error);
+const char* OrganizationErrorToString(OrganizationError error);
 
 // A mutation that returns a value on success or a specific error on failure.
 template <typename T>
@@ -52,12 +53,14 @@ using MutationResult = base::expected<T, OrganizationError>;
 // A mutation with no return value on success. .has_value() == success.
 using MutationStatus = base::expected<void, OrganizationError>;
 
-inline MutationStatus Ok() { return base::ok(); }
+inline MutationStatus Ok() {
+  return base::ok();
+}
 
 inline base::unexpected<OrganizationError> Err(OrganizationError error) {
   return base::unexpected(error);
 }
 
-} // namespace seoul
+}  // namespace seoul
 
-#endif // SEOUL_BROWSER_ORGANIZATION_ORGANIZATION_ERRORS_H_
+#endif  // SEOUL_BROWSER_ORGANIZATION_ORGANIZATION_ERRORS_H_
