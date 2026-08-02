@@ -16,8 +16,11 @@ VerticalPresentationFilter::~VerticalPresentationFilter() = default;
 void VerticalPresentationFilter::UpdateProjection(
     const WindowProjection& projection) {
   presented_tabs_.clear();
+  explicitly_hidden_tabs_.clear();
   presented_splits_.clear();
   presented_groups_.clear();
+  explicitly_hidden_tabs_.insert(projection.hidden_tabs.begin(),
+                                 projection.hidden_tabs.end());
   if (disabled_ || projection.status == ProjectionStatus::kFailOpen) {
     return;
   }
@@ -34,10 +37,17 @@ void VerticalPresentationFilter::SetDisabled(bool disabled) {
 }
 
 bool VerticalPresentationFilter::ShouldPresentTab(LiveTabKey tab) const {
+  if (IsExplicitlyHiddenTab(tab)) {
+    return false;
+  }
   if (disabled_) {
     return true;
   }
   return presented_tabs_.count(tab) > 0;
+}
+
+bool VerticalPresentationFilter::IsExplicitlyHiddenTab(LiveTabKey tab) const {
+  return explicitly_hidden_tabs_.contains(tab);
 }
 
 bool VerticalPresentationFilter::ShouldPresentSplit(
