@@ -40,10 +40,14 @@ bool TabNodeVisible(const TabCollectionNode* node,
   if (!node || node->type() != TabCollectionNode::Type::TAB) {
     return false;
   }
+  const LiveTabKey tab = TabKeyForNode(node);
+  if (filter.IsExplicitlyHiddenTab(tab)) {
+    return false;
+  }
   if (fail_open || filter.disabled()) {
     return true;
   }
-  return filter.ShouldPresentTab(TabKeyForNode(node));
+  return filter.ShouldPresentTab(tab);
 }
 
 bool SplitNodeVisible(const TabCollectionNode* node,
@@ -103,9 +107,9 @@ bool ComputeNodeVisible(const TabCollectionNode* node,
   if (!node || !node->view()) {
     return false;
   }
-  if (fail_open || filter.disabled()) {
-    return true;
-  }
+  // Dispatch tabs through TabNodeVisible even during fail-open/disabled
+  // recovery. Explicitly hidden browser-chrome placeholders are stricter than
+  // workspace filtering and must never be revived by the recovery fast path.
   switch (node->type()) {
     case TabCollectionNode::Type::TAB:
       return TabNodeVisible(node, filter, fail_open);
