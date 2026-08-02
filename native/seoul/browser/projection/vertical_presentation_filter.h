@@ -21,6 +21,7 @@ class VerticalPresentationFilter {
   bool disabled() const { return disabled_; }
 
   bool ShouldPresentTab(LiveTabKey tab) const;
+  bool IsExplicitlyHiddenTab(LiveTabKey tab) const;
   bool ShouldPresentSplit(const std::string& upstream_split_token) const;
   bool ShouldPresentGroup(const std::string& upstream_group_token) const;
   const std::set<LiveTabKey>& presented_tabs() const { return presented_tabs_; }
@@ -28,6 +29,7 @@ class VerticalPresentationFilter {
  private:
   bool disabled_ = false;
   std::set<LiveTabKey> presented_tabs_;
+  std::set<LiveTabKey> explicitly_hidden_tabs_;
   std::set<std::string> presented_splits_;
   std::set<std::string> presented_groups_;
 };
