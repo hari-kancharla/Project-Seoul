@@ -20,15 +20,15 @@ namespace seoul {
 namespace {
 
 class RecordingObserver : public OrganizationModelObserver {
-public:
-  void OnOrganizationChanged(const OrganizationChange &change) override {
+ public:
+  void OnOrganizationChanged(const OrganizationChange& change) override {
     changes.push_back(change.type);
   }
   std::vector<OrganizationChangeType> changes;
 };
 
 class OrganizationModelTest : public testing::Test {
-protected:
+ protected:
   OrganizationModelTest()
       : model_(base::BindLambdaForTesting([this]() { return clock_; })) {}
 
@@ -49,7 +49,7 @@ TEST_F(OrganizationModelTest, FirstRunCreatesExactlyOneDefault) {
   EXPECT_EQ(model_.workspace_count(), 1u);
   WorkspaceId def = model_.default_workspace();
   ASSERT_TRUE(def.is_valid());
-  const WorkspaceRecord *w = model_.FindWorkspace(def);
+  const WorkspaceRecord* w = model_.FindWorkspace(def);
   ASSERT_TRUE(w);
   EXPECT_TRUE(w->is_default);
   EXPECT_FALSE(w->archived);
@@ -85,6 +85,49 @@ TEST_F(OrganizationModelTest, CreateRenameReorder) {
             OrganizationError::kInvalidOrder);
   EXPECT_EQ(model_.RenameWorkspace(WorkspaceId::GenerateNew(), "x").error(),
             OrganizationError::kWorkspaceNotFound);
+}
+
+TEST_F(OrganizationModelTest, SetAndClearWorkspaceIcon) {
+  const WorkspaceId id = InitDefault();
+  RecordingObserver observer;
+  model_.AddObserver(&observer);
+
+  ASSERT_TRUE(model_.SetWorkspaceIcon(id, "🧭").has_value());
+  EXPECT_EQ(model_.FindWorkspace(id)->icon, "🧭");
+  ASSERT_EQ(observer.changes.size(), 1u);
+  EXPECT_EQ(observer.changes.back(),
+            OrganizationChangeType::kWorkspaceIconChanged);
+
+  EXPECT_EQ(model_.SetWorkspaceIcon(id, "🧭").error(),
+            OrganizationError::kNoOpRejected);
+  EXPECT_EQ(
+      model_.SetWorkspaceIcon(id, "https://example.test/icon.svg").error(),
+      OrganizationError::kInvalidIcon);
+  EXPECT_EQ(model_.SetWorkspaceIcon(id, std::string(kMaxIconRefLength + 1, 'x'))
+                .error(),
+            OrganizationError::kInvalidIcon);
+  EXPECT_EQ(model_.SetWorkspaceIcon(id, "bad\nicon").error(),
+            OrganizationError::kInvalidIcon);
+  EXPECT_EQ(model_.SetWorkspaceIcon(WorkspaceId(), "🧭").error(),
+            OrganizationError::kInvalidId);
+  EXPECT_EQ(model_.SetWorkspaceIcon(WorkspaceId::GenerateNew(), "🧭").error(),
+            OrganizationError::kWorkspaceNotFound);
+
+  ASSERT_TRUE(model_.SetWorkspaceIcon(id, std::string()).has_value());
+  EXPECT_TRUE(model_.FindWorkspace(id)->icon.empty());
+  model_.RemoveObserver(&observer);
+}
+
+TEST_F(OrganizationModelTest, SnapshotRejectsInvalidIconReferencesAtomically) {
+  const WorkspaceId id = InitDefault();
+  ASSERT_TRUE(model_.SetWorkspaceIcon(id, "🌱").has_value());
+  OrganizationSnapshot snapshot = model_.ToSnapshot();
+  ASSERT_EQ(snapshot.workspaces.size(), 1u);
+  snapshot.workspaces[0].icon = "data:image/svg+xml,unsafe";
+
+  EXPECT_EQ(model_.LoadSnapshot(snapshot).error(),
+            OrganizationError::kCorruptState);
+  EXPECT_EQ(model_.FindWorkspace(id)->icon, "🌱");
 }
 
 TEST_F(OrganizationModelTest, ArchiveRestoreAndDefaultProtection) {
@@ -181,7 +224,7 @@ TEST_F(OrganizationModelTest,
   EXPECT_EQ(model_.membership_count(), 2u);
   EXPECT_FALSE(model_.FindMembershipIdByTabKey("old-session-tab").is_valid());
   EXPECT_EQ(model_.FindMembershipIdByTabKey("new-session-tab"), restored);
-  const TabMembershipRecord *after = model_.FindMembership(restored);
+  const TabMembershipRecord* after = model_.FindMembership(restored);
   ASSERT_TRUE(after);
   EXPECT_EQ(after->workspace_id, before.workspace_id);
   EXPECT_EQ(after->role, before.role);
@@ -262,11 +305,10 @@ TEST_F(OrganizationModelTest, EssentialsRejectUnsafeOrMalformedDestinations) {
                                          "javascript:alert(1)")
                 .error(),
             OrganizationError::kInvalidUrl);
-  EXPECT_EQ(model_
-                .CreateOrUpdateEssential(EssentialId(), "Broken",
-                                         "not a valid URL")
-                .error(),
-            OrganizationError::kInvalidUrl);
+  EXPECT_EQ(
+      model_.CreateOrUpdateEssential(EssentialId(), "Broken", "not a valid URL")
+          .error(),
+      OrganizationError::kInvalidUrl);
   EXPECT_EQ(model_.essential_count(), 0u);
 }
 
@@ -351,9 +393,9 @@ TEST_F(OrganizationModelTest, ArchiveAndRestoreTab) {
 
   ASSERT_TRUE(model_.ArchiveTab(m, "https://example.test/article", "Article")
                   .has_value());
-  EXPECT_EQ(model_.membership_count(), 0u); // not live anymore
+  EXPECT_EQ(model_.membership_count(), 0u);  // not live anymore
   EXPECT_EQ(model_.archived_count(), 1u);
-  const ArchivedTabRecord *archived = model_.FindArchivedTab(m);
+  const ArchivedTabRecord* archived = model_.FindArchivedTab(m);
   ASSERT_TRUE(archived);
   EXPECT_EQ(archived->saved_root_url, "https://example.test/article");
   EXPECT_EQ(archived->title, "Article");
@@ -377,7 +419,7 @@ TEST_F(OrganizationModelTest, AdoptsConfirmedLiveTabFromArchive) {
 
   ASSERT_TRUE(model_.AdoptRestoredTab(archived, inserted).has_value());
   EXPECT_FALSE(model_.FindArchivedTab(archived));
-  const TabMembershipRecord *restored = model_.FindMembership(inserted);
+  const TabMembershipRecord* restored = model_.FindMembership(inserted);
   ASSERT_TRUE(restored);
   EXPECT_EQ(restored->workspace_id, other);
   EXPECT_EQ(restored->role, TabRole::kRetained);
@@ -400,7 +442,7 @@ TEST_F(OrganizationModelTest, ObserversOrderedOncePerCommitNoneOnFailure) {
 
   model_.RemoveObserver(&obs);
   ASSERT_TRUE(model_.CreateWorkspace("Another").has_value());
-  EXPECT_EQ(obs.changes.size(), 2u); // no more after removal
+  EXPECT_EQ(obs.changes.size(), 2u);  // no more after removal
 }
 
 TEST_F(OrganizationModelTest, SnapshotRoundTripThroughModel) {
@@ -424,5 +466,5 @@ TEST_F(OrganizationModelTest, SnapshotRoundTripThroughModel) {
   (void)work;
 }
 
-} // namespace
-} // namespace seoul
+}  // namespace
+}  // namespace seoul
