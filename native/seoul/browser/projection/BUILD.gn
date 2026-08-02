@@ -69,6 +69,7 @@ test("seoul_projection_core_unittests") {
     "projection_calculator_unittest.cc",
     "projection_ordering_unittest.cc",
     "vertical_presentation_filter_unittest.cc",
+    "window_projection_controller_unittest.cc",
     "workspace_switcher_unittest.cc",
   ]
   deps = [
@@ -95,11 +96,15 @@ source_set("projection_browser_tests") {
     ":projection_chromium",
     "//chrome/browser:browser_public_dependencies",
     "//chrome/browser/ui/tabs",
+    "//chrome/browser/ui/views/tabs/vertical",
     "//chrome/test:test_support",
+    "//components/tabs:public",
     "//content/test:test_support",
+    "//seoul/browser/lifecycle",
     "//seoul/browser/lifecycle:lifecycle_core",
     "//seoul/browser/organization",
     "//seoul/browser/organization:organization_model",
     "//testing/gtest",
+    "//ui/views",
   ]
 }
