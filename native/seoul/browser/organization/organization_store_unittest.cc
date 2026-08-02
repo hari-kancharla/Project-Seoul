@@ -4,6 +4,8 @@
 
 #include "seoul/browser/organization/organization_store.h"
 
+#include <algorithm>
+
 #include "base/test/bind.h"
 #include "base/values.h"
 #include "seoul/browser/organization/organization_limits.h"
@@ -17,6 +19,7 @@ OrganizationSnapshot BuildPopulatedSnapshot() {
   OrganizationModel model;
   CHECK(model.EnsureDefaultWorkspace().has_value());
   WorkspaceId work = model.CreateWorkspace("Work").value();
+  CHECK(model.SetWorkspaceIcon(work, "zen-icon:briefcase").has_value());
   CHECK(model.AddTabMembership(work, "tab-a", TabRole::kPinned).has_value());
   CHECK(model.AddTabMembership(work, "tab-b", TabRole::kRetained).has_value());
   CHECK(model.CreateSplitGroup(work, {"tab-a", "tab-b"}, 0.5, "token")
@@ -40,6 +43,11 @@ TEST(OrganizationStoreTest, RoundTrip) {
   EXPECT_EQ(restored.membership_count(), 2u);
   EXPECT_EQ(restored.split_count(), 1u);
   EXPECT_EQ(restored.essential_count(), 1u);
+  ASSERT_EQ(parsed->workspaces.size(), 2u);
+  const auto work =
+      std::ranges::find(parsed->workspaces, "Work", &WorkspaceRecord::name);
+  ASSERT_NE(work, parsed->workspaces.end());
+  EXPECT_EQ(restored.FindWorkspace(work->id)->icon, "zen-icon:briefcase");
 }
 
 TEST(OrganizationStoreTest, DeterministicOutput) {
