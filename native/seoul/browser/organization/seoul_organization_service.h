@@ -115,6 +115,7 @@ class SeoulOrganizationService : public KeyedService,
   bool suppress_persist_ =
       false;  // corrupt/unsupported load: do not overwrite active pref
   bool recovery_required_ = false;
+  bool shutdown_ = false;
 
   std::unique_ptr<PersistenceScheduler> scheduler_;
   std::unique_ptr<LifecycleCoordinator> coordinator_;
