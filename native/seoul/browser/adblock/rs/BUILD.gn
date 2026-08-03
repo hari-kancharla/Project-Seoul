@@ -1,0 +1,20 @@
+# Project Seoul native blocker Rust boundary.
+
+import("//build/rust/rust_static_library.gni")
+
+rust_static_library("rust_lib") {
+  crate_name = "seoul_adblock_cxx"
+  crate_root = "src/lib.rs"
+  sources = [ "src/lib.rs" ]
+  edition = "2021"
+  allow_unsafe = true
+
+  cxx_bindings = [ "src/lib.rs" ]
+
+  visibility = [ "//seoul/browser/adblock:*" ]
+
+  deps = [
+    "//third_party/rust/seoul_adblock/crates/adblock/v0_12:lib",
+    "//third_party/rust/serde_json/v1:lib",
+  ]
+}
