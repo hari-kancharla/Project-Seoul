@@ -1,0 +1,11 @@
+Name: rmp-serde
+URL: https://crates.io/crates/rmp-serde
+Version: 0.15.5
+Revision: 6e1cfaec17a8d2fd9dc9d997fffa43c875d51cb0
+Update Mechanism: Manual (https://crbug.com/449898466)
+License: MIT
+License File: //third_party/rust/seoul_adblock/vendor/rmp-serde-v0_15/LICENSE
+Shipped: yes
+Security Critical: yes
+
+Description: Serde bindings for RMP

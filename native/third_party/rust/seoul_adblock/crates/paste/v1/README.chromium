@@ -1,0 +1,11 @@
+Name: paste
+URL: https://crates.io/crates/paste
+Version: 1.0.15
+Revision: a2c7e27875277450ed28147623ba5218dd23e732
+Update Mechanism: Manual (https://crbug.com/449898466)
+License: Apache-2.0
+License File: //third_party/rust/seoul_adblock/vendor/paste-v1/LICENSE-APACHE
+Shipped: yes
+Security Critical: yes
+
+Description: Macros for all your token pasting needs

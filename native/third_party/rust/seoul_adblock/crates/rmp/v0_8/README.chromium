@@ -1,0 +1,11 @@
+Name: rmp
+URL: https://crates.io/crates/rmp
+Version: 0.8.11
+Revision: 36940d05eb4ebcafddd8141b864d3afea0142376
+Update Mechanism: Manual (https://crbug.com/449898466)
+License: MIT
+License File: //third_party/rust/seoul_adblock/vendor/rmp-v0_8/LICENSE
+Shipped: yes
+Security Critical: yes
+
+Description: Pure Rust MessagePack serialization implementation
