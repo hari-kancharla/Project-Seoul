@@ -1,0 +1,188 @@
+# Project Seoul native blocker engine.
+
+import("//testing/test.gni")
+import("//mojo/public/tools/bindings/mojom.gni")
+
+declare_args() {
+  # SHA-256 of the DER SubjectPublicKeyInfo used to sign Seoul's production
+  # filter-list CRX. Empty by default so development builds cannot accidentally
+  # trust a placeholder component identity.
+  seoul_adblock_component_public_key_hash = ""
+}
+
+mojom("cosmetic_filter_mojom") {
+  sources = [ "cosmetic_filter.mojom" ]
+}
+
+source_set("engine") {
+  sources = [
+    "ad_block_domain_resolver.cc",
+    "ad_block_domain_resolver.h",
+    "ad_block_request.cc",
+    "ad_block_request.h",
+    "ad_block_resource_catalog.cc",
+    "ad_block_resource_catalog.h",
+    "ad_block_engine.cc",
+    "ad_block_engine.h",
+  ]
+
+  deps = [
+    ":rust_engine",
+    "//base",
+    "//content/public/browser",
+    "//content/public/common",
+    "//crypto",
+    "//net",
+    "//services/network/public/cpp",
+    "//services/network/public/mojom",
+    "//url",
+  ]
+}
+
+group("rust_engine") {
+  public_deps = [ "//seoul/browser/adblock/rs:rust_lib" ]
+}
+
+source_set("adblock") {
+  sources = [
+    "ad_block_component_installer.cc",
+    "ad_block_component_installer.h",
+    "ad_block_decision.cc",
+    "ad_block_decision.h",
+    "ad_block_engine_host.cc",
+    "ad_block_engine_host.h",
+    "ad_block_filter_list_manager.cc",
+    "ad_block_filter_list_manager.h",
+    "ad_block_navigation_throttle.cc",
+    "ad_block_navigation_throttle.h",
+    "ad_block_request_interceptor.cc",
+    "ad_block_request_interceptor.h",
+    "ad_block_service.cc",
+    "ad_block_service.h",
+    "ad_block_service_factory.cc",
+    "ad_block_service_factory.h",
+    "ad_block_settings.cc",
+    "ad_block_settings.h",
+    "ad_block_stats_service.cc",
+    "ad_block_stats_service.h",
+    "ad_block_subscription_downloader.cc",
+    "ad_block_subscription_downloader.h",
+    "ad_block_websocket_interceptor.cc",
+    "ad_block_websocket_interceptor.h",
+    "cosmetic_filter_host.cc",
+    "cosmetic_filter_host.h",
+  ]
+
+  public_deps = [
+    ":cosmetic_filter_mojom",
+    ":engine",
+    "//chrome/browser:browser_public_dependencies",
+  ]
+
+  deps = [
+    "//base",
+    "//chrome/browser/content_settings:content_settings_factory",
+    "//chrome/browser/profiles:profile",
+    "//components/content_settings/core/browser",
+    "//components/content_settings/core/common",
+    "//components/component_updater",
+    "//components/keyed_service/core",
+    "//components/pref_registry",
+    "//components/prefs",
+    "//content/public/browser",
+    "//crypto",
+    "//mojo/public/cpp/base",
+    "//mojo/public/cpp/bindings",
+    "//net",
+    "//services/network/public/cpp",
+    "//services/network/public/mojom",
+  ]
+
+  defines = [
+    "SEOUL_ADBLOCK_COMPONENT_PUBLIC_KEY_HASH_HEX=\"$seoul_adblock_component_public_key_hash\"",
+  ]
+}
+
+test("seoul_adblock_engine_unittests") {
+  testonly = true
+  sources = [
+    "ad_block_engine_unittest.cc",
+    "ad_block_resource_catalog_unittest.cc",
+  ]
+  deps = [
+    ":engine",
+    "//base",
+    "//base/test:run_all_unittests",
+    "//base/test:test_support",
+    "//testing/gtest",
+  ]
+}
+
+test("seoul_adblock_core_unittests") {
+  testonly = true
+  sources = [
+    "ad_block_component_installer_unittest.cc",
+    "ad_block_core_unittest.cc",
+    "ad_block_settings_unittest.cc",
+  ]
+  deps = [
+    ":adblock",
+    "//base",
+    "//base/test:run_all_unittests",
+    "//base/test:test_support",
+    "//chrome/browser/content_settings:content_settings_factory",
+    "//chrome/test:test_support",
+    "//components/component_updater",
+    "//components/prefs:test_support",
+    "//components/sync_preferences:test_support",
+    "//content/public/common",
+    "//content/test:test_support",
+    "//crypto",
+    "//services/network/public/cpp",
+    "//services/network:test_support",
+    "//testing/gtest",
+    "//url",
+  ]
+}
+
+test("seoul_adblock_interceptor_unittests") {
+  testonly = true
+  sources = [
+    "ad_block_navigation_throttle_unittest.cc",
+    "ad_block_request_interceptor_unittest.cc",
+    "ad_block_subscription_downloader_unittest.cc",
+    "ad_block_websocket_interceptor_unittest.cc",
+  ]
+  deps = [
+    ":adblock",
+    "//base",
+    "//base/test:test_support",
+    "//content/test:test_support",
+    "//crypto",
+    "//mojo/core/test:run_all_unittests",
+    "//mojo/public/cpp/bindings",
+    "//net",
+    "//services/network/public/cpp",
+    "//services/network:test_support",
+    "//testing/gmock",
+    "//testing/gtest",
+    "//url",
+  ]
+}
+
+source_set("adblock_browser_tests") {
+  testonly = true
+  defines = [ "HAS_OUT_OF_PROC_TEST_RUNNER" ]
+  sources = [ "ad_block_browsertest.cc" ]
+  deps = [
+    ":adblock",
+    "//base/test:test_support",
+    "//chrome/browser:browser_public_dependencies",
+    "//chrome/test:test_support",
+    "//content/public/browser",
+    "//content/test:test_support",
+    "//net:test_support",
+    "//testing/gtest",
+    "//url",
+  ]
+}
