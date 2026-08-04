@@ -4,10 +4,10 @@ This directory holds the actual `.patch` files for the ordered Chromium
 integration series. The series and its metadata live in `../manifest.json`; this
 directory holds only the patch payloads referenced by that manifest.
 
-**The series is empty in this milestone.** The baseline applies zero Chromium
-patches.
+The current ordered series contains 23 patches, `0001` through `0023`, applied
+over the locked Chromium revision.
 
-Each future patch:
+Each patch:
 - is referenced by exactly one `manifest.json` entry (see that file's
   `entrySchema`);
 - is authored against the locked `baseRevision`
