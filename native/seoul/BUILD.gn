@@ -1,5 +1,8 @@
 # Project Seoul native integration root.
 
 group("seoul") {
-  deps = [ "//seoul/browser" ]
+  deps = [
+    "//seoul/browser",
+    "//seoul/renderer:cosmetic_filter_agent",
+  ]
 }
