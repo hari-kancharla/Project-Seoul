@@ -1,0 +1,99 @@
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/common/ChromeIsolatedWorldIds.java b/chrome/android/java/src/org/chromium/chrome/browser/common/ChromeIsolatedWorldIds.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/common/ChromeIsolatedWorldIds.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/common/ChromeIsolatedWorldIds.java
+@@ -23,6 +23,7 @@ import java.lang.annotation.RetentionPolicy;
+     ChromeIsolatedWorldIds.ISOLATED_WORLD_ID_TRANSLATE,
+     ChromeIsolatedWorldIds.ISOLATED_WORLD_ID_INDIGO,
+     ChromeIsolatedWorldIds.ISOLATED_WORLD_ID_CHROME_INTERNAL,
++    ChromeIsolatedWorldIds.ISOLATED_WORLD_ID_SEOUL_COSMETIC_FILTERS,
+     ChromeIsolatedWorldIds.ISOLATED_WORLD_UNUSED_MAC,
+     ChromeIsolatedWorldIds.ISOLATED_WORLD_ID_UNUSED_EXTENSIONS
+ })
+@@ -32,7 +33,9 @@ public @interface ChromeIsolatedWorldIds {
+     int ISOLATED_WORLD_ID_TRANSLATE = IsolatedWorldIds.ISOLATED_WORLD_ID_CONTENT_END + 1;
+     int ISOLATED_WORLD_ID_INDIGO = IsolatedWorldIds.ISOLATED_WORLD_ID_CONTENT_END + 2;
+     int ISOLATED_WORLD_ID_CHROME_INTERNAL = IsolatedWorldIds.ISOLATED_WORLD_ID_CONTENT_END + 3;
+-    int ISOLATED_WORLD_UNUSED_MAC = IsolatedWorldIds.ISOLATED_WORLD_ID_CONTENT_END + 4;
+-    int ISOLATED_WORLD_ID_UNUSED_EXTENSIONS = IsolatedWorldIds.ISOLATED_WORLD_ID_CONTENT_END + 5;
++    int ISOLATED_WORLD_ID_SEOUL_COSMETIC_FILTERS =
++            IsolatedWorldIds.ISOLATED_WORLD_ID_CONTENT_END + 4;
++    int ISOLATED_WORLD_UNUSED_MAC = IsolatedWorldIds.ISOLATED_WORLD_ID_CONTENT_END + 5;
++    int ISOLATED_WORLD_ID_UNUSED_EXTENSIONS = IsolatedWorldIds.ISOLATED_WORLD_ID_CONTENT_END + 6;
+ }
+ // LINT.ThenChange(//chrome/common/chrome_isolated_world_ids.h)
+diff --git a/chrome/browser/chrome_browser_interface_binders.cc b/chrome/browser/chrome_browser_interface_binders.cc
+--- a/chrome/browser/chrome_browser_interface_binders.cc
++++ b/chrome/browser/chrome_browser_interface_binders.cc
+@@ -64,6 +64,7 @@
+ #include "mojo/public/cpp/bindings/self_owned_receiver.h"
+ #include "pdf/buildflags.h"
+ #include "services/image_annotation/public/mojom/image_annotation.mojom.h"
++#include "seoul/browser/adblock/cosmetic_filter_host.h"
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/public/common/features_generated.h"
+ #include "third_party/blink/public/mojom/credentialmanagement/credential_manager.mojom.h"
+@@ -474,6 +475,9 @@ void PopulateChromeFrameBinders(
+ 
+   map->Add<blink::mojom::CredentialManager>(&BindCredentialManager);
+ 
++  map->Add<seoul::adblock::mojom::CosmeticFilterHost>(
++      &seoul::adblock::CosmeticFilterHost::BindForFrame);
++
+   map->Add<chrome::mojom::OpenSearchDescriptionDocumentHandler>(
+       base::BindRepeating(
+           &SearchEngineTabHelper::BindOpenSearchDescriptionDocumentHandler));
+diff --git a/chrome/common/chrome_isolated_world_ids.h b/chrome/common/chrome_isolated_world_ids.h
+--- a/chrome/common/chrome_isolated_world_ids.h
++++ b/chrome/common/chrome_isolated_world_ids.h
+@@ -19,6 +19,9 @@ enum ChromeIsolatedWorldIDs {
+   // Isolated world ID for internal Chrome features.
+   ISOLATED_WORLD_ID_CHROME_INTERNAL,
+ 
++  // Isolated world ID for Project Seoul's CSS-only cosmetic filters.
++  ISOLATED_WORLD_ID_SEOUL_COSMETIC_FILTERS,
++
+ #if BUILDFLAG(IS_MAC)
+   // Isolated world ID for AppleScript.
+   ISOLATED_WORLD_ID_APPLESCRIPT,
+diff --git a/chrome/renderer/BUILD.gn b/chrome/renderer/BUILD.gn
+--- a/chrome/renderer/BUILD.gn
++++ b/chrome/renderer/BUILD.gn
+@@ -226,6 +226,7 @@ static_library("renderer") {
+     "//services/metrics/public/cpp:ukm_builders",
+     "//services/metrics/public/mojom",
+     "//services/service_manager/public/cpp",
++    "//seoul/renderer:cosmetic_filter_agent",
+     "//skia",
+     "//storage/common",
+     "//third_party/blink/public:blink",
+diff --git a/chrome/renderer/chrome_content_renderer_client.cc b/chrome/renderer/chrome_content_renderer_client.cc
+--- a/chrome/renderer/chrome_content_renderer_client.cc
++++ b/chrome/renderer/chrome_content_renderer_client.cc
+@@ -73,6 +73,7 @@
+ #include "chrome/renderer/webui_browser/webui_browser_renderer_extension.h"
+ #include "chrome/renderer/worker_content_settings_client.h"
+ #include "chrome/services/speech/buildflags/buildflags.h"
++#include "seoul/renderer/cosmetic_filter_agent.h"
+ #include "components/autofill/content/renderer/autofill_agent.h"
+ #include "components/autofill/content/renderer/password_autofill_agent.h"
+ #include "components/autofill/content/renderer/password_generation_agent.h"
+@@ -605,6 +606,8 @@ void ChromeContentRendererClient::ExposeInterfacesToBrowser(
+ 
+ void ChromeContentRendererClient::RenderFrameCreated(
+     content::RenderFrame* render_frame) {
++  seoul::renderer::CosmeticFilterAgent::Create(render_frame);
++
+   ChromeRenderFrameObserver* render_frame_observer =
+       new ChromeRenderFrameObserver(render_frame, web_cache_impl_.get());
+   service_manager::BinderRegistry* registry = render_frame_observer->registry();
+diff --git a/chrome/test/BUILD.gn b/chrome/test/BUILD.gn
+--- a/chrome/test/BUILD.gn
++++ b/chrome/test/BUILD.gn
+@@ -2602,6 +2602,7 @@ if (!is_android) {
+       "//seoul/browser/product/browser:product_browser_tests",
+       "//seoul/browser/projection:projection_browser_tests",
+       "//seoul/browser/shell:shell_browser_tests",
++      "//seoul/renderer:cosmetic_filter_renderer_tests",
+       ":browser_tests_runner",
+       ":platform_browser_tests",
+       ":test_support",
