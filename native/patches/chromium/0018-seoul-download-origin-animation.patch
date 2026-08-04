@@ -1,0 +1,180 @@
+diff --git a/chrome/browser/ui/browser_view_prefs.cc b/chrome/browser/ui/browser_view_prefs.cc
+index 4baa11aa058216c0236e5acfab075da12961d63e..88979f4b599672bda1a24d2065492c6607b8b149 100644
+--- a/chrome/browser/ui/browser_view_prefs.cc
++++ b/chrome/browser/ui/browser_view_prefs.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "chrome/browser/ui/browser_view_prefs.h"
+ 
++#include <algorithm>
++
+ #include "build/build_config.h"
+ #include "chrome/common/pref_names.h"
+ #include "components/pref_registry/pref_registry_syncable.h"
+@@ -31,6 +33,14 @@ bool GetCustomFramePrefDefault() {
+ 
+ namespace seoul {
+ 
++namespace {
++
++constexpr int kDefaultDownloadAnimationDurationMs = 1000;
++constexpr int kMinimumDownloadAnimationDurationMs = 150;
++constexpr int kMaximumDownloadAnimationDurationMs = 3000;
++
++}  // namespace
++
+ SeoulLayoutMode GetSeoulLayoutMode(const PrefService* prefs) {
+   if (!prefs) {
+     return SeoulLayoutMode::kSingle;
+@@ -43,6 +53,15 @@ SeoulLayoutMode GetSeoulLayoutMode(const PrefService* prefs) {
+   return static_cast<SeoulLayoutMode>(value);
+ }
+ 
++base::TimeDelta GetSeoulDownloadAnimationDuration(const PrefService* prefs) {
++  const int duration_ms =
++      prefs ? prefs->GetInteger(kSeoulDownloadAnimationDurationMsPref)
++            : kDefaultDownloadAnimationDurationMs;
++  return base::Milliseconds(std::clamp(duration_ms,
++                                       kMinimumDownloadAnimationDurationMs,
++                                       kMaximumDownloadAnimationDurationMs));
++}
++
+ }  // namespace seoul
+ 
+ void RegisterBrowserViewProfilePrefs(
+@@ -50,6 +69,10 @@ void RegisterBrowserViewProfilePrefs(
+   registry->RegisterIntegerPref(
+       seoul::kSeoulLayoutModePref,
+       static_cast<int>(seoul::SeoulLayoutMode::kSingle));
++  registry->RegisterBooleanPref(seoul::kSeoulDownloadAnimationEnabledPref,
++                                true);
++  registry->RegisterIntegerPref(seoul::kSeoulDownloadAnimationDurationMsPref,
++                                1000);
+ #if BUILDFLAG(IS_LINUX)
+   registry->RegisterBooleanPref(prefs::kUseCustomChromeFrame,
+                                 GetCustomFramePrefDefault());
+diff --git a/chrome/browser/ui/browser_view_prefs.h b/chrome/browser/ui/browser_view_prefs.h
+index 61f9b9bacca3a7090dc1c9077ab9f1692d14ab52..3a6f3182fd22974ae5d3b7be53d48924c6a36d38 100644
+--- a/chrome/browser/ui/browser_view_prefs.h
++++ b/chrome/browser/ui/browser_view_prefs.h
+@@ -5,6 +5,8 @@
+ #ifndef CHROME_BROWSER_UI_BROWSER_VIEW_PREFS_H_
+ #define CHROME_BROWSER_UI_BROWSER_VIEW_PREFS_H_
+ 
++#include "base/time/time.h"
++
+ class PrefService;
+ 
+ namespace user_prefs {
+@@ -23,14 +25,21 @@ enum class SeoulLayoutMode {
+   kMaxValue = kCollapsed,
+ };
+ 
+-inline constexpr char kSeoulLayoutModePref[] =
+-    "seoul.appearance.layout_mode";
++inline constexpr char kSeoulLayoutModePref[] = "seoul.appearance.layout_mode";
++inline constexpr char kSeoulDownloadAnimationEnabledPref[] =
++    "seoul.downloads.download_animation";
++inline constexpr char kSeoulDownloadAnimationDurationMsPref[] =
++    "seoul.downloads.download_animation_duration_ms";
+ 
+ // Reads a validated layout mode. Unknown values from future/corrupt profiles
+ // safely fall back to the product default instead of leaving the toolbar
+ // parented in an undefined container.
+ SeoulLayoutMode GetSeoulLayoutMode(const PrefService* prefs);
+ 
++// Returns a bounded animation duration so malformed profile data cannot keep a
++// transient browser-chrome surface alive indefinitely.
++base::TimeDelta GetSeoulDownloadAnimationDuration(const PrefService* prefs);
++
+ }  // namespace seoul
+ 
+ // Register profile-specific preferences specific to BrowserView. These
+diff --git a/chrome/browser/ui/views/download/BUILD.gn b/chrome/browser/ui/views/download/BUILD.gn
+index 1f457a0e0f5f35698dd0ee68447fb55684d542f0..405524ea5659a999a74c92fa89df16900bf283e4 100644
+--- a/chrome/browser/ui/views/download/BUILD.gn
++++ b/chrome/browser/ui/views/download/BUILD.gn
+@@ -90,6 +90,8 @@ source_set("download") {
+       "//components/safe_browsing/core/common:features",
+       "//components/safe_browsing/core/common:safe_browsing_policy_handler",
+       "//components/safe_browsing/core/common:safe_browsing_prefs",
++      "//seoul/browser/shell:shell_chromium",
++      "//ui/display",
+       "//ui/strings:ui_strings_grit",
+     ]
+   }
+diff --git a/chrome/browser/ui/views/download/bubble/download_toolbar_ui_controller.cc b/chrome/browser/ui/views/download/bubble/download_toolbar_ui_controller.cc
+index 5360031b8a2b29a58572f1caa5531f168c710335..393445e7b28fa23c785bf8335eb13db4637cfe65 100644
+--- a/chrome/browser/ui/views/download/bubble/download_toolbar_ui_controller.cc
++++ b/chrome/browser/ui/views/download/bubble/download_toolbar_ui_controller.cc
+@@ -31,6 +31,7 @@ DEFINE_USER_DATA(DownloadToolbarUIController);
+ #include "chrome/browser/ui/browser.h"
+ #include "chrome/browser/ui/browser_actions.h"
+ #include "chrome/browser/ui/browser_element_identifiers.h"
++#include "chrome/browser/ui/browser_view_prefs.h"
+ #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
+ #include "chrome/browser/ui/browser_window/public/profile_browser_collection.h"
+ #include "chrome/browser/ui/chrome_pages.h"
+@@ -53,11 +54,13 @@ DEFINE_USER_DATA(DownloadToolbarUIController);
+ #include "components/safe_browsing/core/common/safe_browsing_policy_handler.h"
+ #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
+ #include "content/public/browser/browser_thread.h"
++#include "seoul/browser/shell/views/seoul_download_animation_view.h"
+ #include "ui/base/l10n/l10n_util.h"
+ #include "ui/base/metadata/metadata_impl_macros.h"
+ #include "ui/color/color_id.h"
+ #include "ui/color/color_provider.h"
+ #include "ui/compositor/compositor.h"
++#include "ui/display/screen.h"
+ #include "ui/gfx/animation/animation.h"
+ #include "ui/gfx/animation/animation_delegate.h"
+ #include "ui/gfx/geometry/skia_conversions.h"
+@@ -835,6 +838,48 @@ void DownloadToolbarUIController::ShowPendingDownloadStartedAnimation() {
+       !platform_util::IsVisible(web_contents->GetNativeView())) {
+     return;
+   }
++  if (browser_view_->IsSeoulToolbarIntegrated()) {
++    PrefService* const prefs = browser_view_->GetProfile()->GetPrefs();
++    if (!prefs->GetBoolean(seoul::kSeoulDownloadAnimationEnabledPref)) {
++      return;
++    }
++
++    const gfx::Rect window_bounds = browser_view_->GetBoundsInScreen();
++    const gfx::Rect contents_bounds = web_contents->GetContainerBounds();
++    gfx::Point start = display::Screen::Get()->GetCursorScreenPoint();
++    if (!contents_bounds.Contains(start)) {
++      start = contents_bounds.CenterPoint();
++    }
++
++    ToolbarButton* const button = GetDownloadsButton(browser_view_);
++    const bool button_visible = button && button->GetVisible() &&
++                                !button->GetBoundsInScreen().IsEmpty();
++    const bool target_on_right =
++        browser_view_->toolbar() &&
++        browser_view_->toolbar()->GetBoundsInScreen().CenterPoint().x() >
++            window_bounds.CenterPoint().x();
++    const gfx::Point target =
++        button_visible ? button->GetBoundsInScreen().CenterPoint()
++                       : gfx::Point(target_on_right ? window_bounds.right() - 42
++                                                    : window_bounds.x() + 42,
++                                    window_bounds.bottom() - 40);
++    const ui::ColorProvider* const color_provider =
++        browser_view_->GetColorProvider();
++    seoul::SeoulDownloadAnimationParams params;
++    params.start_in_screen = start;
++    params.target_in_screen = target;
++    params.window_bounds_in_screen = window_bounds;
++    params.target_button_visible = button_visible;
++    params.target_on_right = target_on_right;
++    params.duration = seoul::GetSeoulDownloadAnimationDuration(prefs);
++    params.accent_color = color_provider->GetColor(
++        kColorDownloadToolbarButtonAnimationForeground);
++    params.toolbar_color = color_provider->GetColor(kColorToolbar);
++    params.hover_color =
++        color_provider->GetColor(kColorToolbarBackgroundSubtleEmphasisHovered);
++    seoul::ShowSeoulDownloadStartedAnimation(web_contents, params);
++    return;
++  }
+   // Animation cleans itself up after it's done.
+   if (auto* button = GetDownloadsButton(browser_view_)) {
+     const ui::ColorProvider* color_provider = button->GetColorProvider();
