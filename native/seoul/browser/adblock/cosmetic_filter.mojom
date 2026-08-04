@@ -1,0 +1,29 @@
+// Project Seoul cosmetic filtering IPC. The browser derives the document URL
+// from the bound RenderFrameHost; renderers never choose the filtering origin.
+
+module seoul.adblock.mojom;
+
+struct CosmeticSelectorSet {
+  array<string> selectors;
+  string isolated_script;
+  array<string> procedural_actions;
+  bool query_generics;
+};
+
+struct CosmeticResources {
+  bool enabled;
+  CosmeticSelectorSet default_rules;
+  CosmeticSelectorSet additional_rules;
+};
+
+struct DynamicCosmeticSelectors {
+  array<string> default_selectors;
+  array<string> additional_selectors;
+};
+
+interface CosmeticFilterHost {
+  GetCosmeticResources() => (CosmeticResources resources);
+
+  GetDynamicCosmeticSelectors(array<string> classes, array<string> ids) => (
+      DynamicCosmeticSelectors selectors);
+};
