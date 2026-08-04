@@ -1,0 +1,37 @@
+# Project Seoul renderer integration.
+
+source_set("cosmetic_filter_agent") {
+  sources = [
+    "cosmetic_filter_agent.cc",
+    "cosmetic_filter_agent.h",
+  ]
+
+  public_deps = [ "//seoul/browser/adblock:cosmetic_filter_mojom" ]
+
+  deps = [
+    "//base",
+    "//content/public/renderer",
+    "//gin",
+    "//mojo/public/cpp/bindings",
+    "//third_party/blink/public:blink",
+    "//url",
+    "//v8",
+  ]
+}
+
+source_set("cosmetic_filter_renderer_tests") {
+  testonly = true
+  defines = [ "HAS_OUT_OF_PROC_TEST_RUNNER" ]
+  sources = [ "cosmetic_filter_agent_unittest.cc" ]
+  deps = [
+    ":cosmetic_filter_agent",
+    "//base",
+    "//chrome/renderer",
+    "//chrome/test:test_support",
+    "//content/public/renderer",
+    "//content/test:test_support",
+    "//mojo/public/cpp/bindings",
+    "//testing/gtest",
+    "//third_party/blink/public:blink",
+  ]
+}
