@@ -1,0 +1,37 @@
+diff --git a/chrome/browser/component_updater/registration.cc b/chrome/browser/component_updater/registration.cc
+--- a/chrome/browser/component_updater/registration.cc
++++ b/chrome/browser/component_updater/registration.cc
+@@ -36,6 +36,7 @@
+ #include "components/safe_browsing/core/common/features.h"
+ #include "device/vr/buildflags/buildflags.h"
+ #include "third_party/widevine/cdm/buildflags.h"
++#include "seoul/browser/adblock/ad_block_component_installer.h"
+ #include "ui/accessibility/accessibility_features.h"
+ 
+ #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+@@ -148,6 +149,7 @@
+ #endif  // BUILDFLAG(ENABLE_WIDEVINE_CDM_COMPONENT)
+ 
+   RegisterSubresourceFilterComponent(cus);
++  seoul::adblock::RegisterAdBlockFilterComponent(cus);
+   RegisterOnDeviceHeadSuggestComponent(
+       cus, g_browser_process->GetApplicationLocale());
+   RegisterOptimizationHintsComponent(cus);
+diff --git a/chrome/browser/prefs/browser_prefs.cc b/chrome/browser/prefs/browser_prefs.cc
+--- a/chrome/browser/prefs/browser_prefs.cc
++++ b/chrome/browser/prefs/browser_prefs.cc
+@@ -217,5 +217,6 @@
+ #include "printing/buildflags/buildflags.h"
+ #include "rlz/buildflags/buildflags.h"
++#include "seoul/browser/adblock/ad_block_component_installer.h"
+ #include "ui/webui/buildflags.h"
+ 
+ #if BUILDFLAG(ENABLE_WEBUI_NTP)
+@@ -1429,6 +1430,7 @@
+   enterprise_connectors::RegisterLocalStatePrefs(registry);
+   enterprise_groups::RegisterLocalStatePrefs(registry);
+   enterprise_util::RegisterLocalStatePrefs(registry);
++  seoul::adblock::RegisterAdBlockComponentLocalStatePrefs(registry);
+   component_updater::RegisterPrefs(registry);
+   domain_reliability::RegisterPrefs(registry);
+   embedder_support::OriginTrialPrefs::RegisterPrefs(registry);
