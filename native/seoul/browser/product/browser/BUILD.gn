@@ -9,12 +9,12 @@ import("//testing/test.gni")
 
 source_set("product_chromium") {
   sources = [
-    "browser_capabilities.cc",
-    "browser_capabilities.h",
     "boost_entry_points.cc",
     "boost_entry_points.h",
     "boost_web_preferences.cc",
     "boost_web_preferences.h",
+    "browser_capabilities.cc",
+    "browser_capabilities.h",
     "network_http_transport.cc",
     "network_http_transport.h",
     "page_agent.cc",
@@ -122,12 +122,16 @@ test("seoul_browser_tests") {
   deps = [
     ":product_browser_tests",
     "//chrome:packed_resources",
+    "//chrome/browser/ui/views/tabs/vertical:browser_tests",
     "//chrome/test:browser_tests_runner",
     "//chrome/test:test_support",
     "//chrome/test:test_support_ui",
+    "//seoul/browser/adblock:adblock_browser_tests",
     "//seoul/browser/commands:command_browser_tests",
+    "//seoul/browser/organization:organization_browser_tests",
     "//seoul/browser/projection:projection_browser_tests",
     "//seoul/browser/shell:shell_browser_tests",
+    "//seoul/renderer:cosmetic_filter_renderer_tests",
   ]
 }
 
