@@ -1,0 +1,76 @@
+diff --git a/chrome/browser/ui/webui/settings/site_settings_helper.cc b/chrome/browser/ui/webui/settings/site_settings_helper.cc
+index 46d1f1161d..a84b78e310 100644
+--- a/chrome/browser/ui/webui/settings/site_settings_helper.cc
++++ b/chrome/browser/ui/webui/settings/site_settings_helper.cc
+@@ -259,6 +259,8 @@ constexpr auto kContentSettingsTypeGroupNames = std::to_array<
+     {ContentSettingsType::PERMISSION_ACTIONS_HISTORY, nullptr},
+     {ContentSettingsType::SUSPICIOUS_NOTIFICATION_SHOW_ORIGINAL, nullptr},
+     {ContentSettingsType::DEPRECATED_SUB_APP_INSTALLATION_PROMPTS, nullptr},
++    {ContentSettingsType::SEOUL_AD_BLOCK_MODE, nullptr},
++    {ContentSettingsType::SEOUL_AD_BLOCK_TEMPORARY_ALLOW, nullptr},
+ });
+ 
+ static_assert(
+diff --git a/components/content_settings/core/browser/content_settings_uma_util.cc b/components/content_settings/core/browser/content_settings_uma_util.cc
+index f07fb9b1bc..f5dbf2d417 100644
+--- a/components/content_settings/core/browser/content_settings_uma_util.cc
++++ b/components/content_settings/core/browser/content_settings_uma_util.cc
+@@ -165,6 +165,8 @@ constexpr auto kHistogramValue = base::MakeFixedFlatMap<ContentSettingsType,
+     {ContentSettingsType::SUSPICIOUS_NOTIFICATION_SHOW_ORIGINAL, 142},
+     {ContentSettingsType::LOCAL_NETWORK, 143},
+     {ContentSettingsType::LOOPBACK_NETWORK, 144},
++    {ContentSettingsType::SEOUL_AD_BLOCK_MODE, 145},
++    {ContentSettingsType::SEOUL_AD_BLOCK_TEMPORARY_ALLOW, 146},
+ 
+     // As mentioned at the top, please don't forget to update ContentType in
+     // enums.xml when you add entries here!
+diff --git a/components/content_settings/core/browser/website_settings_registry.cc b/components/content_settings/core/browser/website_settings_registry.cc
+index 4744bbe541..c2bdcb2a9a 100644
+--- a/components/content_settings/core/browser/website_settings_registry.cc
++++ b/components/content_settings/core/browser/website_settings_registry.cc
+@@ -356,6 +356,16 @@ void WebsiteSettingsRegistry::Init() {
+            WebsiteSettingsInfo::GENERIC_SINGLE_ORIGIN_SCOPE,
+            DESKTOP | PLATFORM_ANDROID,
+            WebsiteSettingsInfo::DONT_INHERIT_IN_INCOGNITO);
++  Register(ContentSettingsType::SEOUL_AD_BLOCK_MODE, "seoul-ad-block-mode",
++           base::Value(), WebsiteSettingsInfo::UNSYNCABLE,
++           WebsiteSettingsInfo::NOT_LOSSY,
++           WebsiteSettingsInfo::TOP_ORIGIN_ONLY_SCOPE, DESKTOP,
++           WebsiteSettingsInfo::DONT_INHERIT_IN_INCOGNITO);
++  Register(ContentSettingsType::SEOUL_AD_BLOCK_TEMPORARY_ALLOW,
++           "seoul-ad-block-temporary-allow", base::Value(),
++           WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::NOT_LOSSY,
++           WebsiteSettingsInfo::TOP_ORIGIN_ONLY_SCOPE, DESKTOP,
++           WebsiteSettingsInfo::DONT_INHERIT_IN_INCOGNITO);
+ }
+ 
+ }  // namespace content_settings
+diff --git a/components/content_settings/core/common/content_settings_types.mojom b/components/content_settings/core/common/content_settings_types.mojom
+index 357d033e1f..a89d35d79a 100644
+--- a/components/content_settings/core/common/content_settings_types.mojom
++++ b/components/content_settings/core/common/content_settings_types.mojom
+@@ -478,5 +478,11 @@ enum ContentSettingsType {
+   // when suspicious warning is shown. If the user has selected this, the
+   // notification permission will not be revoked based on suspicious verdict.
+   SUSPICIOUS_NOTIFICATION_SHOW_ORIGINAL,
++
++  // Project Seoul's persistent per-site native blocker mode override.
++  SEOUL_AD_BLOCK_MODE,
++
++  // Project Seoul's expiring per-site native blocker disable marker.
++  SEOUL_AD_BLOCK_TEMPORARY_ALLOW,
+ };
+ // LINT.ThenChange(//components/content_settings/core/browser/content_settings_uma_util.cc:kHistogramValue)
+diff --git a/tools/metrics/histograms/enums.xml b/tools/metrics/histograms/enums.xml
+index 26fb31be06..7a16da0675 100644
+--- a/tools/metrics/histograms/enums.xml
++++ b/tools/metrics/histograms/enums.xml
+@@ -2549,6 +2549,8 @@ Called by update_net_error_codes.py.-->
+   <int value="142" label="Suspicious notification show original"/>
+   <int value="143" label="Local network access - Local"/>
+   <int value="144" label="Local network access - Loopback"/>
++  <int value="145" label="Project Seoul ad blocker mode"/>
++  <int value="146" label="Project Seoul temporary ad blocker allow"/>
+ </enum>
+ 
+ <!-- LINT.ThenChange(//components/content_settings/core/browser/content_settings_uma_util.cc:kHistogramValue) -->
