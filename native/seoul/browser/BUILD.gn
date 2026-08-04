@@ -2,6 +2,7 @@
 
 group("browser") {
   deps = [
+    "//seoul/browser/adblock:adblock",
     "//seoul/browser/canvas",
     "//seoul/browser/commands:command_chromium",
     "//seoul/browser/connectors:connectors_core",
@@ -12,8 +13,8 @@ group("browser") {
     "//seoul/browser/lifecycle",
     "//seoul/browser/organization",
     "//seoul/browser/policy:policy_core",
-    "//seoul/browser/preview:preview_core",
     "//seoul/browser/preview:preview_chromium",
+    "//seoul/browser/preview:preview_core",
     "//seoul/browser/product:product_core",
     "//seoul/browser/product/browser:product_chromium",
     "//seoul/browser/projection:projection_chromium",
@@ -43,6 +44,9 @@ group("browser") {
 group("seoul_unittests") {
   testonly = true
   deps = [
+    "//seoul/browser/adblock:seoul_adblock_core_unittests",
+    "//seoul/browser/adblock:seoul_adblock_engine_unittests",
+    "//seoul/browser/adblock:seoul_adblock_interceptor_unittests",
     "//seoul/browser/commands:seoul_command_core_unittests",
     "//seoul/browser/connectors:seoul_connectors_unittests",
     "//seoul/browser/context:seoul_context_unittests",
@@ -70,8 +74,6 @@ group("seoul_unittests") {
   ]
 
   if (is_mac) {
-    deps += [
-      "//seoul/browser/product/browser:seoul_keychain_credential_store_unittests",
-    ]
+    deps += [ "//seoul/browser/product/browser:seoul_keychain_credential_store_unittests" ]
   }
 }
