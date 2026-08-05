@@ -49,11 +49,13 @@ for (const file of walk(NATIVE)) {
   lines.forEach((line, i) => {
     // Rule 1: base::NoDestructor holding mutable state. Exempt the sanctioned
     // KeyedServiceFactory pattern (NoDestructor<...Factory> in a GetInstance,
-    // and the friend declaration).
+    // and the friend declaration). Explicit `NoDestructor<const T>` caches are
+    // also safe: their contents cannot hold mutable profile/window state.
     if (/base::NoDestructor\s*<|friend\s+base::NoDestructor/.test(line)) {
       const isFactorySingleton = /NoDestructor<\s*\w*Factory\s*>/.test(line) ||
         /friend\s+base::NoDestructor<\s*\w*Factory\s*>/.test(line);
-      if (!isFactorySingleton) {
+      const isImmutableCache = /NoDestructor\s*<\s*const\b/.test(line);
+      if (!isFactorySingleton && !isImmutableCache) {
         flag(file, i + 1, 'process-global base::NoDestructor holding state; scope it to a profile/window service or a per-window owner instead');
       }
     }
