@@ -931,9 +931,9 @@ for (const required of [
   }
 }
 
-// Cmd/Ctrl+Shift+K is owned by BrowserView's FocusManager registration. The
-// rail header must not register the same accelerator or retain a hidden
-// launcher-button callback.
+// Zen's Cmd/Ctrl+S Compact chord and Cmd/Ctrl+Shift+K command launcher are
+// owned by BrowserView's FocusManager registration. The rail header must not
+// register either accelerator or retain a hidden launcher-button callback.
 const loadAcceleratorsSource = boundedSourceSection(
   browserViewEvidence.text,
   'void BrowserView::LoadAccelerators()',
@@ -950,6 +950,18 @@ for (const required of [
     );
   }
 }
+for (const required of [
+  'const ui::Accelerator seoul_compact_mode(ui::VKEY_S,',
+  'if (!accelerator_table_.contains(seoul_compact_mode))',
+  'seoul_compact_mode, ui::AcceleratorManager::kHighPriority, this',
+]) {
+  if (!loadAcceleratorsSource.includes(required)) {
+    problems.push(
+      `BrowserView Zen Compact registration is missing "${required}" ` +
+        `(${browserViewEvidence.source}).`,
+    );
+  }
+}
 const acceleratorPressedSource = boundedSourceSection(
   browserViewEvidence.text,
   'bool BrowserView::AcceleratorPressed',
@@ -962,6 +974,18 @@ for (const required of [
   if (!acceleratorPressedSource.includes(required)) {
     problems.push(
       `BrowserView command dispatch is missing "${required}" ` +
+        `(${browserViewEvidence.source}).`,
+    );
+  }
+}
+for (const required of [
+  'const ui::Accelerator seoul_compact_mode(ui::VKEY_S,',
+  'accelerator == seoul_compact_mode && IsSeoulToolbarIntegrated()',
+  '(void)controller->ToggleCompactMode();',
+]) {
+  if (!acceleratorPressedSource.includes(required)) {
+    problems.push(
+      `BrowserView Zen Compact dispatch is missing "${required}" ` +
         `(${browserViewEvidence.source}).`,
     );
   }
@@ -1023,16 +1047,16 @@ if (fs.existsSync(shellHeaderViewPath) &&
       );
     }
   }
-  for (const compactAcceleratorHook of [
-    'AddAccelerator(ui::Accelerator(',
+  for (const retiredCompactAcceleratorHook of [
     'ui::VKEY_C, ui::EF_PLATFORM_ACCELERATOR | ui::EF_SHIFT_DOWN',
     'bool SeoulShellHeaderView::AcceleratorPressed',
     'controller_->ToggleCompactMode()',
   ]) {
-    if (!shellHeaderView.includes(compactAcceleratorHook)) {
+    if (shellHeaderView.includes(retiredCompactAcceleratorHook)) {
       problems.push(
-        `Window-scoped compact accelerator is missing hook ` +
-          `"${compactAcceleratorHook}".`,
+        `Rail header retains retired Compact accelerator hook ` +
+          `"${retiredCompactAcceleratorHook}"; BrowserView owns ` +
+          `Zen's Command/Ctrl+S chord.`,
       );
     }
   }
@@ -1057,14 +1081,18 @@ if (fs.existsSync(shellHeaderViewPath) &&
         'through a typed toggle action.',
     );
   }
-  for (const taskDeckHook of [
-    'task_button_',
-    'TaskButtonLabel',
-    'TaskAccessibleName',
-    'ShellUtilityAction::kOpenTaskDeck',
+  // Zen's persistent footer intentionally contains only Downloads,
+  // Workspaces, and Create New. Task Deck remains a first-class typed action
+  // in the unified command launcher instead of adding another footer glyph.
+  for (const taskDeckLauncherHook of [
+    'MakeEntry("open_task_deck", "Open Task Deck"',
+    'entries.back().action = ShellUtilityAction::kOpenTaskDeck',
   ]) {
-    if (!compactShell.includes(taskDeckHook)) {
-      problems.push(`Persistent shell Task Deck is missing hook "${taskDeckHook}".`);
+    if (!commandLauncherCatalog.includes(taskDeckLauncherHook)) {
+      problems.push(
+        `Unified command launcher Task Deck is missing hook ` +
+          `"${taskDeckLauncherHook}".`,
+      );
     }
   }
 }
@@ -1085,6 +1113,18 @@ if (fs.existsSync(liveWindowStatePath) && fs.existsSync(tabStripBridgePath) &&
   const shellViewModel = fs.readFileSync(shellViewModelPath, 'utf8');
   const shellController = fs.readFileSync(shellControllerPath, 'utf8');
   const tabStripBridge = fs.readFileSync(tabStripBridgePath, 'utf8');
+  if (!shellViewModel.includes(
+        'AddAction(&snapshot, ShellUtilityAction::kOpenTaskDeck')) {
+    problems.push(
+      'Shell view model does not expose the typed Task Deck action.',
+    );
+  }
+  if (!/case ShellUtilityAction::kOpenTaskDeck:[\s\S]{0,500}return OpenCanvas\(\);/
+        .test(shellController)) {
+    problems.push(
+      'Shell controller does not route the typed Task Deck action to Canvas.',
+    );
+  }
   for (const required of [
     'kMaxLiveTabTitleLength',
     'origin.Serialize()',
@@ -1685,7 +1725,7 @@ console.log(
     `executable observable Live Collections, ` +
     `exact-scope agent permissions enforced, ` +
     `typed task input replans, unified native omnibox actions, explicit ` +
-    `split chooser, persistent shell Task Deck status, exact cross-window ` +
+    `split chooser, command-accessible Task Deck, exact cross-window ` +
     `Essentials, explicit ephemeral Preview lifecycle, retained-insertion ` +
     `handshake, and native sensitive-field refusal)`,
 );
