@@ -16,8 +16,15 @@ func elog(_ message: String) {
 }
 
 /// Carbon hands back a bare C function pointer with no context, so the target
-/// has to be reachable from a global.
-nonisolated(unsafe) var hotKeyCallback: (() -> Void)?
+/// has to be reachable from a global. Takes the hot key's id because ONE
+/// handler receives every registered hotkey — without discriminating, adding a
+/// second one silently makes both do whatever the first one did.
+nonisolated(unsafe) var hotKeyCallback: ((UInt32) -> Void)?
+
+private enum HotKey {
+    static let find: UInt32 = 1
+    static let clear: UInt32 = 2
+}
 
 @MainActor
 final class SeoulAppController: NSObject {
@@ -27,7 +34,12 @@ final class SeoulAppController: NSObject {
     private var statusItem: NSStatusItem?
     private let server = UnixSocketServer()
     private var hotKeyRef: EventHotKeyRef?
+    private var clearHotKeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
+
+    /// Which app owned the page the current sketch points at, captured when the
+    /// query was fired. Used to tell "switched away" from "switched back".
+    private var annotationOwnerPID: pid_t?
 
     /// Editable from the menu so several queries can be tried without a rebuild.
     private var queries = [
@@ -68,6 +80,35 @@ final class SeoulAppController: NSObject {
         buildMenu()
         startServer()
         installHotKey()
+        installFocusWatcher()
+    }
+
+    /// A sketch pointing at a page you are no longer looking at is always wrong,
+    /// so leaving the browser takes the overlay with it.
+    private func installFocusWatcher() {
+        // NSWorkspace.shared.notificationCenter, NOT NotificationCenter.default.
+        // Workspace notifications are never posted to the default centre, and an
+        // observer registered there simply never fires — with no error to say so.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                self.frontmostChanged(to: app)
+            }
+        }
+    }
+
+    private func frontmostChanged(to app: NSRunningApplication?) {
+        // Nothing drawn: nothing to do. Without this the log would narrate every
+        // app switch the user ever makes.
+        guard let owner = annotationOwnerPID else { return }
+        // Switching BACK to the annotated browser is not a reason to clear.
+        if let app, app.processIdentifier == owner { return }
+        clear(reason: "frontmost app -> \(app?.localizedName ?? "unknown")")
     }
 
     // MARK: - Menu
@@ -269,12 +310,17 @@ final class SeoulAppController: NSObject {
         // displayScaleFactor is Swift's to supply — the page cannot know it.
         // Pick it from the screen the browser window is actually on, or the
         // pageZoom division is wrong on a mixed-DPI setup.
-        let windowTopLeft = NSPoint(x: ctx.screenX, y: primaryHeight - ctx.screenY)
-        let scale = NSScreen.screens.first(where: { $0.frame.contains(windowTopLeft) })?.backingScaleFactor
-            ?? NSScreen.screens.first?.backingScaleFactor
-            ?? 2
+        //
+        // By largest intersection, not by testing whether a corner is contained:
+        // a window flush against the top of a display has its top edge exactly
+        // at the screen's maxY, which NSRect.contains treats as outside.
+        let windowFrame = DisplaySelection.appKitWindowFrame(
+            screenX: ctx.screenX, screenY: ctx.screenY,
+            outerWidth: ctx.outerWidth, outerHeight: ctx.outerHeight,
+            primaryScreenHeight: primaryHeight)
+        let scale = DisplaySelection.backingScaleFactor(forWindowFrame: windowFrame)
 
-        let zoom = ctx.devicePixelRatio / Double(scale)
+        let zoom = ctx.devicePixelRatio / scale
 
         // Locate the browser's content area on screen.
         //
@@ -312,7 +358,7 @@ final class SeoulAppController: NSObject {
             innerWidth: ctx.innerWidth, innerHeight: ctx.innerHeight,
             outerWidth: ctx.innerWidth * zoom, outerHeight: ctx.innerHeight * zoom,
             devicePixelRatio: ctx.devicePixelRatio,
-            displayScaleFactor: Double(scale))
+            displayScaleFactor: scale)
 
         let pageRect = PageRect(x: union.minX, y: union.minY,
                                 width: union.width, height: union.height)
@@ -332,7 +378,7 @@ final class SeoulAppController: NSObject {
                 innerWidth: ctx.innerWidth, innerHeight: ctx.innerHeight,
                 outerWidth: ctx.outerWidth, outerHeight: ctx.outerHeight,
                 devicePixelRatio: ctx.devicePixelRatio,
-                displayScaleFactor: Double(scale)),
+                displayScaleFactor: scale),
             pageZoom: zoom,
             chromeLeft: viewportLeft - ctx.screenX,
             chromeTop: viewportTop - ctx.screenY,
@@ -361,12 +407,30 @@ final class SeoulAppController: NSObject {
     // MARK: - Hotkey
 
     private func installHotKey() {
-        hotKeyCallback = { [weak self] in self?.fire() }
+        hotKeyCallback = { [weak self] id in
+            guard let self else { return }
+            switch id {
+            case HotKey.find: self.fire()
+            case HotKey.clear: self.clear(reason: "cmd+shift+escape")
+            default: break
+            }
+        }
 
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
                                       eventKind: UInt32(kEventHotKeyPressed))
-        let handler: EventHandlerUPP = { _, _, _ in
-            hotKeyCallback?()
+        // One handler serves every hotkey, so it must read back WHICH one fired.
+        let handler: EventHandlerUPP = { _, event, _ in
+            guard let event else { return noErr }
+            var id = EventHotKeyID()
+            let status = GetEventParameter(event,
+                                           EventParamName(kEventParamDirectObject),
+                                           EventParamType(typeEventHotKeyID),
+                                           nil,
+                                           MemoryLayout<EventHotKeyID>.size,
+                                           nil,
+                                           &id)
+            guard status == noErr else { return noErr }
+            hotKeyCallback?(id.id)
             return noErr
         }
         InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType, nil, &eventHandlerRef)
@@ -374,18 +438,27 @@ final class SeoulAppController: NSObject {
         // Carbon rather than NSEvent.addGlobalMonitorForEvents: the monitor API
         // requires Accessibility permission, which this app has no other use
         // for and should not be asking a user to grant.
-        let id = EventHotKeyID(signature: OSType(0x53_45_4F_55 /* 'SEOU' */), id: 1)
-        let status = RegisterEventHotKey(UInt32(kVK_Space),
+        let signature = OSType(0x53_45_4F_55) // 'SEOU'
+        register(keyCode: UInt32(kVK_Space), id: HotKey.find,
+                 signature: signature, ref: &hotKeyRef, label: "cmd+shift+space (find)")
+        register(keyCode: UInt32(kVK_Escape), id: HotKey.clear,
+                 signature: signature, ref: &clearHotKeyRef, label: "cmd+shift+escape (clear)")
+    }
+
+    private func register(keyCode: UInt32, id: UInt32, signature: OSType,
+                          ref: inout EventHotKeyRef?, label: String) {
+        let hotKeyID = EventHotKeyID(signature: signature, id: id)
+        let status = RegisterEventHotKey(keyCode,
                                          UInt32(cmdKey | shiftKey),
-                                         id,
+                                         hotKeyID,
                                          GetApplicationEventTarget(),
                                          0,
-                                         &hotKeyRef)
+                                         &ref)
         if status == noErr {
-            elog("hotkey registered: cmd+shift+space")
+            elog("hotkey registered: \(label)")
         } else {
-            elog("WARNING: could not register cmd+shift+space (OSStatus \(status)). " +
-                 "Something else already owns it; use the menu's \"Find now\".")
+            elog("WARNING: could not register \(label) (OSStatus \(status)). " +
+                 "Something else already owns it; the menu still works.")
         }
     }
 
@@ -398,6 +471,11 @@ final class SeoulAppController: NSObject {
             elog("no SeoulHost connected — is Chrome running with the extension loaded?")
             return
         }
+        // Captured now, while the browser is still frontmost: the hotkey is
+        // global and this app never activates, so whatever is in front at this
+        // instant is the window the answer will land on.
+        annotationOwnerPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+
         requestCounter += 1
         let requestId = "req-\(requestCounter)"
         let query = queries[activeQuery]
@@ -458,8 +536,18 @@ final class SeoulAppController: NSObject {
     }
 
     @objc private func clearOverlay() {
+        clear(reason: "menu")
+    }
+
+    /// Every route to an empty overlay goes through here, and says why. There
+    /// are now three of them — the menu, the hotkey, and losing focus — and
+    /// "the sketch vanished" is not a useful thing to have to debug.
+    private func clear(reason: String) {
+        let hadSomething = annotationOwnerPID != nil || !liveElementIDs.isEmpty
         OverlayPanel.clear()
         liveElementIDs.removeAll()
+        annotationOwnerPID = nil
+        if hadSomething { elog("overlay cleared (\(reason))") }
     }
 
     @objc private func quit() {
