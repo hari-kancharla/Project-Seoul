@@ -13,12 +13,15 @@ overlaid into it + a minimal, ordered, reversible patch series
 
 ```
 native/seoul/        (tracked here)   -> materialized into  $SEOUL_CHROMIUM_ROOT/src/seoul/
+native/third_party/rust/seoul_adblock/
+                     (tracked here)   -> materialized into  $SEOUL_CHROMIUM_ROOT/src/third_party/rust/seoul_adblock/
 native/patches/chromium/ (tracked)    -> applied onto       $SEOUL_CHROMIUM_ROOT/src/...
 ```
 
-- `native/scripts/materialize.sh` copies this tree into the checkout
-  (`src/seoul/`) and can verify or cleanly remove it. It never edits unmodified
-  Chromium files; only the patch series may touch upstream paths.
+- `native/scripts/materialize.sh` copies this tree and the isolated, pinned
+  blocker Rust closure into their dedicated checkout directories. It can verify
+  or cleanly remove both. It never overwrites an upstream-owned file; only the
+  patch series may modify upstream files.
 - `native/scripts/patches.sh` applies / verifies / reverses the integration
   patches, in the order given by `../patches/manifest.json`.
 
