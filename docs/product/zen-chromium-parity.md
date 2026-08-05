@@ -82,7 +82,7 @@ Status values:
 | Collapsed toolbar layout | partial | Match Zen's 60 px icon rail, visibility rules, tooltips, drag behavior, and resize snapping. |
 | Right-side tabs | base | Expose and persist placement; mirror content insets, resize edge, floating UI, and traffic-light rules. |
 | Floating URL bar | partial | Keep Chromium's security model and autocomplete, but present the editing/results surface centered over content with Zen sizing, rows, actions, and focus behavior. |
-| Domain-only resting URL | missing | Display the registrable domain at rest without changing the editable/copyable canonical URL. |
+| Domain-only resting URL | partial | Single Toolbar now uses Chromium's native display/edit URL split to show the formatted host at Zen's exact 70% resting text strength and reveal the full-strength editing URL on focus without changing canonical copy/navigation/security state; controlled runtime visual comparison remains required. |
 | Essentials | partial | Limit to 12 by default, render favicon tiles, support global or per-Space modes, live/unloaded states, drag promotion/demotion, reset/close behavior, container isolation, and automatic Glance for external links. |
 | Pinned tabs | partial | Match Space-local persistence, reset-to-pinned-URL semantics, unload/close shortcut behavior, labels/sublabels, drag rules, and collapsed section behavior. |
 | Spaces | partial | Rename the visible concept, match icon strip, swipe/wheel switching, wrap-around, animations, reorder/create/edit/delete UI, default container, last-active behavior, and keyboard shortcuts. |
@@ -96,7 +96,7 @@ Status values:
 | Window Sync | partial | Mirror the same live tab graph across local windows, show inactive previews, support temporary unsynced windows, reconcile activation, and create recoverable backups. |
 | Session recovery | partial | Persist and restore Spaces, folders, Essentials, pinned state, split geometry, selected tabs, custom labels, routes, and compact/layout state with rolling backups and corruption recovery. |
 | Media controls | missing | Add sidebar media card/state, play/pause, mute, PiP, metadata/artwork, multiple-media selection, unload protection, and accessibility. |
-| Download animation | missing | Animate from the originating tab to the downloads control, respect configured duration/placement and reduced motion, and preserve normal Chromium downloads behavior. |
+| Download animation | partial | The native current-Zen arc, scale, lower-edge fallback target, left/right placement, bounded duration preference, and Chromium reduced-motion/download-lifecycle gates are implemented and compiled; controlled runtime visual comparison remains required. |
 | Command/URL actions | partial | Port Zen global and Space-scoped quick actions into Chromium omnibox results, with ranking/learning, shortcut labels, stale-target rejection, and full keyboard operation. |
 | Editable shortcuts | partial | Expose all Zen actions, detect conflicts, persist overrides, restore defaults, and test platform modifiers. |
 | Themes | partial | Bind Seoul theme tokens to the whole native browser chrome, add gradients, system/light/dark schemes, texture, transparency/material, accent, separation, radius, inactive-window treatment, and live preview. |
