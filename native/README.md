@@ -16,8 +16,11 @@ source and no build output**.
   Chromium commit SHA, and the depot_tools commit SHA. Reproduced from this pin,
   never from a floating `main`.
 - **Seoul-owned native code is tracked here**, under `seoul/` (C++, WebUI,
-  resources, config). `scripts/materialize.sh` mirrors it into the checkout at
-  `src/seoul/`. It is the source of truth; the checkout copy is disposable.
+  resources, config). The isolated native-blocker Rust closure is tracked under
+  `third_party/rust/seoul_adblock/`. `scripts/materialize.sh` mirrors these into
+  the checkout at `src/seoul/` and
+  `src/third_party/rust/seoul_adblock/`. Repository copies are authoritative;
+  checkout copies are disposable.
 - **Unavoidable upstream Chromium edits are minimal, ordered, reversible patches**
   under `patches/chromium/`, described by `patches/manifest.json` and applied by
   `scripts/patches.sh`.
@@ -34,7 +37,8 @@ source and no build output**.
 - `sync.sh` - pin to the lock, sync deps, run hooks. `sync.sh --verify-only`
   delegates to `verify-checkout.sh`.
 - `verify-checkout.sh` - read-only verification of the checkout against the lock.
-- `materialize.sh` - apply/verify/reverse the Seoul source overlay.
+- `materialize.sh` - apply/verify/reverse the Seoul source overlay and isolated
+  native-blocker Rust closure.
 - `patches.sh` - list/verify/apply/reverse the Chromium integration patch series.
 - `check-patch-manifest.mjs` - validate `patches/manifest.json`.
 - `build-host-check.sh` - **build-readiness gate** (hard RAM/disk/Xcode/checkout
