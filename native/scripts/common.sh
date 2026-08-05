@@ -109,6 +109,10 @@ EVIDENCE_DIR="$SEOUL_NATIVE_DIR/evidence"
 
 # Repository-owned Seoul native source and the Chromium integration patch series.
 SEOUL_SRC_DIR="$SEOUL_NATIVE_DIR/seoul"
+# Seoul-owned, pinned Rust dependency closure for the native blocker. Keeping it
+# outside Chromium's global Cargo graph prevents unrelated upstream Rust crates
+# from being regenerated when the blocker dependency graph changes.
+SEOUL_ADBLOCK_RUST_DIR="$SEOUL_NATIVE_DIR/third_party/rust/seoul_adblock"
 # The canonical cross-language wire contract (schemas + shared fixtures),
 # mirrored into the overlay at src/seoul/protocol by materialize.sh.
 SEOUL_PROTOCOL_DIR="$SEOUL_REPO_ROOT/protocol"
@@ -116,6 +120,7 @@ PATCHES_DIR="$SEOUL_NATIVE_DIR/patches/chromium"
 PATCH_MANIFEST="$SEOUL_NATIVE_DIR/patches/manifest.json"
 # Where Seoul-owned source is materialized inside the external checkout.
 SEOUL_OVERLAY_DEST="$CHROMIUM_SRC/seoul"
+SEOUL_ADBLOCK_RUST_DEST="$CHROMIUM_SRC/third_party/rust/seoul_adblock"
 
 # Build-host minimums (overridable). These gate gen/build only; the checkout
 # itself does not require them.
