@@ -48,6 +48,13 @@ const libraryDomainPattern =
 const excludedFile =
   /(_unittest\.cc|_browsertest\.cc|_test\.cc|fake_[a-z_]+\.(cc|h|mm))$/;
 const excludedDir = /\/(examples?|fixtures?|test_support)\//;
+// This is a generated, data-only copy of Zen's standard emoji search tags.
+// Terms such as "weather" and "hotel" describe Unicode emoji and cannot route
+// product behavior. Keep this exemption file-specific so executable shell code
+// remains covered by every neutrality rule.
+const excludedGeneratedCatalog = new Set([
+  'native/seoul/browser/shell/workspace_emoji_data.cc',
+]);
 
 function walk(dir) {
   const out = [];
@@ -69,7 +76,8 @@ const termRegexes = forbiddenTerms.map(
 let violations = 0;
 for (const file of walk(coreRoot)) {
   const rel = path.relative(repoRoot, file);
-  if (excludedFile.test(rel) || excludedDir.test(`/${rel}/`)) {
+  if (excludedFile.test(rel) || excludedDir.test(`/${rel}/`) ||
+      excludedGeneratedCatalog.has(rel)) {
     continue;
   }
   const lines = fs.readFileSync(file, 'utf8').split('\n');
