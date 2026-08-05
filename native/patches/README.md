@@ -14,12 +14,33 @@ Files:
   `baseRevision` must equal the pinned revision in `../chromium.lock.json`.
 - `chromium/` - the actual `.patch` files referenced by the manifest.
 
-The current series contains two patches:
-
-- `0001-seoul-native-core.patch` wires Seoul's native services, Canvas, shell,
-  Preview, resources, and browser tests into the pinned Chromium tree.
-- `0002-seoul-product-defaults.patch` makes the vertical workspace shell the
-  fresh-profile default and updates the relevant upstream controller tests.
+The current series contains 23 patches. Patches `0001` through `0010` establish
+the native integration, session model, integrated vertical shell, product
+surface, identity, and iconography. Patches `0011` through `0016` refine the
+address prompt, Compact timing, command surface, layout migration, native
+materials, state colors, and platform-specific radii. Patch `0017` carries the
+current source-matched Zen interaction checkpoint, including Compact geometry,
+startup-placeholder lifecycle, native vectors, macOS traffic-light handling,
+shutdown ordering, and development keychain policy. Patch `0018` connects
+current Zen's curved download-origin animation to Chromium's native
+download-start lifecycle. Patch `0019` uses Chromium's safe display/edit URL
+split to show a host-only resting URL in Single Toolbar and reveal the complete
+editing URL on focus.
+Patch `0020` registers Seoul's profile-keyed blocker and places its tested
+browser-process URLLoaderFactory proxy ahead of Chromium's downstream request
+factory chain, with a separate asynchronous WS/WSS handshake gate that
+preserves Chromium's extension proxy and direct-network continuation paths,
+plus a deferred primary-main-frame NavigationThrottle for blocked documents
+and redirect targets.
+Patch `0021` adds separate Chromium website-setting schemas for a persistent
+per-site blocker mode and an expiring temporary disable, including exhaustive
+settings/UMA registration.
+Patch `0022` registers Seoul's document-scoped asynchronous cosmetic-filter
+host and bounded CSS-only renderer agent, including fixed isolated-world,
+prerender, BFCache, cross-origin-frame, and renderer-test integration.
+Patch `0023` registers the fail-closed signed filter-list component at
+Chromium's update and Local State seams; an owner-supplied release key hash is
+required before the component is registered.
 
 Every Chromium modification must remain:
 
