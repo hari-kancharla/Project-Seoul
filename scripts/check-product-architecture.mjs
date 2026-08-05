@@ -108,9 +108,20 @@ function chromiumIntegrationEvidence(relativePath) {
       // Reconstruct the new-side searchable text. Removed lines must never
       // satisfy a current architecture invariant.
       const newSide = section.split('\n').flatMap((line) => {
+        if (line.startsWith('@@')) {
+          // Git writes the enclosing function's signature after the second
+          // '@@'. When a hunk starts INSIDE a function, that header is the only
+          // place the function's own signature appears anywhere in the patch —
+          // so discarding these lines makes every function-bounded search below
+          // return nothing, and the invariant reports itself missing even
+          // though the code is present.
+          const marker = line.indexOf('@@', 2);
+          const context = marker >= 0 ? line.slice(marker + 2).trim() : '';
+          return context ? [context] : [];
+        }
         if (line.startsWith('--- ') || line.startsWith('+++ ') ||
             line.startsWith('diff --git ') || line.startsWith('index ') ||
-            line.startsWith('@@') || line.startsWith('-')) {
+            line.startsWith('-')) {
           return [];
         }
         return [line.startsWith('+') || line.startsWith(' ')
@@ -787,12 +798,25 @@ const omniboxViewEvidence = chromiumIntegrationEvidence(
   'chrome/browser/ui/views/omnibox/omnibox_view_views.cc');
 
 function boundedSourceSection(text, startMarker, endMarker) {
-  const start = text.indexOf(startMarker);
-  if (start < 0) {
-    return '';
+  // Collect EVERY window, not just the first. A patch series routinely touches
+  // one function from several patches (0014 lays the function down, 0017
+  // extends it); keeping only the first window hides the later patch's
+  // additions behind the earlier patch's closing marker.
+  const windows = [];
+  let start = text.indexOf(startMarker);
+  while (start >= 0) {
+    const next = text.indexOf(startMarker, start + startMarker.length);
+    let end = text.indexOf(endMarker, start + startMarker.length);
+    if (end < 0) {
+      end = text.length;
+    }
+    if (next >= 0 && next < end) {
+      end = next;
+    }
+    windows.push(text.slice(start, end));
+    start = next;
   }
-  const end = text.indexOf(endMarker, start + startMarker.length);
-  return text.slice(start, end < 0 ? text.length : end);
+  return windows.join('\n');
 }
 
 const showActionsSource = boundedSourceSection(
