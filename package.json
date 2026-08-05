@@ -6,10 +6,11 @@
   "description": "Project Seoul - the voice-first, visual, programmable personal browser: native source, canonical protocol, and design labs.",
   "scripts": {
     "test": "npm run test:protocol && npm run test:canvas && npm run test:boost-editor",
-    "check": "npm run check:scripts && npm run check:json && npm run check:manifest && npm run check:boundary && npm run check:neutrality && npm run check:native-arch && npm run check:product-arch && npm run check:canvas-webui && npm run check:syntax && npm run check:protocol",
+    "check": "npm run check:scripts && npm run check:json && npm run check:adblock-vendor && npm run check:manifest && npm run check:boundary && npm run check:neutrality && npm run check:native-arch && npm run check:product-arch && npm run check:canvas-webui && npm run check:syntax && npm run check:protocol",
     "ci": "npm run check && npm test",
     "check:scripts": "for f in $(git ls-files '*.sh'); do bash -n \"$f\" || exit 1; done && echo 'bash -n: OK'",
     "check:json": "node -e \"for (const f of ['native/chromium.lock.json','native/patches/manifest.json','package.json']) { JSON.parse(require('fs').readFileSync(f,'utf8')); console.log('json OK:', f); }\"",
+    "check:adblock-vendor": "node native/scripts/check-adblock-rust-vendor.mjs",
     "check:manifest": "node native/scripts/check-patch-manifest.mjs",
     "check:boundary": "node scripts/check-repo-boundary.mjs",
     "check:neutrality": "node scripts/check-domain-neutrality.mjs",
