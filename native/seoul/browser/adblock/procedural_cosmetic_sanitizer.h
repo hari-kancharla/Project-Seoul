@@ -10,6 +10,13 @@
 namespace seoul::adblock {
 
 struct SanitizedProceduralActionSets {
+  SanitizedProceduralActionSets();
+  SanitizedProceduralActionSets(const SanitizedProceduralActionSets&);
+  SanitizedProceduralActionSets& operator=(const SanitizedProceduralActionSets&);
+  SanitizedProceduralActionSets(SanitizedProceduralActionSets&&);
+  SanitizedProceduralActionSets& operator=(SanitizedProceduralActionSets&&);
+  ~SanitizedProceduralActionSets();
+
   std::vector<std::string> default_actions;
   std::vector<std::string> additional_actions;
 };

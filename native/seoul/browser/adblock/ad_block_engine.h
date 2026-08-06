@@ -69,6 +69,11 @@ class AdBlockEngine {
   AdBlockMatchResult Evaluate(const AdBlockRequest& request,
                               bool previously_matched_rule = false,
                               bool previously_matched_exception = false) const;
+  // Combined `$csp` directives for a document/subdocument request, or an empty
+  // string when no policy applies. The engine resolves `$csp` exceptions and
+  // merges multiple matching directives; callers only ever append the result as
+  // an additional policy, which by CSP semantics can restrict but never relax.
+  std::string GetCspDirectives(const AdBlockRequest& request) const;
   AdBlockCosmeticEngineResources GetUrlCosmeticResources(
       const std::string& url) const;
   std::vector<std::string> GetHiddenClassIdSelectors(

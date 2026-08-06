@@ -92,6 +92,24 @@ void AdBlockService::CheckRequest(AdBlockRequest request,
           factory_type, std::move(callback)));
 }
 
+void AdBlockService::GetCspDirectives(
+    AdBlockRequest request,
+    const GURL& document_url,
+    AdBlockEngineHost::CspDirectivesCallback callback) {
+  if (shutdown_ || !document_url.is_valid() ||
+      !document_url.SchemeIsHTTPOrHTTPS()) {
+    std::move(callback).Run(std::string());
+    return;
+  }
+  const AdBlockMode mode =
+      settings_.GetSiteSettings(document_url).effective_mode;
+  if (mode == AdBlockMode::kOff) {
+    std::move(callback).Run(std::string());
+    return;
+  }
+  engine_host_.GetCspDirectives(std::move(request), mode, std::move(callback));
+}
+
 void AdBlockService::GetCosmeticResources(const GURL& document_url,
                                           CosmeticResourcesCallback callback) {
   if (shutdown_ || !document_url.is_valid() ||

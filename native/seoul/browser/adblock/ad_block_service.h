@@ -47,6 +47,12 @@ class AdBlockService : public KeyedService {
   AdBlockService& operator=(const AdBlockService&) = delete;
 
   void CheckRequest(AdBlockRequest request, DecisionCallback callback);
+  // `$csp` directives for a document/subdocument navigation. `document_url` is
+  // the site whose mode governs injection; the result is empty when that site
+  // is Off, so a disabled site never receives an injected policy.
+  void GetCspDirectives(AdBlockRequest request,
+                        const GURL& document_url,
+                        AdBlockEngineHost::CspDirectivesCallback callback);
   void GetCosmeticResources(const GURL& document_url,
                             CosmeticResourcesCallback callback);
   void GetDynamicCosmeticSelectors(const GURL& document_url,

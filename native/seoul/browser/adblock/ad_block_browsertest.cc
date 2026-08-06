@@ -82,6 +82,52 @@ class AdBlockBrowserTest : public InProcessBrowserTest {
           "<script src=\"/allowed.js\"></script>");
       return response;
     }
+    // ---- `$csp` fixtures -------------------------------------------------
+    // Inline script sets a flag. Under `script-src 'none'` it must not run.
+    // EvalJs reads the flag over the DevTools protocol, which is not subject to
+    // the page's CSP, so the flag is observable either way.
+    if (request.relative_url == "/csp.html") {
+      response->set_content_type("text/html");
+      response->set_content("<script>window.scriptRan = true;</script>ok");
+      return response;
+    }
+    // Site ships its own policy; the blocker must not disturb it.
+    if (request.relative_url == "/csp_existing.html") {
+      response->set_content_type("text/html");
+      response->AddCustomHeader("Content-Security-Policy", "img-src 'none'");
+      response->set_content(
+          "<script>window.scriptRan = true;</script>"
+          "<img id=\"img\" src=\"/image.png\">");
+      return response;
+    }
+    if (request.relative_url == "/csp_report_only.html") {
+      response->set_content_type("text/html");
+      response->AddCustomHeader("Content-Security-Policy-Report-Only",
+                                "script-src 'none'");
+      response->set_content("<script>window.scriptRan = true;</script>ok");
+      return response;
+    }
+    if (request.relative_url == "/csp_parent.html") {
+      response->set_content_type("text/html");
+      response->set_content(
+          "<script>window.scriptRan = true;</script>"
+          "<iframe id=\"child\" src=\"" +
+          embedded_test_server()->GetURL("frame.test", "/csp.html").spec() +
+          "\"></iframe>");
+      return response;
+    }
+    if (request.relative_url == "/csp_redirect") {
+      response->set_code(net::HTTP_FOUND);
+      response->AddCustomHeader(
+          "Location",
+          embedded_test_server()->GetURL("final.test", "/csp.html").spec());
+      return response;
+    }
+    if (request.relative_url == "/image.png") {
+      response->set_content_type("image/png");
+      response->set_content("not-a-real-png-but-a-load-attempt");
+      return response;
+    }
     if (request.relative_url == "/cosmetic.html") {
       response->set_content_type("text/html");
       response->set_content(
@@ -542,6 +588,197 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
           "  value === 'none' ? resolve(value) : requestAnimationFrame(check);"
           " }; check();"
           "})"));
+}
+
+
+// ---- `$csp` end-to-end -----------------------------------------------------
+// Each case asserts renderer-observable behavior, never just a header string.
+
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, CspRuleBlocksInlineScript) {
+  const GURL url = embedded_test_server()->GetURL("news.test", "/csp.html");
+
+  // Baseline: with no matching rule the inline script runs.
+  ASSERT_NO_FATAL_FAILURE(ReplaceRules(""));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_EQ(true, content::EvalJs(contents, "window.scriptRan === true"));
+
+  // With the rule the very same script is refused by Blink's CSP machinery,
+  // which proves the policy arrived before the document was processed.
+  ASSERT_NO_FATAL_FAILURE(
+      ReplaceRules("||news.test^$csp=script-src 'none'\n"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  contents = browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_EQ(false, content::EvalJs(contents, "window.scriptRan === true"));
+}
+
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, CspExceptionSuppressesInjection) {
+  ASSERT_NO_FATAL_FAILURE(
+      ReplaceRules("||news.test^$csp=script-src 'none'\n"
+                   "@@||news.test^$csp\n"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("news.test", "/csp.html")));
+  EXPECT_EQ(true,
+            content::EvalJs(
+                browser()->tab_strip_model()->GetActiveWebContents(),
+                "window.scriptRan === true"));
+}
+
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, ExistingSiteCspIsPreserved) {
+  ASSERT_NO_FATAL_FAILURE(
+      ReplaceRules("||news.test^$csp=script-src 'none'\n"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(),
+      embedded_test_server()->GetURL("news.test", "/csp_existing.html")));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  // Injected policy is enforced.
+  EXPECT_EQ(false, content::EvalJs(contents, "window.scriptRan === true"));
+  // The site's own `img-src 'none'` is still enforced, so it was neither
+  // replaced nor relaxed by the injection.
+  EXPECT_EQ(0, content::EvalJs(
+                   contents,
+                   "document.getElementById('img').naturalWidth"));
+}
+
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, ReportOnlyCspIsNotPromoted) {
+  // The site's report-only policy must stay report-only: with no matching
+  // blocker rule the script still runs.
+  ASSERT_NO_FATAL_FAILURE(ReplaceRules("||other.test^$csp=script-src 'none'\n"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(),
+      embedded_test_server()->GetURL("news.test", "/csp_report_only.html")));
+  EXPECT_EQ(true,
+            content::EvalJs(
+                browser()->tab_strip_model()->GetActiveWebContents(),
+                "window.scriptRan === true"));
+}
+
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, MultipleCspRulesCombine) {
+  // One directive from each engine group; both must take effect.
+  ASSERT_NO_FATAL_FAILURE(
+      ReplaceRules("||news.test^$csp=script-src 'none'\n"));
+  ASSERT_NO_FATAL_FAILURE(
+      ReplaceAdditionalRules("||news.test^$csp=img-src 'none'\n"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(),
+      embedded_test_server()->GetURL("news.test", "/csp_existing.html")));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_EQ(false, content::EvalJs(contents, "window.scriptRan === true"));
+  EXPECT_EQ(0, content::EvalJs(
+                   contents,
+                   "document.getElementById('img').naturalWidth"));
+}
+
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, OffModeSuppressesCspInjection) {
+  const GURL url = embedded_test_server()->GetURL("news.test", "/csp.html");
+  ASSERT_NO_FATAL_FAILURE(
+      ReplaceRules("||news.test^$csp=script-src 'none'\n"));
+
+  AdBlockService* service =
+      AdBlockServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(service);
+  // Site settings are keyed by site, matching the other Off/Aggressive tests.
+  service->SetSiteMode(embedded_test_server()->GetURL("news.test", "/"),
+                       AdBlockMode::kOff);
+  // Isolate settings from the CSP path: if this holds, any injection that
+  // still happens is the response component ignoring the mode.
+  ASSERT_EQ(AdBlockMode::kOff, service->GetSiteSettings(url).effective_mode);
+
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  EXPECT_EQ(true,
+            content::EvalJs(
+                browser()->tab_strip_model()->GetActiveWebContents(),
+                "window.scriptRan === true"));
+}
+
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, NonMatchingPageIsUnaffected) {
+  ASSERT_NO_FATAL_FAILURE(
+      ReplaceRules("||ads.test^$csp=script-src 'none'\n"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("news.test", "/csp.html")));
+  EXPECT_EQ(true,
+            content::EvalJs(
+                browser()->tab_strip_model()->GetActiveWebContents(),
+                "window.scriptRan === true"));
+}
+
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
+                       CspAppliesToCrossOriginSubframeOnly) {
+  // The rule names only the iframe's host, so the embedder must be untouched.
+  ASSERT_NO_FATAL_FAILURE(
+      ReplaceRules("||frame.test^$csp=script-src 'none'\n"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(),
+      embedded_test_server()->GetURL("news.test", "/csp_parent.html")));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  EXPECT_EQ(true, content::EvalJs(contents, "window.scriptRan === true"));
+
+  content::RenderFrameHost* child = content::ChildFrameAt(contents, 0);
+  ASSERT_TRUE(child);
+  EXPECT_EQ(false, content::EvalJs(child, "window.scriptRan === true"));
+}
+
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, CspUsesFinalUrlAfterRedirect) {
+  // Only the post-redirect host matches, so the final document is filtered.
+  ASSERT_NO_FATAL_FAILURE(
+      ReplaceRules("||final.test^$csp=script-src 'none'\n"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(),
+      embedded_test_server()->GetURL("start.test", "/csp_redirect")));
+  ASSERT_EQ(embedded_test_server()->GetURL("final.test", "/csp.html"),
+            browser()->tab_strip_model()->GetActiveWebContents()
+                ->GetLastCommittedURL());
+  EXPECT_EQ(false,
+            content::EvalJs(
+                browser()->tab_strip_model()->GetActiveWebContents(),
+                "window.scriptRan === true"));
+}
+
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
+                       CspRuleForPreRedirectUrlDoesNotAffectFinalDocument) {
+  // The inverse: a rule matching only the pre-redirect hop must not leak onto
+  // the document that actually commits.
+  ASSERT_NO_FATAL_FAILURE(
+      ReplaceRules("||start.test^$csp=script-src 'none'\n"));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(),
+      embedded_test_server()->GetURL("start.test", "/csp_redirect")));
+  ASSERT_EQ(embedded_test_server()->GetURL("final.test", "/csp.html"),
+            browser()->tab_strip_model()->GetActiveWebContents()
+                ->GetLastCommittedURL());
+  EXPECT_EQ(true,
+            content::EvalJs(
+                browser()->tab_strip_model()->GetActiveWebContents(),
+                "window.scriptRan === true"));
+}
+
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
+                       CspPolicyDoesNotLeakToNextDocument) {
+  // Each navigation defers and resumes independently. After leaving a filtered
+  // document, the next one must be evaluated on its own terms - a stale policy
+  // from the previous response must not survive.
+  ASSERT_NO_FATAL_FAILURE(
+      ReplaceRules("||news.test^$csp=script-src 'none'\n"));
+
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("news.test", "/csp.html")));
+  EXPECT_EQ(false,
+            content::EvalJs(
+                browser()->tab_strip_model()->GetActiveWebContents(),
+                "window.scriptRan === true"));
+
+  const GURL second = embedded_test_server()->GetURL("other.test", "/csp.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), second));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_EQ(second, contents->GetLastCommittedURL());
+  EXPECT_EQ(true, content::EvalJs(contents, "window.scriptRan === true"));
 }
 
 }  // namespace

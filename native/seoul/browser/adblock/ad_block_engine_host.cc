@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "base/strings/strcat.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 
@@ -176,6 +177,27 @@ AdBlockEngineEvaluationResult AdBlockEngineWorker::EvaluateOnce(
       deciding_engine};
 }
 
+std::string AdBlockEngineWorker::GetCspDirectives(AdBlockRequest request,
+                                                 AdBlockMode mode) {
+  if (mode == AdBlockMode::kOff || !default_engine_ || !additional_engine_) {
+    return std::string();
+  }
+
+  // Each engine resolves its own `$csp` exceptions before returning, so the two
+  // results are concatenated rather than re-parsed here. Appending policies is
+  // the only combination CSP defines: the user agent enforces every delivered
+  // policy, so an added directive can restrict but never relax the page.
+  std::string directives = default_engine_->GetCspDirectives(request);
+  const std::string additional = additional_engine_->GetCspDirectives(request);
+  if (additional.empty()) {
+    return directives;
+  }
+  if (directives.empty()) {
+    return additional;
+  }
+  return base::StrCat({directives, ", ", additional});
+}
+
 AdBlockCosmeticResources AdBlockEngineWorker::GetCosmeticResources(
     std::string url,
     AdBlockMode mode) {
@@ -306,6 +328,14 @@ void AdBlockEngineHost::Evaluate(AdBlockRequest request,
                                  MatchCallback callback) {
   worker_.AsyncCall(&AdBlockEngineWorker::Evaluate)
       .WithArgs(std::move(request))
+      .Then(std::move(callback));
+}
+
+void AdBlockEngineHost::GetCspDirectives(AdBlockRequest request,
+                                         AdBlockMode mode,
+                                         CspDirectivesCallback callback) {
+  worker_.AsyncCall(&AdBlockEngineWorker::GetCspDirectives)
+      .WithArgs(std::move(request), mode)
       .Then(std::move(callback));
 }
 

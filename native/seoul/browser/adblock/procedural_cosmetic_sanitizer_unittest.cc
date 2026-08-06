@@ -37,7 +37,9 @@ TEST(ProceduralCosmeticSanitizerTest,
               R"({"selector":[{"type":"css-selector","arg":".ad"}],"action":{"type":"style","arg":"opacity:0"}})",
               R"({"selector":[{"type":"css-selector","arg":"body{display:none}"}]})",
               R"({"selector":[{"type":"css-selector","arg":".ad"}],"extra":true})",
-              R"({"selector":[{"type":"css-selector","arg":".ad"}],"action":{"type":"remove-attr","arg":"onclick;alert(1)"}})",
+              // Custom delimiter: the payload embeds `)"`, which would close a
+              // plain R"(...)" literal in the middle of the string.
+              R"json({"selector":[{"type":"css-selector","arg":".ad"}],"action":{"type":"remove-attr","arg":"onclick;alert(1)"}})json",
               R"({"selector":[]})",
               R"({"selector":"not-a-list"})",
               "not-json",

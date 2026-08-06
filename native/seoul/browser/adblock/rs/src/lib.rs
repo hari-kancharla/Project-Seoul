@@ -76,6 +76,18 @@ mod ffi {
             previously_matched_rule: bool,
             force_check_exceptions: bool,
         ) -> MatchResult;
+        // Returns the combined `$csp` directive string for a document or
+        // subdocument request, or an empty string when no policy applies. The
+        // crate resolves `$csp` exceptions and merges multiple matching
+        // directives itself; an empty result is always "inject nothing".
+        fn csp_directives(
+            self: &Engine,
+            url: &CxxString,
+            hostname: &CxxString,
+            source_hostname: &CxxString,
+            request_type: &CxxString,
+            third_party: bool,
+        ) -> String;
         fn url_cosmetic_resources(self: &Engine, url: &CxxString) -> CosmeticResources;
         fn hidden_class_id_selectors(
             self: &Engine,
@@ -225,6 +237,27 @@ impl Engine {
             redirect: optional_string(result.redirect),
             rewritten_url: optional_string(result.rewritten_url),
         }
+    }
+
+    fn csp_directives(
+        &self,
+        url: &CxxString,
+        hostname: &CxxString,
+        source_hostname: &CxxString,
+        request_type: &CxxString,
+        third_party: bool,
+    ) -> String {
+        let (Ok(url), Ok(hostname), Ok(source_hostname), Ok(request_type)) = (
+            url.to_str(),
+            hostname.to_str(),
+            source_hostname.to_str(),
+            request_type.to_str(),
+        ) else {
+            return String::new();
+        };
+
+        let request = Request::preparsed(url, hostname, source_hostname, request_type, third_party);
+        self.inner.get_csp_directives(&request).unwrap_or_default()
     }
 
     fn url_cosmetic_resources(&self, url: &CxxString) -> ffi::CosmeticResources {
