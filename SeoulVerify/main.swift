@@ -15,7 +15,25 @@ NSApplication.shared.setActivationPolicy(.accessory)
 
 // The shipping accent, #FF7A45.
 let accentR = 255.0, accentG = 122.0, accentB = 69.0
-let tolerance = 60.0
+
+/// Euclidean RGB radius around the accent that counts as "the sketch".
+///
+/// Was 60, which produced a FALSE FAILURE: with a video playing behind the
+/// capture region, warm skin and yellow tones fell inside a 60-radius ball and
+/// scored 568 hits in a region containing no sketch at all. Measured on those
+/// exact captures, the separation is wide and unambiguous:
+///
+///     tolerance   subject (no sketch)   control (sketch)
+///        20              0                   6224
+///        40              0                   6991
+///        50              0                   7496
+///        60            568                   8042
+///
+/// 40 sits in the middle of a large empty band: the real stroke is drawn at
+/// full opacity and lands within ~20 of the target, while nothing photographic
+/// gets within 50. A verifier that fails on the desktop wallpaper is worse than
+/// no verifier, because the next real failure gets waved through as noise.
+let tolerance = 40.0
 
 let pathA = "/tmp/seoul-verify-a.png"     // SUBJECT  — sharingType .none
 let pathB = "/tmp/seoul-verify-b.png"     // CONTROL  — sharingType .readOnly
