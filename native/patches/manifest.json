@@ -677,6 +677,48 @@
       "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0023-seoul-adblock-component-updater.patch after applying patches 0001 through 0022",
       "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0023-seoul-adblock-component-updater.patch",
       "reviewable": true
+    },
+    {
+      "id": "seoul-adblock-csp-response-filter",
+      "description": "Register Seoul's $csp response throttle for eligible document and subdocument navigations in the Chromium content browser client, so filter-list $csp rules reach the navigation loader.",
+      "rationale": "Navigation responses are produced by browser-created loaders and are the only place a $csp directive can be attached before Chromium parses the header block into URLResponseHead::parsed_headers, which is what actually enforces policy. The throttle declines every request that is not an eligible frame navigation and every profile without a blocker, so non-document loads pay nothing. The generated policy is always appended as an additional policy: CSP enforces every delivered policy, so an injected directive can restrict but never relax the site's own. Rewriting or replacing the site header was rejected for exactly that reason.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 24,
+      "file": "0024-seoul-adblock-csp-response-filter.patch",
+      "affectedPaths": [
+        "chrome/browser/chrome_content_browser_client.cc"
+      ],
+      "dependencies": [
+        "seoul-native-adblock-network-hook",
+        "seoul-adblock-site-settings"
+      ],
+      "sha256": "25a698be18a6b203a32150a046fb7ce8247b22ee38c4ab2616023bc073f2e556",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0024-seoul-adblock-csp-response-filter.patch after applying patches 0001 through 0023",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0024-seoul-adblock-csp-response-filter.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-shell-reentrancy-guards",
+      "description": "Three re-entrancy guards in the Seoul shell integration: a generation counter so an animation subscriber may start a replacement motion from its own kEnded notification, a reparenting flag so toolbar removal notifications do not drive sidebar presentation through a stale View::parent(), and an exemption so the omnibox popup invariant is not evaluated while Seoul's floating command surface is being installed.",
+      "rationale": "Each guard fixes a defect reachable from ordinary interaction. View::DoRemoveChildView de-registers a child from its parent's layout manager before dispatching removal notifications but clears View::parent() only afterwards, so an observer that re-enters sidebar presentation calls SetVisible() on a toolbar the layout manager no longer tracks, which CHECKs in LayoutManagerBase::ViewVisibilitySet; neither parent() nor children() is a valid liveness proxy inside that window, so BrowserView flags the reparent instead. The vertical rail chains an expand-on-hover reveal off the end of a collapse, so clearing motion state unconditionally on kEnded erases the replacement motion's state while its animator still runs, leaving IsAnimating() false for a live animation and snapping layout to the end value. The omnibox invariant describes widget-backed presentation only, which is why the existing WebUI popups are already exempt.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 25,
+      "file": "0025-seoul-shell-reentrancy-guards.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/animation/browser_animation_controller.cc",
+        "chrome/browser/ui/views/frame/browser_view.cc",
+        "chrome/browser/ui/views/frame/browser_view.h",
+        "chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc",
+        "chrome/browser/ui/views/location_bar/location_bar_view.cc"
+      ],
+      "dependencies": [
+        "seoul-integrated-vertical-shell",
+        "seoul-arc-command-surface"
+      ],
+      "sha256": "4e64db8b6362a6930219c2e48950489de5ba99bccfd1f6a0b4df67808cd6ac1d",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0025-seoul-shell-reentrancy-guards.patch after applying patches 0001 through 0024",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0025-seoul-shell-reentrancy-guards.patch",
+      "reviewable": true
     }
   ]
 }

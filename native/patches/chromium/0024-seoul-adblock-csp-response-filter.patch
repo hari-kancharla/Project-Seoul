@@ -1,0 +1,30 @@
+diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
+index 4fcf9c2..94d7236 100644
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -587,6 +587,7 @@
+ #include "components/soda/soda_util.h"
+ #include "components/webapps/isolated_web_apps/url_loading/url_loader_factory.h"
+ #include "net/http/http_request_headers.h"
++#include "seoul/browser/adblock/ad_block_csp_throttle.h"
+ #include "seoul/browser/adblock/ad_block_navigation_throttle.h"
+ #include "seoul/browser/adblock/ad_block_request_interceptor.h"
+ #include "seoul/browser/adblock/ad_block_websocket_interceptor.h"
+@@ -6042,6 +6043,17 @@ ChromeContentBrowserClient::CreateURLLoaderThrottles(
+   ChromeNavigationUIData* chrome_navigation_ui_data =
+       static_cast<ChromeNavigationUIData*>(navigation_ui_data);
+ 
++#if !BUILDFLAG(IS_ANDROID)
++  // Seoul `$csp` filtering. Navigations are browser-created loaders, so unlike
++  // renderer subresources they reach this hook; the throttle declines anything
++  // that is not an eligible frame navigation.
++  if (auto seoul_csp_throttle = seoul::adblock::AdBlockCspThrottle::MaybeCreate(
++          request, browser_context, wc_getter);
++      seoul_csp_throttle) {
++    result.push_back(std::move(seoul_csp_throttle));
++  }
++#endif  // !BUILDFLAG(IS_ANDROID)
++
+ #if BUILDFLAG(SAFE_BROWSING_AVAILABLE)
+   if (auto safe_browsing_throttle = MaybeCreateSafeBrowsingURLLoaderThrottle(
+           request, browser_context, wc_getter, frame_tree_node_id,

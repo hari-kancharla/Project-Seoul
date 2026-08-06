@@ -1,0 +1,144 @@
+diff --git a/chrome/browser/ui/animation/browser_animation_controller.cc b/chrome/browser/ui/animation/browser_animation_controller.cc
+index 80323d1..3c8f43d 100644
+--- a/chrome/browser/ui/animation/browser_animation_controller.cc
++++ b/chrome/browser/ui/animation/browser_animation_controller.cc
+@@ -124,6 +124,7 @@ class BrowserAnimationController::GroupData : public gfx::AnimationDelegate {
+     // TODO(dfried): figure out how to redirect animations.
+     Cancel();
+     MaybeCreateAnimator();
++    ++motion_generation_;
+     current_motion_ = motion;
+     current_motion_spec_ = std::move(motion_spec);
+     for (const auto& [sequence, sequence_spec] :
+@@ -198,7 +199,18 @@ class BrowserAnimationController::GroupData : public gfx::AnimationDelegate {
+       return;
+     }
+     UpdateValues(current_duration_, 1.0);
++    // A subscriber may start a new motion synchronously from kEnded - the
++    // vertical rail does exactly that, chaining an expand-on-hover reveal off
++    // the end of a collapse. Clearing unconditionally would erase the *new*
++    // motion's state while its animator is still running, leaving
++    // IsAnimating() false for a live animation; layout would then take the
++    // static branch and snap to the end value instead of animating. Only clear
++    // when this motion is still the current one.
++    const uint64_t ended_generation = motion_generation_;
+     Notify(BrowserAnimationUpdate::kEnded);
++    if (motion_generation_ != ended_generation) {
++      return;
++    }
+     current_motion_ = BrowserAnimationMotion();
+     current_values_.clear();
+   }
+@@ -233,6 +245,9 @@ class BrowserAnimationController::GroupData : public gfx::AnimationDelegate {
+ 
+   std::map<BrowserAnimationSequence, double> current_values_;
+   BrowserAnimationMotion current_motion_;
++  // Bumped by every Start(). Lets AnimationEnded() detect that a subscriber
++  // started a replacement motion during its own kEnded notification.
++  uint64_t motion_generation_ = 0;
+   internal::BrowserAnimationMotionSpecification current_motion_spec_;
+   base::TimeDelta current_duration_;
+   std::unique_ptr<Animator> animator_;
+diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/views/frame/browser_view.cc
+index 5c49df0..fa84b60 100644
+--- a/chrome/browser/ui/views/frame/browser_view.cc
++++ b/chrome/browser/ui/views/frame/browser_view.cc
+@@ -1932,6 +1932,16 @@ void BrowserView::ReparentToolbarToSeoulRail() {
+     return;
+   }
+ 
++  // View::DoRemoveChildView de-registers the child from its parent's layout
++  // manager *before* it dispatches removal notifications, but clears
++  // View::parent() only after. Any observer reached from those notifications
++  // that re-enters Seoul's sidebar presentation would therefore see a stale
++  // parent and call SetVisible() on a toolbar the layout manager no longer
++  // tracks, which CHECKs in LayoutManagerBase::ViewVisibilitySet. Suppress the
++  // presentation update for the duration; both branches below re-apply the
++  // correct presentation once the hierarchy is settled.
++  const base::AutoReset<bool> reparenting(&seoul_toolbar_reparenting_, true);
++
+   views::View* const old_parent = toolbar_->parent();
+   if (old_parent != vertical_tab_strip_region_view_) {
+     auto owned_toolbar = old_parent->RemoveChildViewT(toolbar_);
+@@ -1966,6 +1976,11 @@ void BrowserView::ReparentToolbarToTopContainer() {
+     return;
+   }
+ 
++  // See ReparentToolbarToSeoulRail: removal notifications run while the layout
++  // manager has already forgotten the child but View::parent() still points at
++  // the old parent.
++  const base::AutoReset<bool> reparenting(&seoul_toolbar_reparenting_, true);
++
+   views::View* const old_parent = toolbar_->parent();
+   if (old_parent != top_container_) {
+     auto owned_toolbar = old_parent->RemoveChildViewT(toolbar_);
+diff --git a/chrome/browser/ui/views/frame/browser_view.h b/chrome/browser/ui/views/frame/browser_view.h
+index 3c8f5da..12ab289 100644
+--- a/chrome/browser/ui/views/frame/browser_view.h
++++ b/chrome/browser/ui/views/frame/browser_view.h
+@@ -360,6 +360,9 @@ class BrowserView : public BrowserWindow,
+   float seoul_omnibox_glow_blur_for_testing() const;
+   float seoul_omnibox_glow_opacity_for_testing() const;
+   bool seoul_omnibox_search_mode_animation_running_for_testing() const;
++  bool seoul_toolbar_reparenting() const {
++    return seoul_toolbar_reparenting_;
++  }
+ 
+   // Bookmark bar may be null, for example for pop-ups.
+   BookmarkBarView* bookmark_bar() { return bookmark_bar_view_; }
+@@ -1342,6 +1345,10 @@ class BrowserView : public BrowserWindow,
+   seoul::SeoulLayoutMode seoul_layout_mode_ = seoul::SeoulLayoutMode::kSingle;
+   bool seoul_omnibox_floating_ = false;
+   bool seoul_omnibox_reparenting_ = false;
++  // True while the toolbar is being moved between the vertical rail and the
++  // top container. Removal notifications dispatched inside that window observe
++  // a stale View::parent(), so sidebar presentation updates are suppressed.
++  bool seoul_toolbar_reparenting_ = false;
+   bool seoul_omnibox_action_mode_ = false;
+   bool seoul_new_tab_entry_mode_ = false;
+   bool seoul_new_tab_placeholder_surface_ = false;
+diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
+index ede3b6c..96424bd 100644
+--- a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
++++ b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
+@@ -1707,8 +1707,15 @@ void VerticalTabStripRegionView::UpdateSeoulSidebarPresentation(
+     widget->browser_native_widget()->SetSeoulCompactFrameControlsVisible(
+         !compact_hidden);
+   }
++  // `toolbar->parent() == this` is NOT a valid proxy for "still registered in
++  // this view's layout manager": View::DoRemoveChildView erases the child from
++  // the layout manager before dispatching removal notifications and clears
++  // parent() only afterwards, so during that window the guard passes while
++  // LayoutManagerBase::ViewVisibilitySet would CHECK. Testing children() would
++  // be equally stale. BrowserView flags the reparent instead.
+   if (ToolbarView* toolbar = browser_view_->toolbar();
+-      toolbar && toolbar->parent() == this) {
++      toolbar && toolbar->parent() == this &&
++      !browser_view_->seoul_toolbar_reparenting()) {
+     toolbar->SetSeoulSidebarPresentation(collapsed);
+   }
+   Profile* profile = browser_view_->browser()->profile();
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.cc b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+index f983618..0298bc0 100644
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.cc
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+@@ -2239,6 +2239,19 @@ void LocationBarView::ValidatePopupState(OmniboxPopupState state) {
+     return;
+   }
+ 
++  // Seoul presents omnibox results as a child view of BrowserView's floating
++  // command surface rather than as a popup widget, and installs or removes that
++  // view outside the popup state manager's transition. Installing it lays the
++  // surface out synchronously, which re-enters Layout() -> IsPopupOpen() while
++  // the two are momentarily out of step. The invariant below describes
++  // widget-backed presentation only, so it does not hold here - the same reason
++  // the WebUI popups above are exempt.
++  if (BrowserView* const browser_view =
++          BrowserView::GetBrowserViewForBrowser(browser_);
++      browser_view && browser_view->CanHostSeoulOmniboxPopup()) {
++    return;
++  }
++
+   const bool classic_is_open = omnibox_popup_view_->IsOpen();
+   const bool aim_is_shown =
+       omnibox_popup_aim_presenter_ && omnibox_popup_aim_presenter_->IsShown();
