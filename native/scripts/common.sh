@@ -81,14 +81,35 @@ assert_safe_path() {
 # suffix keeps Spotlight from indexing the checkout, so its bundled test apps
 # stay out of app search). A legacy sibling named seoul-chromium is honored when
 # the .noindex one is absent. Never inside the repo.
+sibling_checkout_of() {
+  local siblings candidate
+  siblings="$(cd "$1/.." && pwd)"
+  candidate="$siblings/seoul-chromium.noindex"
+  if [ ! -d "$candidate" ] && [ -d "$siblings/seoul-chromium" ]; then
+    candidate="$siblings/seoul-chromium"
+  fi
+  printf '%s\n' "$candidate"
+}
+
 resolve_root() {
   local root="${SEOUL_CHROMIUM_ROOT:-}"
   if [ -z "$root" ]; then
-    local siblings
-    siblings="$(cd "$SEOUL_REPO_ROOT/.." && pwd)"
-    root="$siblings/seoul-chromium.noindex"
-    if [ ! -d "$root" ] && [ -d "$siblings/seoul-chromium" ]; then
-      root="$siblings/seoul-chromium"
+    root="$(sibling_checkout_of "$SEOUL_REPO_ROOT")"
+    # A git worktree has its own root, and that root's sibling directory holds
+    # no checkout. Left unhandled, every native gate resolves to a path that
+    # does not exist and reports itself SKIPPED - green, and testing nothing.
+    # Fall back to the sibling of the MAIN working tree, which is where the
+    # checkout actually is.
+    if [ ! -d "$root" ]; then
+      local common_dir main_tree fallback
+      if common_dir="$(git -C "$SEOUL_REPO_ROOT" rev-parse --path-format=absolute \
+        --git-common-dir 2>/dev/null)" && [ -n "$common_dir" ]; then
+        if main_tree="$(cd "$common_dir/.." 2>/dev/null && pwd)" &&
+          [ "$main_tree" != "$SEOUL_REPO_ROOT" ]; then
+          fallback="$(sibling_checkout_of "$main_tree")"
+          [ -d "$fallback" ] && root="$fallback"
+        fi
+      fi
     fi
   fi
   case "$root" in /*) : ;; *) root="$(pwd)/$root" ;; esac
