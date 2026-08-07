@@ -32,6 +32,9 @@ JOBS="$(resolve_jobs)"
 
 run_unit_tests() {
   local binaries=(
+    seoul_adblock_core_unittests
+    seoul_adblock_engine_unittests
+    seoul_adblock_interceptor_unittests
     seoul_command_core_unittests
     seoul_development_keychain_policy_unittests
     seoul_connectors_unittests
@@ -61,6 +64,9 @@ run_unit_tests() {
     seoul_workflows_unittests
   )
   local targets=(
+    seoul/browser/adblock:seoul_adblock_core_unittests
+    seoul/browser/adblock:seoul_adblock_engine_unittests
+    seoul/browser/adblock:seoul_adblock_interceptor_unittests
     seoul/browser/commands:seoul_command_core_unittests
     chrome/app:seoul_development_keychain_policy_unittests
     seoul/browser/connectors:seoul_connectors_unittests
@@ -108,12 +114,25 @@ run_unit_tests() {
 }
 
 run_browser_tests() {
+  # Every gtest suite Seoul owns inside seoul_browser_tests. The binary also
+  # links upstream's //chrome/browser/ui/views/tabs/vertical:browser_tests,
+  # whose cases are Chromium's and are deliberately not run here - which is why
+  # this is an allow-list rather than an unfiltered run.
+  #
+  # An allow-list rots silently: a new fixture simply never runs, and the suite
+  # still says SUCCESS. check-browser-test-filter.mjs (npm run
+  # check:browser-tests) reads the fixtures back out of the Seoul sources and
+  # fails if any of them is missing from this list.
   local filter
   filter="SeoulRuntimeSessionRestoreBrowserTest.*"
   filter="${filter}:SeoulRuntimeBrowserTest.*"
+  filter="${filter}:SeoulBoostDarkBrowserTest.*"
   filter="${filter}:ChromiumMutationAdapterBrowserTest.*"
   filter="${filter}:VerticalPresentationBrowserTest.*"
   filter="${filter}:SeoulShellBrowserTest.*"
+  filter="${filter}:SeoulOrganizationServiceBrowserTest.*"
+  filter="${filter}:AdBlockBrowserTest.*"
+  filter="${filter}:CosmeticFilterAgentTest.*"
 
   stage "build focused Seoul browser tests (-j $JOBS)"
   (cd "$CHROMIUM_SRC" &&
