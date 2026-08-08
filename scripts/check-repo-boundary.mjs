@@ -34,6 +34,13 @@ const DENY = [
   [/\.app\/Contents\//, 'built application bundle must not be tracked'],
   [/\.(ninja|ninja_log|ninja_deps)$/, 'Ninja build files must not be tracked'],
   [/(^|\/)native\/evidence\//, 'generated audit evidence must not be tracked'],
+  // Verification captures land in the working directory and are easy to commit
+  // by reflex; eleven of them (19 MB) were tracked here. Product artwork lives
+  // under native/seoul/resources/, so a bare image at the root is always scratch.
+  [
+    /^[^/]+\.(png|jpg|jpeg|gif|webp|bmp|tiff|mov|mp4|zip)$/i,
+    'screenshots and captures must not be tracked at the repository root (native/evidence/ is ignored)',
+  ],
   [/(^|\/)(Cookies|Login Data|Local State|History|Web Data)$/, 'browser profile data must not be tracked'],
   [/(^|\/)secrets\//, 'secrets directory must not be tracked'],
   [/\.(pem|key|p12|keychain)$/, 'private key/credential material must not be tracked'],

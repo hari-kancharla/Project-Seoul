@@ -31,6 +31,17 @@ _probe_*.mjs
 # Native baseline audit evidence (screenshots, raw logs) - never committed
 native/evidence/
 
+# Verification captures dropped in the working directory. Product artwork lives
+# under native/seoul/resources/; a bare image at the root is always scratch, and
+# check-repo-boundary.mjs fails the build if one is tracked anyway.
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+/*.webp
+/*.mov
+/*.mp4
+
 # Safety: never track an in-repo Chromium checkout or build output
 seoul-chromium/
 seoul-chromium.noindex/
@@ -40,10 +51,7 @@ apps/voice-lab/models/
 apps/voice-lab/out/
 apps/voice-lab/recordings/
 
-.build/
-*.xcodeproj
-*.xcworkspace
-
+# Swift package build output and generated Xcode projects
 .build/
 *.xcodeproj
 *.xcworkspace
