@@ -12,12 +12,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { launchBrowser } from '../launch-browser.mjs';
+import { launchBrowser, findBrowserBinary, NO_BROWSER_MESSAGE } from '../launch-browser.mjs';
 
 const here = path.dirname(new URL(import.meta.url).pathname);
 const htmlUrl = pathToFileURL(path.join(here, '..', 'dist', 'index.html')).href;
 
-test('design lab renders, patches in place, and preserves focus and scroll', async () => {
+// This case needs a real browser, and the resolver deliberately refuses to
+// borrow the user's installed Chrome on macOS. On a machine that has not built
+// Seoul there is therefore nothing legitimate to drive, and the honest outcome
+// is a stated skip rather than a red suite - the same convention the native
+// syntax gate uses when the pinned checkout is absent.
+//
+// A skip that nobody notices is how a suite quietly stops testing anything, so
+// CI sets SEOUL_REQUIRE_BROWSER_TESTS=1: where a browser is guaranteed, its
+// disappearance is a failure, not a shrug.
+const browserBinary = findBrowserBinary();
+const required = process.env.SEOUL_REQUIRE_BROWSER_TESTS === '1';
+if (!browserBinary && required) {
+  throw new Error(
+    `SEOUL_REQUIRE_BROWSER_TESTS=1 but ${NO_BROWSER_MESSAGE.charAt(0).toLowerCase()}${NO_BROWSER_MESSAGE.slice(1)}`,
+  );
+}
+const skip = browserBinary
+  ? false
+  : `${NO_BROWSER_MESSAGE} Set SEOUL_REQUIRE_BROWSER_TESTS=1 to make this a failure.`;
+
+test('design lab renders, patches in place, and preserves focus and scroll', { skip }, async () => {
   const browser = await launchBrowser({ args: ['--no-sandbox'] });
   try {
     const page = await browser.newPage();
