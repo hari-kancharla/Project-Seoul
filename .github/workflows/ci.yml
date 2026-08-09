@@ -31,11 +31,35 @@ jobs:
         run: npm ci
       - name: Repository checks (scripts, json, manifest, boundary, neutrality, architecture, test wiring, syntax, protocol)
         run: npm run check
+      # The next step requires a browser rather than letting the render smoke
+      # report itself skipped, so resolve one FIRST and say so. The runner image
+      # is expected to ship Chrome, but that is someone else's image to change:
+      # if it ever stops shipping one, this step names the cause instead of
+      # leaving a confusing failure inside the test suite. It uses the same
+      # resolver the tests use, so the two can never disagree about what counts.
+      - name: Resolve the browser the render smoke will drive
+        run: |
+          node -e '
+            import("./apps/canvas-prototype/launch-browser.mjs").then(({findBrowserBinary, candidateBrowserPaths}) => {
+              const found = findBrowserBinary();
+              if (found) {
+                console.log("render smoke will drive: " + found);
+                return;
+              }
+              console.error("No browser on this runner. Looked at:");
+              for (const c of candidateBrowserPaths()) console.error("  " + c);
+              console.error(
+                "The ubuntu runner image is expected to ship Google Chrome. If it no " +
+                "longer does, install one in this job or point SEOUL_CHROME_BINARY at it - " +
+                "do NOT drop SEOUL_REQUIRE_BROWSER_TESTS, which exists so the smoke " +
+                "cannot go quietly unrun.");
+              process.exit(1);
+            });
+          '
       - name: Tests (protocol, canvas, boost editor, harness, providers, reference transform)
-        # The runner image ships Chrome, so the headless Canvas render smoke test
-        # has a browser and must run. Without this it would report itself skipped
-        # and the suite would still be green - the exact failure this gate exists
-        # to prevent.
+        # Require the render smoke to actually run. Without this it would report
+        # itself skipped and the suite would still be green - the exact failure
+        # the skip was introduced to avoid.
         env:
           SEOUL_REQUIRE_BROWSER_TESTS: "1"
         run: npm test

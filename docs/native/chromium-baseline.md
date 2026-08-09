@@ -18,7 +18,7 @@ product launch, and runtime smoke all complete and pass.
 | GN generation and dependency check | completed |
 | `chrome` component build | completed |
 | 30 native unit executables | completed, 722 tests passed |
-| Focused browser integration suite | completed, 128 tests passed |
+| Focused browser integration suite | completed, 129 tests passed |
 | Launch and product smoke | completed |
 | Canvas WebUI runtime | completed at `chrome://seoul-canvas/`, zero console errors |
 | Non-component release build | not yet run |

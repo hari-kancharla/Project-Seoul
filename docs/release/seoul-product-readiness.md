@@ -15,7 +15,7 @@ reversible integration patches apply, Chromium and every Seoul native test
 target compile, the local browser launches, and the shipping
 `chrome://seoul-canvas` WebUI runs.
 
-Every gate is green: 30 of 30 native unit binaries, 128 of 128 focused browser
+Every gate is green: 30 of 30 native unit binaries, 129 of 129 focused browser
 cases, 89 of 89 repository test cases, 21 of 21 Swift cases, 13 of 13 static
 gates, and the product smoke.
 
@@ -50,7 +50,7 @@ earlier run.
 |---|---|
 | Native unit executables | 30 of 30 passed |
 | Native unit tests | 722 passed, 0 failed |
-| Focused Chromium browser tests | 128 passed, 0 failed |
+| Focused Chromium browser tests | 129 passed, 0 failed |
 | Product smoke (`native/scripts/smoke.mjs`) | passed |
 | Repository test suites (`npm test`) | 89 passed, 0 failed, 0 skipped |
 | — protocol conformance | 8 passed |
@@ -114,7 +114,7 @@ where the product actually puts it.
 
 ### Focused browser coverage
 
-The 128 in-process browser cases run with explicit headless flags. Each fixture
+The 129 in-process browser cases run with explicit headless flags. Each fixture
 releases the macOS key window before exercising native layout, so the suite does
 not intercept input from an interactive desktop session. The runner disables
 Chromium's unrelated experimental `InitialWebUI` toolbar in the explicit
@@ -321,7 +321,7 @@ From the Project Seoul repository:
 npm run ci                   # static gates + every repository test suite
 npm run test:swift           # macOS overlay app, bridge, and transforms
 npm run test:native          # 30 unit binaries
-npm run test:native:browser  # 128 browser cases
+npm run test:native:browser  # 129 browser cases
 npm run preview:native
 node native/scripts/smoke.mjs
 ```

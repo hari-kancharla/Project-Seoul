@@ -1210,6 +1210,71 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   EXPECT_FALSE(browser_view->toolbar()->GetVisible());
 }
 
+// Expand-on-hover treats focus inside the rail as a reason to hold it open, so
+// keyboard tab navigation cannot collapse the strip out from under the user.
+// Seoul hosts the toolbar inside that same rail, which makes the two halves of
+// this rule pull in opposite directions, and both halves have to hold:
+//
+//   - toolbar focus must NOT hold the rail open. The omnibox has focus in a new
+//     window and after every Cmd+L, so counting it pinned the rail at full
+//     width with the mouse nowhere near it and made collapse a silent no-op.
+//   - tab-strip focus MUST still hold it open. That is upstream's behavior and
+//     narrowing the rule far enough to break it would collapse the rail under a
+//     keyboard user mid-navigation.
+//
+// Nothing else covers the second half, so a future narrowing of the first would
+// otherwise go unnoticed.
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       ExpandOnHoverSeparatesHostedToolbarFocusFromTabFocus) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  auto* const controller =
+      tabs::VerticalTabStripStateController::From(browser());
+  auto* const region =
+      browser_view->vertical_tab_strip_region_view_for_testing();
+  auto* const animations = BrowserAnimationController::From(browser());
+  ASSERT_TRUE(controller);
+  ASSERT_TRUE(region);
+  ASSERT_TRUE(animations);
+  ASSERT_EQ(region, browser_view->toolbar()->parent())
+      << "this case is only meaningful while the rail hosts the toolbar";
+
+  controller->SetExpandOnHoverEnabledForWindow(true);
+  controller->RequestCollapse(true);
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    return controller->IsCollapsed() &&
+           !animations->IsAnimating(TabStripAnimations::kVerticalTabStrip);
+  }));
+  ASSERT_FALSE(region->is_expanded_on_hover());
+
+  // The omnibox lives in the hosted toolbar, which is inside the rail.
+  OmniboxViewViews* const omnibox =
+      browser_view->toolbar()->location_bar_view()->omnibox_view();
+  ASSERT_TRUE(omnibox);
+  omnibox->RequestFocus();
+  base::RunLoop().RunUntilIdle();
+  ASSERT_TRUE(region->Contains(
+      browser_view->GetFocusManager()->GetFocusedView()))
+      << "the omnibox must really be inside the rail, or this proves nothing";
+  EXPECT_FALSE(region->is_expanded_on_hover())
+      << "omnibox focus must not hold the rail open";
+  browser_view->GetWidget()->LayoutRootViewIfNecessary();
+  EXPECT_EQ(VerticalTabStripRegionView::kCompactCollapsedWidth,
+            region->width());
+
+  // Focus on a tab still does, exactly as upstream intends.
+  std::vector<VerticalTabView*> tabs;
+  CollectVerticalTabViews(region, &tabs);
+  ASSERT_FALSE(tabs.empty());
+  tabs.front()->RequestFocus();
+  base::RunLoop().RunUntilIdle();
+  ASSERT_EQ(tabs.front(), browser_view->GetFocusManager()->GetFocusedView())
+      << "the tab must really take focus, or this proves nothing";
+  EXPECT_TRUE(region->is_expanded_on_hover())
+      << "tab-strip focus must still hold the rail open";
+}
+
 IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
                        HoverExpandedCompactExitKeepsRailAndContentContinuous) {
   gfx::ScopedAnimationDurationScaleMode animation_duration(
