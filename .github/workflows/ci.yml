@@ -1,6 +1,11 @@
 name: ci
 
 # Repository-owned checks that run WITHOUT a Chromium checkout or build.
+#
+# The native suites (`npm run test:native`, `npm run test:native:browser`) need
+# the pinned external Chromium checkout and a capable macOS host, so they are
+# not run here; `scripts/check-test-wiring.mjs` records that and fails if any
+# other suite quietly leaves the CI path.
 
 on:
   push:
@@ -24,7 +29,25 @@ jobs:
           cache: npm
       - name: Install (lockfile)
         run: npm ci
-      - name: Repository checks (scripts, json, manifest, boundary, neutrality, architecture, syntax, protocol)
+      - name: Repository checks (scripts, json, manifest, boundary, neutrality, architecture, test wiring, syntax, protocol)
         run: npm run check
-      - name: Tests (protocol conformance, canvas)
+      - name: Tests (protocol, canvas, boost editor, harness, providers, reference transform)
+        # The runner image ships Chrome, so the headless Canvas render smoke test
+        # has a browser and must run. Without this it would report itself skipped
+        # and the suite would still be green - the exact failure this gate exists
+        # to prevent.
+        env:
+          SEOUL_REQUIRE_BROWSER_TESTS: "1"
         run: npm test
+
+  swift:
+    # The overlay app, its bridge, and the coordinate/display transforms are
+    # macOS-only and are not reachable from `npm test`; without this job they
+    # build and test on a developer machine and nowhere else.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Swift package
+        run: swift build
+      - name: Swift tests (coordinate transform, display selection)
+        run: swift test
