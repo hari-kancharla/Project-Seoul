@@ -1,10 +1,16 @@
 # Harness lessons for the native implementation
 
-The Manifest V3 browser-control harness (`apps/browser-harness/`) is frozen. It is
-a protocol and safety reference only and receives no new features. These are the
-lessons it surfaced, to carry into the native Seoul subsystems (see
-`../product/native-architecture.md`). They are design guidance, not changes to the
-harness.
+These are the lessons the Manifest V3 browser-control harness
+(`apps/browser-harness/`) surfaced, to carry into the native Seoul subsystems
+(see `../product/native-architecture.md`). They are design guidance.
+
+> **Scope note.** This document once described the harness as frozen and
+> receiving no new features, which was true when the browser-control harness was
+> retired. The directory was later revived for the Seoul v1 voice-and-pointing
+> track and now carries the provider registry and the in-page element resolver
+> (34 tests, run by `npm test`). The lessons below are still about the retired
+> browser-control work; they are not a statement that the directory is dormant.
+> `SEOUL_V1_BRIEF.md` describes what lives there now.
 
 ## 1. One safety-policy implementation, not several
 

@@ -1,6 +1,6 @@
 # Seoul product readiness
 
-Last verified: 2026-07-25 on macOS arm64.
+Last verified: 2026-08-09 on macOS arm64.
 
 This report is the source of truth for the current product build. It separates
 working product behavior from public-distribution work. A passing development
@@ -8,14 +8,19 @@ build is not described as a signed release.
 
 ## Verdict
 
-SEOUL FUNCTIONAL DEVELOPMENT BUILD VERIFIED
+SEOUL DEVELOPMENT BUILD FUNCTIONAL, ONE GATE RED
 
-The tracked Seoul source was materialized into the pinned Chromium checkout,
-the reversible integration patches were applied, Chromium and every Seoul
-native test target compiled, the local browser launched, and the shipping
-`chrome://seoul-canvas` WebUI ran successfully.
+The tracked Seoul source is materialized into the pinned Chromium checkout, the
+reversible integration patches apply, Chromium and every Seoul native test
+target compile, the local browser launches, and the shipping
+`chrome://seoul-canvas` WebUI runs.
 
-The current build is not yet a public release artifact. It is a component
+Every unit gate is green. The focused browser suite is **not**: 128 of 134
+Seoul browser cases pass and 6 `SeoulShellBrowserTest` cases fail. Those six are
+listed under "Known-red gate" below and must be resolved before this report can
+return to an unqualified verdict.
+
+The current build is not a public release artifact. It is a component
 development build without final Seoul application branding, signing,
 notarization, an installer, or production update infrastructure.
 
@@ -26,10 +31,10 @@ notarization, an installer, or production update infrastructure.
 | Chromium version | `149.0.7827.201` |
 | Chromium revision | `6a7b3dbec3b2ca25877c2553b5473b2f277ef644` |
 | Platform | macOS arm64 |
-| Output | `out/SeoulBaseline/Chromium.app` |
+| Output | `out/SeoulBaseline/Seoul.app` |
 | Build mode | release component build, `symbol_level=0` |
 | Seoul overlay | `native/seoul/` materialized to `src/seoul/` |
-| Integration | 4 ordered, hash-verified patches |
+| Integration | 25 ordered, hash-verified patches |
 | First-party Canvas | `chrome://seoul-canvas` |
 
 The build host passed the RAM, storage, Xcode, SDK, architecture, and checkout
@@ -38,37 +43,74 @@ host gate.
 
 ## Test evidence
 
-All results below were produced locally from the source and binary described
-above.
+Every number below was measured on 2026-08-09 by executing the suite named, from
+the source and binary described above. Nothing here is carried forward from an
+earlier run.
 
 | Suite | Result |
 |---|---|
-| Native unit executables | 24 passed |
-| Native unit tests | 562 passed |
-| Focused Chromium browser tests | 45 passed |
-| Protocol conformance | 8 passed |
-| Canvas and renderer tests | 31 passed |
-| Native syntax audit | 173 parsed, 40 generated-header files deferred to the native compiler |
-| TypeScript and JSON checks | passed |
+| Native unit executables | 30 of 30 passed |
+| Native unit tests | 722 passed, 0 failed |
+| Focused Chromium browser tests | **128 passed, 6 failed** (see Known-red gate) |
+| Repository test suites (`npm test`) | 89 passed, 0 failed, 0 skipped |
+| — protocol conformance | 8 passed |
+| — Canvas Design Lab | 32 passed |
+| — Canvas Boost editor | 4 passed |
+| — extension harness element resolver | 14 passed |
+| — extension harness providers | 20 passed |
+| — reference coordinate transform | 11 passed |
+| Swift package (`swift build`, `swift test`) | builds; 21 passed |
+| Native syntax audit | 188 parsed, 77 generated-header files deferred to the native compiler |
+| Static gates (`npm run check`) | 13 of 13 passed |
 | Patch manifest, apply, and reverse verification | passed |
-| GN header dependency check | passed |
-| Architecture, boundary, and domain-neutrality gates | passed |
+| Architecture, boundary, domain-neutrality, and test-wiring gates | passed |
 
-The 40 syntax-audit skips are not uncompiled gaps. They depend on GN-generated
-Chromium headers and were compiled through their native build targets. The
-focused browser suite also exercised their runtime integration.
+The syntax-audit skips are not uncompiled gaps. They depend on GN-generated
+Chromium headers and were compiled through their native build targets.
+
+### Known-red gate
+
+Six `SeoulShellBrowserTest` cases fail against the current build:
+
+- `AppearanceLayoutModesAreReversibleAtNarrowWidth`
+- `CompactCollapsedMultipleStartsFromRealSixtyDipEndpoint`
+- `CompactHoverRevealAndReturnCollapseClipOnlyAtEndpoints`
+- `CompactMultipleRoundTripKeepsFiveDipEndpointAndPresentation`
+- `ProgrammaticNewTabKeepsChromiumContract`
+- `SingleToolbarUsesZenLeadingSearchTreatment`
+
+Two distinct symptoms. The compact cases assert the vertical rail reaches its
+collapsed endpoint and observe it still at its expanded width
+(`kCompactCollapsedWidth` is 5, `region->width()` is 230), so the collapse
+animation does not land on its endpoint. The leading-search case observes a
+fresh window reporting neither the editing-or-empty state nor the floating
+search icon.
+
+All six were added on 2026-07-27 and 2026-08-01, after the previously recorded
+verification on 2026-07-25. They have never been part of a green recorded run,
+so this is unfinished work rather than a regression against a known-good state.
+`patch 0025 (seoul-shell-reentrancy-guards)` addresses one contributing cause -
+an animation subscriber starting a replacement motion from its own `kEnded`
+notification - and is necessary but not sufficient: the cases still fail with it
+applied.
 
 ### Focused browser coverage
 
-The 45 passing in-process browser cases run with explicit headless flags. Each
-fixture releases the macOS key window before exercising native layout, so the
-suite does not intercept input from an interactive desktop session. The runner
-disables Chromium's unrelated experimental `InitialWebUI` toolbar
-in the explicit headless backend because its pre-test paint-metrics callback
-can wait forever before a test body starts. Seoul's native vertical Shell and
+The 134 in-process browser cases run with explicit headless flags. Each fixture
+releases the macOS key window before exercising native layout, so the suite does
+not intercept input from an interactive desktop session. The runner disables
+Chromium's unrelated experimental `InitialWebUI` toolbar in the explicit
+headless backend because its pre-test paint-metrics callback can wait forever
+before a test body starts. Seoul's native vertical Shell and
 `chrome://seoul-canvas` remain enabled and are exercised by the suite.
 
-The cases cover:
+The filter in `native/scripts/test.sh` names each Seoul fixture explicitly,
+because the binary also links upstream's vertical-tab browser tests, which are
+Chromium's and are deliberately not run here. `npm run check:native-tests` reads
+the fixtures back out of the Seoul sources and fails if the filter misses one,
+so a newly added fixture cannot go unrun.
+
+The passing cases cover:
 
 - regular-profile runtime and service wiring;
 - the invariant that every available capability has an executor;
@@ -128,30 +170,50 @@ The cases cover:
 
 ## Product smoke
 
-The isolated smoke test launched only the explicit local Seoul binary with a
-new disposable profile. It did not discover or launch an installed browser.
+The isolated smoke test launches only the explicit local Seoul binary with a new
+disposable profile. It does not discover or launch an installed browser.
 
-Observed on 2026-07-25:
+**`node native/scripts/smoke.mjs` currently fails.** Run on 2026-08-09 against
+the build described above:
 
 | Check | Result |
 |---|---|
-| Isolated launch | 5279 ms |
-| Local navigation | 898 ms |
-| Canvas interactive | 626 ms |
-| 25 Canvas view switches | 417 ms |
-| Total smoke | 10073 ms |
-| JavaScript and DOM | passed |
-| Second tab open and activation | passed |
-| Canvas product heading | passed |
-| Five Canvas views | passed |
-| Voice default-off | passed |
-| Empty-send refusal | passed |
-| Canvas console errors | 0 |
-| Browser disconnects | 0 |
-| Page crashes | 0 |
+| Isolated launch | passed (1079 ms) |
+| Browser version | `Chrome/149.0.7827.201` |
+| `chrome://newtab` renders Seoul Canvas | **failed** (30 s timeout) |
+| Remaining checks | not reached |
 
-These are development-host smoke measurements, not broad performance
-benchmarks or service-level guarantees.
+The smoke test navigates to `chrome://newtab/` and waits for the
+`seoul-canvas-app` element. Direct observation of the same build:
+
+- `chrome://newtab/` redirects to `chrome://new-tab-page/` and renders
+  Chromium's stock `<ntp-app>`. `seoul-canvas-app` is not defined on that
+  document.
+- `chrome://seoul-canvas/` renders correctly: `seoul-canvas-app` is defined, the
+  shadow root is attached, the heading reads "Ask, act, understand.", and there
+  are zero console errors.
+
+So the Canvas WebUI itself is healthy; what changed is where a new tab goes.
+Patch `0008 (seoul-zen-product-surface)` deliberately removes the normal-profile
+NTP rewrite that patch 0006 installed in `chrome/browser/search/search.cc`, and
+patch `0017` states the replacement intent directly: Seoul's synthetic startup
+tab stays on `about:blank` and "user-created NTPs still take the unmodified
+Chromium rewrite path".
+
+That leaves a contradiction a product owner has to settle, not a bug with an
+obvious fix:
+
+- the smoke test asserts the pre-0008 behavior (new tab is Seoul Canvas);
+- patches 0008 and 0017 assert the post-0008 behavior (new tab is Chromium's);
+- and `SeoulShellBrowserTest.ProgrammaticNewTabKeepsChromiumContract`, which
+  asserts the post-0008 behavior, also fails - so the intended contract is not
+  holding either.
+
+Either the rewrite belongs back in the series and the smoke test is right, or
+the smoke test is stale and must be updated to assert the Chromium contract.
+Nothing here should be marked green until that is decided. The measurements from
+the previous 2026-07-25 run were removed rather than carried forward, because
+they describe a behavior this build no longer has.
 
 ## Shipping Canvas state
 
@@ -184,7 +246,7 @@ Verified behavior:
 - Realtime voice explicit and off by default, with truthful activity/error
   states and a de-duplicated native browser-task bridge;
 - no remote script, inline script, or eval permission in the WebUI CSP;
-- zero console errors in both preview capture and product smoke.
+- zero console errors when `chrome://seoul-canvas/` is loaded directly.
 
 The standalone `apps/canvas-prototype/` remains a design lab. It is tested but
 is not used as evidence that the shipping Canvas works.
@@ -222,10 +284,11 @@ is not used as evidence that the shipping Canvas works.
 - realtime voice session plumbing, lifecycle/error handling, task-result
   feedback, and tool-call bridge.
 
-The headless product smoke also exercises every Canvas view repeatedly. The
-current local run reached interactive Canvas in 626 ms and completed 25 rapid
-view switches in 417 ms with zero console errors; the smoke enforces generous
-5-second ceilings to remain stable on slower supported development hosts.
+The headless product smoke is written to exercise every Canvas view repeatedly
+against generous 5-second ceilings, but it currently stops at its first check
+(see "Product smoke"), so there are no current view-switch timings to report.
+The Canvas WebUI itself was observed rendering correctly at
+`chrome://seoul-canvas/` with zero console errors on 2026-08-09.
 
 ### Deliberately bounded
 
@@ -249,17 +312,25 @@ view switches in 417 ms with zero console errors; the smoke enforces generous
 From the Project Seoul repository:
 
 ```sh
-npm run ci
-npm run test:native
-npm run test:native:browser
+npm run ci                   # static gates + every repository test suite
+npm run test:swift           # macOS overlay app, bridge, and transforms
+npm run test:native          # 30 unit binaries
+npm run test:native:browser  # 134 browser cases; 6 currently fail
 npm run preview:native
-node native/scripts/smoke.mjs
+node native/scripts/smoke.mjs  # currently fails at its first check
 ```
 
-The native commands default to the pinned sibling checkout. Set
-`SEOUL_CHROMIUM_ROOT` or `SEOUL_CHROMIUM_BINARY` only when deliberately using
-another Seoul checkout or binary. The preview and smoke tools never fall back
-to installed Google Chrome.
+The native commands default to the pinned sibling checkout, resolved against the
+main working tree so a git worktree finds the same checkout rather than silently
+reporting the gate skipped. Set `SEOUL_CHROMIUM_ROOT` or
+`SEOUL_CHROMIUM_BINARY` only when deliberately using another Seoul checkout or
+binary. The preview and smoke tools never fall back to installed Google Chrome.
+
+`npm run ci` runs on a bare checkout with no Chromium tree. Where a suite needs
+a prerequisite this repository does not vendor, that is recorded rather than
+assumed: `scripts/check-test-wiring.mjs` fails if a committed test file is
+reachable from no npm script, or if a `test:*` script is unreachable from
+`npm test` without a declared reason.
 
 Checkout and patch reproducibility:
 
@@ -294,6 +365,25 @@ simulated or marked complete by a development build.
 
 ## Current handoff
 
-The functional development build is reproducible and green. Continue from this
-state; do not restart from the standalone prototype, do not weaken the patch or
-build gates, and do not use an installed browser as a Seoul test substitute.
+The development build is reproducible. Every unit gate is green; two gates are
+not, and they are the next work:
+
+1. Six `SeoulShellBrowserTest` cases fail (compact-rail collapse endpoint and
+   the Zen leading-search treatment). See "Known-red gate".
+2. `node native/scripts/smoke.mjs` fails at its first check, and the underlying
+   new-tab behavior needs a product decision. See "Product smoke".
+
+Continue from this state; do not restart from the standalone prototype, do not
+weaken the patch or build gates, and do not use an installed browser as a Seoul
+test substitute. Do not mark either gate green by relaxing its assertion without
+first deciding what the behavior should be.
+
+## Repository scope note
+
+This repository holds two tracks. This report covers the native Chromium product
+only. The Seoul v1 voice-and-pointing track - the macOS Swift overlay app
+(`Seoul/`, `SeoulApp/`, `SeoulBridge/`, `SeoulHost/`, `SeoulVerify/`) and the
+MV3 extension harness (`apps/browser-harness/`) - is described in
+`SEOUL_V1_BRIEF.md`. Its suites are green (21 Swift cases, 34 harness cases) and
+now run in CI, but it has no readiness report of its own and no verified
+end-to-end voice loop recorded here.

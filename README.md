@@ -44,6 +44,14 @@ The repository contains:
 6. The **Voice Lab** (`apps/voice-lab/`): pinned, hash-verified voice runtime
    and model candidates plus ASR/TTS benchmark scripts that feed the voice
    readiness gates.
+7. The **Seoul v1 voice-and-pointing track**: a macOS Swift package (`Seoul/`,
+   `SeoulApp/`, `SeoulBridge/`, `SeoulHost/`, `SeoulVerify/`, `SeoulTests/`,
+   `Package.swift`) holding the menu-bar overlay app, the pure coordinate and
+   display-selection transforms, and the native-messaging bridge; plus the MV3
+   extension harness (`apps/browser-harness/`) that owns the in-page
+   accessibility tree and element resolution. `SEOUL_V1_BRIEF.md` is its brief.
+   This track is separate from the native Chromium product above and has no
+   readiness report of its own.
 
 Source-of-truth model: Seoul-owned code is tracked here (`native/seoul/`) and is
 materialized into the external checkout; unavoidable upstream edits are minimal,
@@ -85,16 +93,33 @@ at runtime).
 ## Checks and tests
 
 ```
-npm run check   # static gates: scripts, json, patch manifest, boundary,
-                # neutrality, native/product architecture, canvas webui,
-                # native syntax, protocol drift
-npm test        # protocol conformance + Canvas Design Lab tests
+npm run check   # 13 static gates: scripts, json, adblock vendor, patch
+                # manifest, boundary, neutrality, native/product architecture,
+                # canvas webui, native syntax, protocol drift, test wiring,
+                # native test wiring
+npm test        # 89 cases: protocol conformance, Canvas Design Lab, Boost
+                # editor, extension-harness resolver and providers, and the
+                # reference coordinate transform
 npm run ci      # both, as CI runs them
 
+# macOS with a Swift toolchain (a separate CI job runs this):
+npm run test:swift           # 21 overlay/transform cases
+
 # On a capable macOS host with the materialized/patched checkout:
-npm run test:native          # build + run all 24 Seoul unit binaries
-npm run test:native:browser  # build + run the exact Seoul browser-test filter
+npm run test:native          # build + run all 30 Seoul unit binaries
+npm run test:native:browser  # build + run the Seoul browser-test filter
 ```
+
+`npm run check` includes two wiring gates, because a suite that exists but never
+runs is indistinguishable from one that passes. `check:test-wiring` fails if a
+committed test file is named by no npm script, or if a `test:*` script is not
+reachable from `npm test`. `check:native-tests` fails if a `test()` target in a
+Seoul `BUILD.gn` is missing from the runner, or if a browser fixture compiled
+into `seoul_browser_tests` falls outside the gtest filter.
+
+Two gates are currently red and are described exactly in
+`docs/release/seoul-product-readiness.md`: six `SeoulShellBrowserTest` cases,
+and `node native/scripts/smoke.mjs`.
 
 ## Canvas Design Lab
 

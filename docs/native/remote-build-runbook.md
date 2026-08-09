@@ -304,7 +304,7 @@ linking, lower `SEOUL_NINJA_JOBS` and re-run; ninja resumes from where it stoppe
 On success the binary is:
 
 ```
-$SEOUL_CHROMIUM_ROOT/src/out/SeoulBaseline/Chromium.app/Contents/MacOS/Chromium
+$SEOUL_CHROMIUM_ROOT/src/out/SeoulBaseline/Seoul.app/Contents/MacOS/Seoul
 ```
 
 Record the elapsed build time, the final output directory size, and the chosen job
@@ -429,7 +429,7 @@ Suggested capture per build (tee command output into the log dir as you go):
 - The built binary path and its `sha256`:
 
 ```
-shasum -a 256 "$SEOUL_CHROMIUM_ROOT/src/out/SeoulBaseline/Chromium.app/Contents/MacOS/Chromium"
+shasum -a 256 "$SEOUL_CHROMIUM_ROOT/src/out/SeoulBaseline/Seoul.app/Contents/MacOS/Seoul"
 ```
 
 Do not commit any of this to the repo. Only written findings (like an updated
@@ -537,7 +537,7 @@ no keychain references).
   "artifacts": [
     {
       "name": "chromium-binary",
-      "path": "/Users/<you>/seoul-chromium.noindex/src/out/SeoulBaseline/Chromium.app/Contents/MacOS/Chromium",
+      "path": "/Users/<you>/seoul-chromium.noindex/src/out/SeoulBaseline/Seoul.app/Contents/MacOS/Seoul",
       "sha256": "<shasum -a 256 of the binary>"
     },
     {

@@ -1,4 +1,4 @@
-# Project Seoul v1 — Claude Code Build Brief
+# Project Seoul v1 — Build Brief
 
 **Target:** a working voice-and-pointing loop in 7 working days.
 **Gate metric:** median time from end-of-user-speech to arrow-on-target, under 600ms.
@@ -15,7 +15,9 @@ The product promise, in one sentence:
 
 Nothing else is in v1. See section 7 for what is explicitly excluded.
 
-**Assumption about the existing repo:** this brief targets the MV3 extension harness (`apps/browser-harness/`), which is built, unit-tested, and verified against real Chrome via Puppeteer. It does **not** target `native/seoul/browser/` (the Chromium fork), which per the repo README has never been compiled or runtime-verified. Do not attempt to build Chromium as part of v1. If the Chromium build is later verified, only section 3.2 changes.
+**Assumption about the existing repo:** this brief targets the MV3 extension harness (`apps/browser-harness/`), which is built and unit-tested. It does **not** target `native/seoul/browser/` (the Chromium fork). Do not attempt to build Chromium as part of v1; it is a separate, long build and a separate product track. If v1 later needs to run inside the Seoul browser rather than stock Chrome, only section 3.2 changes.
+
+> **Status note.** An earlier version of this line said the Chromium fork "has never been compiled or runtime-verified". That is no longer true and had already stopped being true when it was written: the native product compiles, and its current measured state - including two red gates - is recorded in `docs/release/seoul-product-readiness.md`. The two tracks are independent; neither blocks the other.
 
 ---
 
@@ -282,7 +284,7 @@ If a request seems to require one of these, it is out of scope for v1. Say so an
 
 ## 8. The kickoff prompt
 
-Paste this into Claude Code, in the repo root, with this brief saved as `SEOUL_V1_BRIEF.md`:
+Paste this into your coding agent, in the repo root, with this brief saved as `SEOUL_V1_BRIEF.md`:
 
 > Read `SEOUL_V1_BRIEF.md` in full before writing anything.
 >
