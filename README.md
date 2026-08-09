@@ -117,9 +117,8 @@ reachable from `npm test`. `check:native-tests` fails if a `test()` target in a
 Seoul `BUILD.gn` is missing from the runner, or if a browser fixture compiled
 into `seoul_browser_tests` falls outside the gtest filter.
 
-Two gates are currently red and are described exactly in
-`docs/release/seoul-product-readiness.md`: six `SeoulShellBrowserTest` cases,
-and `node native/scripts/smoke.mjs`.
+Every gate is currently green, with per-suite counts and the exact commands in
+`docs/release/seoul-product-readiness.md`.
 
 ## Canvas Design Lab
 

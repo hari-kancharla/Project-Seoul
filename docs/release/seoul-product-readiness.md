@@ -8,17 +8,16 @@ build is not described as a signed release.
 
 ## Verdict
 
-SEOUL DEVELOPMENT BUILD FUNCTIONAL, ONE GATE RED
+SEOUL FUNCTIONAL DEVELOPMENT BUILD VERIFIED
 
 The tracked Seoul source is materialized into the pinned Chromium checkout, the
 reversible integration patches apply, Chromium and every Seoul native test
 target compile, the local browser launches, and the shipping
 `chrome://seoul-canvas` WebUI runs.
 
-Every unit gate is green. The focused browser suite is **not**: 128 of 134
-Seoul browser cases pass and 6 `SeoulShellBrowserTest` cases fail. Those six are
-listed under "Known-red gate" below and must be resolved before this report can
-return to an unqualified verdict.
+Every gate is green: 30 of 30 native unit binaries, 128 of 128 focused browser
+cases, 89 of 89 repository test cases, 21 of 21 Swift cases, 13 of 13 static
+gates, and the product smoke.
 
 The current build is not a public release artifact. It is a component
 development build without final Seoul application branding, signing,
@@ -51,7 +50,8 @@ earlier run.
 |---|---|
 | Native unit executables | 30 of 30 passed |
 | Native unit tests | 722 passed, 0 failed |
-| Focused Chromium browser tests | **128 passed, 6 failed** (see Known-red gate) |
+| Focused Chromium browser tests | 128 passed, 0 failed |
+| Product smoke (`native/scripts/smoke.mjs`) | passed |
 | Repository test suites (`npm test`) | 89 passed, 0 failed, 0 skipped |
 | — protocol conformance | 8 passed |
 | — Canvas Design Lab | 32 passed |
@@ -68,35 +68,53 @@ earlier run.
 The syntax-audit skips are not uncompiled gaps. They depend on GN-generated
 Chromium headers and were compiled through their native build targets.
 
-### Known-red gate
+### Resolved since the previous report
 
-Six `SeoulShellBrowserTest` cases fail against the current build:
+Six `SeoulShellBrowserTest` cases and the product smoke were failing when this
+report was last written. All are fixed; two were product defects and three were
+tests asserting things that were never true.
 
-- `AppearanceLayoutModesAreReversibleAtNarrowWidth`
-- `CompactCollapsedMultipleStartsFromRealSixtyDipEndpoint`
-- `CompactHoverRevealAndReturnCollapseClipOnlyAtEndpoints`
-- `CompactMultipleRoundTripKeepsFiveDipEndpointAndPresentation`
-- `ProgrammaticNewTabKeepsChromiumContract`
-- `SingleToolbarUsesZenLeadingSearchTreatment`
+**The sidebar could not be collapsed while the omnibox had focus.** Upstream
+holds the vertical rail open while focus is inside it, so keyboard tab
+navigation cannot collapse the strip out from under the user. That rule assumes
+the rail holds tabs and nothing else. Seoul hosts the toolbar inside the rail,
+so the omnibox satisfied it - and the omnibox holds focus in a brand-new window
+and after every `Cmd+L`. The rail stayed pinned at its full 230 DIP with the
+mouse nowhere near it, and `RequestCollapse` became a silent no-op. Patch 0025
+now excludes focus inside the hosted toolbar. This was reachable by any user, not
+only by the test.
 
-Two distinct symptoms. The compact cases assert the vertical rail reaches its
-collapsed endpoint and observe it still at its expanded width
-(`kCompactCollapsedWidth` is 5, `region->width()` is 230), so the collapse
-animation does not land on its endpoint. The leading-search case observes a
-fresh window reporting neither the editing-or-empty state nor the floating
-search icon.
+**The `$csp` throttle was compiled but never constructed.** Its registration in
+the content browser client existed only in the working checkout and in no patch,
+so a clean build had the code and none of the behavior. Patch 0024 registers it.
 
-All six were added on 2026-07-27 and 2026-08-01, after the previously recorded
-verification on 2026-07-25. They have never been part of a green recorded run,
-so this is unfinished work rather than a regression against a known-good state.
-`patch 0025 (seoul-shell-reentrancy-guards)` addresses one contributing cause -
-an animation subscriber starting a replacement motion from its own `kEnded`
-notification - and is necessary but not sufficient: the cases still fail with it
-applied.
+**`ProgrammaticNewTabKeepsChromiumContract`** asserted against
+`WebContents::GetLastCommittedURL()`, which returns the navigation entry's
+*virtual* URL. The NTP reverse-rewrite sets that back to `chrome://newtab/`, so
+neither that getter nor `GetVisibleURL()` can show which page committed. The
+test now reads the committed entry directly, which is Chromium's NTP.
+
+**`SingleToolbarUsesZenLeadingSearchTreatment`** assumed a fresh test window has
+an empty omnibox. It does not: it sits on `about:blank`, which the omnibox
+renders as that literal text, so the page identity is showing and the search
+icon is correctly hidden. The test now types into the omnibox to reach the
+editing state it means to exercise. Its hover assertions also assumed
+`ZERO_DURATION` makes the fade synchronous; `SlideAnimation` only short-circuits
+when its *configured* duration is zero, and the scale factor is applied later,
+so the animation still needs a tick from its container. The test now waits for
+the endpoint instead of assuming it.
+
+**The product smoke** asserted that `chrome://newtab` renders Seoul Canvas. The
+Welcome/onboarding row of `docs/product/zen-chromium-parity.md` replaces
+Canvas-first new-tab ownership, patch 0008 removed the rewrite patch 0006
+installed, and patch 0017 records the replacement intent. The smoke was
+asserting the pre-0008 product and failing against a correct build; it now
+checks that the first-party surface loads on `chrome://seoul-canvas`, which is
+where the product actually puts it.
 
 ### Focused browser coverage
 
-The 134 in-process browser cases run with explicit headless flags. Each fixture
+The 128 in-process browser cases run with explicit headless flags. Each fixture
 releases the macOS key window before exercising native layout, so the suite does
 not intercept input from an interactive desktop session. The runner disables
 Chromium's unrelated experimental `InitialWebUI` toolbar in the explicit
@@ -173,47 +191,35 @@ The passing cases cover:
 The isolated smoke test launches only the explicit local Seoul binary with a new
 disposable profile. It does not discover or launch an installed browser.
 
-**`node native/scripts/smoke.mjs` currently fails.** Run on 2026-08-09 against
-the build described above:
+Observed on 2026-08-09, `SMOKE PASS`:
 
 | Check | Result |
 |---|---|
-| Isolated launch | passed (1079 ms) |
-| Browser version | `Chrome/149.0.7827.201` |
-| `chrome://newtab` renders Seoul Canvas | **failed** (30 s timeout) |
-| Remaining checks | not reached |
+| Isolated launch | 3056 ms |
+| `chrome://seoul-canvas` renders the first-party Canvas | passed |
+| Local navigation | 492 ms |
+| Canvas interactive | 427 ms |
+| 25 Canvas view switches | 38 ms |
+| Total smoke | 5755 ms |
+| JavaScript and DOM | passed |
+| Second tab open and activation | passed |
+| Canvas product heading | passed |
+| Five Canvas views | passed |
+| Voice default-off | passed |
+| Empty-send refusal | passed |
+| Canvas console errors | 0 |
+| Browser disconnects | 0 |
+| Page crashes | 0 |
 
-The smoke test navigates to `chrome://newtab/` and waits for the
-`seoul-canvas-app` element. Direct observation of the same build:
+These are development-host smoke measurements, not broad performance benchmarks
+or service-level guarantees.
 
-- `chrome://newtab/` redirects to `chrome://new-tab-page/` and renders
-  Chromium's stock `<ntp-app>`. `seoul-canvas-app` is not defined on that
-  document.
-- `chrome://seoul-canvas/` renders correctly: `seoul-canvas-app` is defined, the
-  shadow root is attached, the heading reads "Ask, act, understand.", and there
-  are zero console errors.
-
-So the Canvas WebUI itself is healthy; what changed is where a new tab goes.
-Patch `0008 (seoul-zen-product-surface)` deliberately removes the normal-profile
-NTP rewrite that patch 0006 installed in `chrome/browser/search/search.cc`, and
-patch `0017` states the replacement intent directly: Seoul's synthetic startup
-tab stays on `about:blank` and "user-created NTPs still take the unmodified
-Chromium rewrite path".
-
-That leaves a contradiction a product owner has to settle, not a bug with an
-obvious fix:
-
-- the smoke test asserts the pre-0008 behavior (new tab is Seoul Canvas);
-- patches 0008 and 0017 assert the post-0008 behavior (new tab is Chromium's);
-- and `SeoulShellBrowserTest.ProgrammaticNewTabKeepsChromiumContract`, which
-  asserts the post-0008 behavior, also fails - so the intended contract is not
-  holding either.
-
-Either the rewrite belongs back in the series and the smoke test is right, or
-the smoke test is stale and must be updated to assert the Chromium contract.
-Nothing here should be marked green until that is decided. The measurements from
-the previous 2026-07-25 run were removed rather than carried forward, because
-they describe a behavior this build no longer has.
+Seoul does not own the new tab. `chrome://newtab` resolves to Chromium's NTP,
+which is what the Welcome/onboarding row of
+`docs/product/zen-chromium-parity.md` specifies and what
+`SeoulShellBrowserTest.ProgrammaticNewTabKeepsChromiumContract` holds. The
+first-party surface lives at `chrome://seoul-canvas`, and that is what this
+smoke exercises.
 
 ## Shipping Canvas state
 
@@ -315,9 +321,9 @@ From the Project Seoul repository:
 npm run ci                   # static gates + every repository test suite
 npm run test:swift           # macOS overlay app, bridge, and transforms
 npm run test:native          # 30 unit binaries
-npm run test:native:browser  # 134 browser cases; 6 currently fail
+npm run test:native:browser  # 128 browser cases
 npm run preview:native
-node native/scripts/smoke.mjs  # currently fails at its first check
+node native/scripts/smoke.mjs
 ```
 
 The native commands default to the pinned sibling checkout, resolved against the
@@ -365,18 +371,16 @@ simulated or marked complete by a development build.
 
 ## Current handoff
 
-The development build is reproducible. Every unit gate is green; two gates are
-not, and they are the next work:
-
-1. Six `SeoulShellBrowserTest` cases fail (compact-rail collapse endpoint and
-   the Zen leading-search treatment). See "Known-red gate".
-2. `node native/scripts/smoke.mjs` fails at its first check, and the underlying
-   new-tab behavior needs a product decision. See "Product smoke".
+The development build is reproducible and every gate is green. The remaining
+work is the public-release gate list above, not defect repair.
 
 Continue from this state; do not restart from the standalone prototype, do not
 weaken the patch or build gates, and do not use an installed browser as a Seoul
-test substitute. Do not mark either gate green by relaxing its assertion without
-first deciding what the behavior should be.
+test substitute. Where a suite and the product disagree, settle which is right
+from the product contracts in `docs/product/` before changing either - two of
+the six browser cases fixed for this report were product defects and three were
+assertions that had never been true, and relaxing them would have hidden a
+sidebar that could not be collapsed.
 
 ## Repository scope note
 

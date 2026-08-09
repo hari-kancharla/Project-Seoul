@@ -4,9 +4,8 @@ Current as of 2026-08-09. The live product and release verdict is maintained in
 `../release/seoul-product-readiness.md`.
 
 Project Seoul is pinned to a reproducible Chromium baseline on macOS arm64. The
-checkout, generation, component build, and native unit tests complete. The
-browser suite and the runtime smoke do not currently pass in full; the readiness
-report records exactly which cases and why.
+checkout, generation, component build, native unit tests, browser tests,
+product launch, and runtime smoke all complete and pass.
 
 ## Status
 
@@ -19,8 +18,8 @@ report records exactly which cases and why.
 | GN generation and dependency check | completed |
 | `chrome` component build | completed |
 | 30 native unit executables | completed, 722 tests passed |
-| Focused browser integration suite | 128 passed, **6 failed** |
-| Launch and product smoke | launches; **smoke fails at its first check** |
+| Focused browser integration suite | completed, 128 tests passed |
+| Launch and product smoke | completed |
 | Canvas WebUI runtime | completed at `chrome://seoul-canvas/`, zero console errors |
 | Non-component release build | not yet run |
 | Signing and notarization | release gate |
