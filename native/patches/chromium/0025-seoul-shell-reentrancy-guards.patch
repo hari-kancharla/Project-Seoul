@@ -98,10 +98,36 @@ index 3c8f5da..12ab289 100644
    bool seoul_new_tab_entry_mode_ = false;
    bool seoul_new_tab_placeholder_surface_ = false;
 diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
-index ede3b6c..96424bd 100644
+index ede3b6c..76aca04 100644
 --- a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
 +++ b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
-@@ -1707,8 +1707,15 @@ void VerticalTabStripRegionView::UpdateSeoulSidebarPresentation(
+@@ -1488,10 +1488,24 @@ void VerticalTabStripRegionView::UpdateExpandOnHoverState(
+     return;
+   }
+ 
++  // Upstream keeps the rail open while focus is inside it, so keyboard tab
++  // navigation cannot collapse the strip out from under the user. That rule
++  // assumes the rail holds tabs and nothing else. Seoul hosts the toolbar
++  // inside it, so read literally the rule also fires for the omnibox - which
++  // holds focus in a brand-new window and after every Cmd+L - and pins the rail
++  // at full width with the mouse nowhere near it. Collapse then silently does
++  // nothing. Focus in the hosted toolbar is not focus in the tab strip.
++  const views::View* const focused_view =
++      GetFocusManager() ? GetFocusManager()->GetFocusedView() : nullptr;
++  const bool focus_is_in_hosted_toolbar =
++      focused_view && browser_view_ && browser_view_->toolbar() &&
++      browser_view_->toolbar()->parent() == this &&
++      browser_view_->toolbar()->Contains(focused_view);
+   const bool should_expand =
+       state_controller_->IsExpandOnHoverEnabled() &&
+       (hovered.value_or(IsMouseHovered()) ||
+-       (GetFocusManager() && Contains(GetFocusManager()->GetFocusedView())));
++       (focused_view && Contains(focused_view) &&
++        !focus_is_in_hosted_toolbar));
+ 
+   if (!should_expand) {
+     if (is_expanded_on_hover_ && keep_current_state_lock_count_ == 0) {
+@@ -1707,8 +1721,15 @@ void VerticalTabStripRegionView::UpdateSeoulSidebarPresentation(
      widget->browser_native_widget()->SetSeoulCompactFrameControlsVisible(
          !compact_hidden);
    }
