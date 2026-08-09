@@ -71,6 +71,8 @@
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/vector_icons/vector_icons.h"
+#include "content/public/browser/navigation_controller.h"
+#include "content/public/browser/navigation_entry.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "seoul/browser/lifecycle/new_tab_placeholder_provenance.h"
@@ -523,8 +525,17 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   ASSERT_TRUE(location_bar->location_icon_view());
   ASSERT_TRUE(location_bar->seoul_floating_search_icon_for_testing());
 
-  location_bar->Revert();
+  // The leading-search treatment is defined for the editing-or-empty omnibox,
+  // so the test has to actually be in that state. A fresh test window is NOT:
+  // it sits on about:blank, which the omnibox renders as the literal text
+  // "about:blank", so the page identity is showing and the search icon is
+  // correctly hidden. Typing is the honest way into the editing state, and it
+  // is the path a user takes after Cmd+L. An empty string will not do it -
+  // OmniboxEditModel treats that as having no input in progress.
+  // Update() re-reads the page URL into the omnibox, so it has to run BEFORE
+  // the typing, not after - otherwise it reverts exactly the state under test.
   location_bar->Update(browser()->tab_strip_model()->GetActiveWebContents());
+  location_bar->GetOmniboxView()->SetUserText(u"seoul");
   browser_view->DeprecatedLayoutImmediately();
 
   EXPECT_TRUE(location_bar->IsEditingOrEmpty());
@@ -545,20 +556,29 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
 
   // Zen temporarily restores the page identity on implicit hover, then
   // collapses it again when the pointer leaves.
+  //
+  // ZERO_DURATION alone does not make this synchronous: SlideAnimation only
+  // short-circuits when its *configured* duration is zero, and the hover
+  // animation's is not - the scale factor is applied afterwards, via
+  // GetDuration(). So the animation still starts and still needs a tick from
+  // its container, which RunUntilIdle does not deliver. Wait for the endpoint
+  // instead of assuming it has already been reached.
   gfx::ScopedAnimationDurationScaleMode disable_animation(
       gfx::ScopedAnimationDurationScaleMode::ZERO_DURATION);
-  location_bar->OnOmniboxHovered(true);
-  base::RunLoop().RunUntilIdle();
-  browser_view->DeprecatedLayoutImmediately();
-  EXPECT_TRUE(location_bar->location_icon_view()->GetVisible());
   ASSERT_TRUE(location_bar->location_icon_view()->layer());
-  EXPECT_FLOAT_EQ(1.0f, location_bar->location_icon_view()->layer()->opacity());
+  location_bar->OnOmniboxHovered(true);
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    browser_view->DeprecatedLayoutImmediately();
+    return location_bar->location_icon_view()->layer()->opacity() == 1.0f;
+  })) << "hover must fade the page identity in to full opacity";
+  EXPECT_TRUE(location_bar->location_icon_view()->GetVisible());
 
   location_bar->OnOmniboxHovered(false);
-  base::RunLoop().RunUntilIdle();
-  browser_view->DeprecatedLayoutImmediately();
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    browser_view->DeprecatedLayoutImmediately();
+    return location_bar->location_icon_view()->layer()->opacity() == 0.0f;
+  })) << "leaving must fade the page identity back out";
   EXPECT_FALSE(location_bar->location_icon_view()->GetVisible());
-  EXPECT_FLOAT_EQ(0.0f, location_bar->location_icon_view()->layer()->opacity());
 }
 
 IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
@@ -1456,9 +1476,18 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
       browser()->tab_strip_model()->GetActiveWebContents();
   ASSERT_TRUE(contents);
   ASSERT_TRUE(content::WaitForLoadStop(contents));
+  // Both WebContents URL getters return the entry's VIRTUAL url, and the NTP
+  // reverse-rewrite sets that back to chrome://newtab/ - so neither of them can
+  // show which page actually committed. The real committed url lives on the
+  // navigation entry, and that is what has to be Chromium's NTP: Seoul no
+  // longer owns the new tab (see the Welcome/onboarding row in
+  // docs/product/zen-chromium-parity.md).
   EXPECT_EQ(GURL(chrome::kChromeUINewTabURL), contents->GetVisibleURL());
-  EXPECT_EQ(search::GetNewTabPageURL(browser()->profile()),
-            contents->GetLastCommittedURL());
+  EXPECT_EQ(GURL(chrome::kChromeUINewTabURL), contents->GetLastCommittedURL());
+  content::NavigationEntry* const entry =
+      contents->GetController().GetLastCommittedEntry();
+  ASSERT_TRUE(entry);
+  EXPECT_EQ(search::GetNewTabPageURL(browser()->profile()), entry->GetURL());
 }
 
 IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,

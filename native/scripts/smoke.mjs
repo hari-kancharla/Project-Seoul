@@ -80,24 +80,27 @@ try {
   const version = await browser.version();
   console.log(`browser version: ${version}`);
 
-  // A real chrome://newtab navigation must resolve to Seoul's first-party
-  // Canvas document. Checking the rendered custom element catches regressions
-  // where Browser::GetNewTabURL changes but the canonical NTP rewrite still
-  // sends startup/omnibox new tabs to Chromium's stock page.
-  const newTab = await browser.newPage();
-  await newTab.goto('chrome://newtab/', {waitUntil: 'domcontentloaded'});
-  await newTab.waitForFunction(async () => {
+  // Seoul does NOT own the new tab. The Welcome/onboarding row of
+  // docs/product/zen-chromium-parity.md replaces Canvas-first new-tab
+  // ownership, patch 0008 removes the rewrite patch 0006 installed, and
+  // SeoulShellBrowserTest.ProgrammaticNewTabKeepsChromiumContract holds that
+  // contract. This smoke asserted the pre-0008 behavior and so failed against
+  // a correct build; what it should check is that the first-party surface
+  // still loads on its own url, which is where the product actually puts it.
+  const canvasTab = await browser.newPage();
+  await canvasTab.goto('chrome://seoul-canvas/', {waitUntil: 'domcontentloaded'});
+  await canvasTab.waitForFunction(async () => {
     await customElements.whenDefined('seoul-canvas-app');
     const root = document.querySelector('seoul-canvas-app')?.shadowRoot;
     return root?.querySelector('.canvas-header h1')?.textContent?.trim() ===
         'Ask, act, understand.';
   });
   assert(
-    await newTab.evaluate(() =>
+    await canvasTab.evaluate(() =>
       Boolean(document.querySelector('seoul-canvas-app')?.shadowRoot)),
-    'chrome://newtab renders Seoul Canvas instead of the stock Chromium NTP',
+    'chrome://seoul-canvas renders the first-party Canvas',
   );
-  await newTab.close();
+  await canvasTab.close();
 
   const page = await browser.newPage();
   page.on('error', (e) => {
