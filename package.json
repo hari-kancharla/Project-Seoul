@@ -6,7 +6,7 @@
   "description": "Project Seoul - the voice-first, visual, programmable personal browser: native source, canonical protocol, and design labs.",
   "scripts": {
     "test": "npm run test:protocol && npm run test:canvas && npm run test:boost-editor && npm run test:harness && npm run test:providers && npm run test:reference",
-    "check": "npm run check:scripts && npm run check:json && npm run check:adblock-vendor && npm run check:manifest && npm run check:boundary && npm run check:neutrality && npm run check:native-arch && npm run check:product-arch && npm run check:canvas-webui && npm run check:syntax && npm run check:protocol && npm run check:test-wiring && npm run check:native-tests",
+    "check": "npm run check:scripts && npm run check:json && npm run check:adblock-vendor && npm run check:manifest && npm run check:boundary && npm run check:neutrality && npm run check:native-arch && npm run check:product-arch && npm run check:canvas-webui && npm run check:syntax && npm run check:checkout-resolution && npm run check:protocol && npm run check:test-wiring && npm run check:native-tests",
     "ci": "npm run check && npm test",
     "check:scripts": "for f in $(git ls-files '*.sh'); do bash -n \"$f\" || exit 1; done && echo 'bash -n: OK'",
     "check:json": "node -e \"for (const f of ['native/chromium.lock.json','native/patches/manifest.json','package.json']) { JSON.parse(require('fs').readFileSync(f,'utf8')); console.log('json OK:', f); }\"",
@@ -34,7 +34,9 @@
     "test:boost-editor": "node --test native/seoul/browser/canvas/resources/boost_editor.test.mjs",
     "canvas": "node apps/canvas-prototype/build.mjs && open apps/canvas-prototype/dist/index.html",
     "generate:protocol": "node scripts/generate-protocol-types.mjs && node scripts/generate-component-catalog.mjs",
-    "verify:checkout": "native/scripts/verify-checkout.sh"
+    "verify:checkout": "native/scripts/verify-checkout.sh",
+    "check:checkout-resolution": "node scripts/check-checkout-resolution.mjs",
+    "stress:native": "node native/scripts/stress.mjs"
   },
   "devDependencies": {
     "esbuild": "0.25.0",

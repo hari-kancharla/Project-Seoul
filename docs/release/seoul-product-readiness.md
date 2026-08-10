@@ -52,6 +52,7 @@ earlier run.
 | Native unit tests | 722 passed, 0 failed |
 | Focused Chromium browser tests | 129 passed, 0 failed |
 | Product smoke (`native/scripts/smoke.mjs`) | passed |
+| Product churn exercise (`native/scripts/stress.mjs`) | passed |
 | Repository test suites (`npm test`) | 89 passed, 0 failed, 0 skipped |
 | — protocol conformance | 8 passed |
 | — Canvas Design Lab | 32 passed |
@@ -257,6 +258,27 @@ Verified behavior:
 The standalone `apps/canvas-prototype/` remains a design lab. It is tested but
 is not used as evidence that the shipping Canvas works.
 
+## Product churn exercise
+
+`native/scripts/stress.mjs` answers the question after the smoke: does the
+product still work once it has been used hard. Observed on 2026-08-09,
+`STRESS PASS`:
+
+| Check | Result |
+|---|---|
+| Canvas mount/unmount cycles | 15, all rendered |
+| Concurrent Canvas tabs | 12 |
+| Rapid tab activations | 60 |
+| Navigation cycles against a 4000-node document | 8, plus back/forward |
+| JS heap, first mount to after 15 remounts | 3.2 MB to 2.8 MB, no growth |
+| Console errors, page errors, renderer crashes | 0 |
+| Browser survived closing every tab | yes |
+| Canvas still mounted and rendered afterwards | yes |
+
+The flat heap across 15 remounts is the point of the exercise: a Canvas that
+retained listeners or observers per mount would show it here. This is a churn
+exercise, not a long-session soak; the soak remains a release gate below.
+
 ## Native product state
 
 ### Working and verified
@@ -322,6 +344,7 @@ npm run ci                   # static gates + every repository test suite
 npm run test:swift           # macOS overlay app, bridge, and transforms
 npm run test:native          # 30 unit binaries
 npm run test:native:browser  # 129 browser cases
+npm run stress:native        # churn exercise against the built product
 npm run preview:native
 node native/scripts/smoke.mjs
 ```

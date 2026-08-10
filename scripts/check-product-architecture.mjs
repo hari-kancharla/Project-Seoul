@@ -32,6 +32,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { checkoutSrc } from '../native/scripts/checkout-root.mjs';
 
 const repoRoot = path.resolve(import.meta.dirname, '..');
 const productRoot = path.join(repoRoot, 'native/seoul/browser/product');
@@ -54,10 +55,11 @@ function chromiumIntegrationEvidence(relativePath) {
         : path.join(configuredRoot, 'src'),
     );
   }
-  checkoutRoots.push(
-    path.resolve(repoRoot, '../seoul-chromium.noindex/src'),
-    path.resolve(repoRoot, '../seoul-chromium/src'),
-  );
+  // Worktree-aware, and the same answer every other script gets. Deriving it
+  // here instead meant that in a worktree this guard found no checkout and
+  // quietly dropped to its patch-series fallback - still green, but checking
+  // the patches rather than the source that will actually be compiled.
+  checkoutRoots.push(checkoutSrc());
 
   for (const checkoutRoot of [...new Set(checkoutRoots)]) {
     const sourcePath = path.join(checkoutRoot, relativePath);

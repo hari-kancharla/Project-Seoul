@@ -7,30 +7,11 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { assertBrowserLaunchPermitted } from '../../scripts/browser-launch-safety.mjs';
+import { productBinary } from './checkout-root.mjs';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(here, '..', '..');
-const siblingRoot = ['seoul-chromium.noindex', 'seoul-chromium']
-  .map((name) => path.resolve(repoRoot, '..', name))
-  .find((candidate) => existsSync(candidate));
-const chromiumRoot = (process.env.SEOUL_CHROMIUM_ROOT || '').trim()
-  ? path.resolve(process.env.SEOUL_CHROMIUM_ROOT)
-  : (siblingRoot ?? path.resolve(repoRoot, '..', 'seoul-chromium.noindex'));
-const binary = (process.env.SEOUL_CHROMIUM_BINARY || '').trim()
-  ? path.resolve(process.env.SEOUL_CHROMIUM_BINARY)
-  : path.join(
-      chromiumRoot,
-      'src',
-      'out',
-      'SeoulBaseline',
-      'Seoul.app',
-      'Contents',
-      'MacOS',
-      'Seoul',
-    );
+const binary = productBinary();
 const output = (process.env.SEOUL_PREVIEW_PATH || '').trim()
   ? path.resolve(process.env.SEOUL_PREVIEW_PATH)
   : path.join(os.tmpdir(), 'seoul-canvas-preview.png');

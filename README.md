@@ -108,6 +108,7 @@ npm run test:swift           # 21 overlay/transform cases
 # On a capable macOS host with the materialized/patched checkout:
 npm run test:native          # build + run all 30 Seoul unit binaries
 npm run test:native:browser  # build + run the Seoul browser-test filter
+npm run stress:native        # churn the built product: remounts, 12 tabs, navigation
 ```
 
 `npm run check` includes two wiring gates, because a suite that exists but never

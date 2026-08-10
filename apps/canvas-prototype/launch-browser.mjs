@@ -8,30 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { assertBrowserLaunchPermitted } from '../../scripts/browser-launch-safety.mjs';
-
-const here = path.dirname(fileURLToPath(import.meta.url));
-const checkoutRelativeRoot = path.resolve(here, '..', '..');
-
-/// The checkout is a sibling of the repository. A git worktree has its own
-/// root, and that root's sibling holds nothing, so the browser would be
-/// reported absent on a machine that has one - and the smoke test would report
-/// itself skipped. Resolve the MAIN working tree so both agree.
-/// Matches sibling_checkout_of() in native/scripts/common.sh.
-function mainWorktreeRoot(start = checkoutRelativeRoot) {
-  try {
-    const commonDir = execFileSync(
-      'git',
-      ['-C', start, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
-      {encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']},
-    ).trim();
-    if (commonDir) {
-      return path.resolve(commonDir, '..');
-    }
-  } catch {
-    // Not a git checkout, or no git on PATH: the plain sibling is all there is.
-  }
-  return start;
-}
+import { mainWorktreeRoot, checkoutRoot } from '../../native/scripts/checkout-root.mjs';
 
 const repoRoot = mainWorktreeRoot();
 
@@ -40,13 +17,11 @@ export function candidateBrowserPaths({
   platform = process.platform,
   projectRoot = repoRoot,
 } = {}) {
-  const checkoutRoot = (env.SEOUL_CHROMIUM_ROOT || '').trim()
-    ? path.resolve(env.SEOUL_CHROMIUM_ROOT)
-    : path.resolve(projectRoot, '..', 'seoul-chromium.noindex');
+  const resolvedCheckout = checkoutRoot({env, start: projectRoot});
   const seoulBinary = (env.SEOUL_CHROMIUM_BINARY || '').trim()
     ? path.resolve(env.SEOUL_CHROMIUM_BINARY)
     : path.join(
-        checkoutRoot,
+        resolvedCheckout,
         'src',
         'out',
         'SeoulBaseline',

@@ -9,21 +9,11 @@
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { assertBrowserLaunchPermitted } from '../../scripts/browser-launch-safety.mjs';
+import { productBinary } from './checkout-root.mjs';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(here, '..', '..');
-const siblingRoot = ['seoul-chromium.noindex', 'seoul-chromium']
-  .map((name) => path.resolve(repoRoot, '..', name))
-  .find((p) => existsSync(p));
-const root = (process.env.SEOUL_CHROMIUM_ROOT || '').trim()
-  ? path.resolve(process.env.SEOUL_CHROMIUM_ROOT)
-  : (siblingRoot ?? path.resolve(repoRoot, '..', 'seoul-chromium.noindex'));
-const binary = (process.env.SEOUL_CHROMIUM_BINARY || '').trim()
-  ? path.resolve(process.env.SEOUL_CHROMIUM_BINARY)
-  : path.join(root, 'src', 'out', 'SeoulBaseline', 'Seoul.app', 'Contents', 'MacOS', 'Seoul');
+const binary = productBinary();
 const maxLaunchMs = 15000;
 const maxLocalNavigationMs = 5000;
 const maxCanvasReadyMs = 5000;
