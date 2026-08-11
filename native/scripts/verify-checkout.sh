@@ -67,6 +67,30 @@ else
   if [ -n "$LOCK_REV" ] && [ "$head" = "$LOCK_REV" ]; then pass "src HEAD equals locked revision ($head)"
   else bad "src HEAD ($head) does not equal locked revision (${LOCK_REV:-?})"; fi
 
+  # Files the series CREATES are absent from HEAD and untracked in the working
+  # tree, so `git diff HEAD` cannot carry them: the temporary index would not
+  # contain them, and the first patch that creates one fails to reverse with
+  # "does not exist in index". That made the reverse proof unable to pass at all
+  # once any patch added a file - it currently adds eleven - so the check was
+  # reporting drift that was not there. Stage exactly the created paths, taken
+  # from git's own reading of each patch rather than a guess, so the reverse has
+  # the same tree the series actually produced.
+  stage_patch_created_files() {
+    local index="$1"
+    shift
+    local patch created
+    for patch in "$@"; do
+      while IFS= read -r created; do
+        [ -n "$created" ] || continue
+        [ -e "$CHROMIUM_SRC/$created" ] || continue
+        GIT_INDEX_FILE="$index" git -C "$CHROMIUM_SRC" \
+          update-index --add -- "$created" || return 1
+      done < <(git -C "$CHROMIUM_SRC" apply --summary "$patch" 2>/dev/null |
+        sed -n 's/^ *create mode [0-7]* //p')
+    done
+    return 0
+  }
+
   if src_has_user_edits; then
     # Tracked edits are legitimate in exactly one case: they are precisely the
     # applied Seoul patch series (the runbook applies patches before gen/build).
@@ -86,6 +110,8 @@ else
     elif ! GIT_INDEX_FILE="$index_file" git -C "$CHROMIUM_SRC" read-tree HEAD; then
       series_matches=0
     elif ! GIT_INDEX_FILE="$index_file" git -C "$CHROMIUM_SRC" apply --cached "$delta_file"; then
+      series_matches=0
+    elif ! stage_patch_created_files "$index_file" "${patches[@]}"; then
       series_matches=0
     else
       for ((i=${#patches[@]}-1; i>=0; i--)); do

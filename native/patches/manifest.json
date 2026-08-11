@@ -719,6 +719,22 @@
       "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0025-seoul-shell-reentrancy-guards.patch after applying patches 0001 through 0024",
       "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0025-seoul-shell-reentrancy-guards.patch",
       "reviewable": true
+    },
+    {
+      "id": "seoul-component-build-no-code-sign-clone",
+      "description": "Skip Chromium's macOS code-sign clone in component builds, where the cloned bundle cannot resolve the shared libraries the executable links against.",
+      "rationale": "A component build keeps its shared libraries in the build directory rather than inside the app bundle, and the main executable reaches them through an @loader_path/../../.. rpath that only resolves while the app runs from its own build output. CodeSignCloneManager re-executes the browser from a copy of the bundle in a temporary directory, where that rpath resolves to nothing, so dyld fails to load libc++_chrome.dylib before any Chrome code runs: no log line, no crash handler, and macOS reports only \"Seoul cannot be opened because of a problem\". The clone exists solely to keep the code signature stable across auto-updates, which a component development build does not have, so skipping it costs nothing. Upstream already makes the same trade for Chrome for Testing immediately below the guarded code. Release (non-component) builds keep the clone.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 26,
+      "file": "0026-seoul-component-build-no-code-sign-clone.patch",
+      "affectedPaths": [
+        "chrome/browser/mac/code_sign_clone_manager.mm"
+      ],
+      "dependencies": [],
+      "sha256": "5d56b0fba3ce29d385e1d0aae9179ace0b348e9311c734cbb39e103343e4ca2a",
+      "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0026-seoul-component-build-no-code-sign-clone.patch after applying patches 0001 through 0025",
+      "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0026-seoul-component-build-no-code-sign-clone.patch",
+      "reviewable": true
     }
   ]
 }

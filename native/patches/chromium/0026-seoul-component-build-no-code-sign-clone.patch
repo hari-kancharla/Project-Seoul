@@ -1,0 +1,39 @@
+diff --git a/chrome/browser/mac/code_sign_clone_manager.mm b/chrome/browser/mac/code_sign_clone_manager.mm
+index 97abe9476b..6f2ee1d857 100644
+--- a/chrome/browser/mac/code_sign_clone_manager.mm
++++ b/chrome/browser/mac/code_sign_clone_manager.mm
+@@ -515,13 +515,33 @@ void RecordCloneExists(MacCloneExists exists) {
+ BASE_FEATURE(kMacAppCodeSignCloneRenameAsBundle,
+              base::FEATURE_ENABLED_BY_DEFAULT);
+ 
++// A component build keeps its shared libraries in the build directory rather
++// than inside the bundle, and the main executable reaches them through an
++// `@loader_path/../../..` rpath that only resolves while the app runs from its
++// own build output. The code-sign clone re-executes from a copy of the bundle
++// in a temporary directory, where that rpath resolves to nothing: dyld fails
++// before any Chrome code runs, so there is no log line and no crash handler,
++// and macOS reports the whole thing as "<Product> cannot be opened because of a
++// problem". The clone exists only to keep the code signature stable across
++// auto-updates, which a component development build does not have, so skipping
++// it costs nothing - the same trade upstream already makes for Chrome for
++// Testing below.
++bool CodeSignCloneSupportedForThisBuild() {
++#if defined(COMPONENT_BUILD)
++  return false;
++#else
++  return true;
++#endif
++}
++
+ CodeSignCloneManager::CodeSignCloneManager(
+     const base::FilePath& src_path,
+     const base::FilePath& main_executable_name,
+     CloneCallback callback)
+     : task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
+           {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})) {
+-  if (!base::FeatureList::IsEnabled(kMacAppCodeSignClone) || src_path.empty() ||
++  if (!CodeSignCloneSupportedForThisBuild() ||
++      !base::FeatureList::IsEnabled(kMacAppCodeSignClone) || src_path.empty() ||
+       main_executable_name.empty()) {
+     return;
+   }

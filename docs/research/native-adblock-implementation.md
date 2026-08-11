@@ -904,6 +904,15 @@ hash-pinned subscription, and fail-closed signed-component infrastructure. This
 is not full Brave compatibility. Specifically absent:
 
 - production filter lists and the release-signed component channel;
+- a delivery path for the catalogued runtime lists: EasyList and EasyPrivacy are
+  catalogued with `enabled_by_default=true` and
+  `AdBlockListDelivery::kRuntimeDownload`, but nothing reads that field, so they
+  are never fetched. `DownloadPinnedAdditionalRuleSet` has no production caller,
+  and it requires a pinned SHA-256, which a continuously updated upstream list
+  cannot supply - so the wiring is not a small omission but a delivery-policy
+  decision that has not been made. Until it is, a fresh profile blocks with the
+  five-rule baseline alone; measured numbers are in
+  `docs/release/seoul-product-readiness.md`;
 - frame-less worker WebSocket interception;
 - multiple optional/custom subscription catalog management;
 - scriptlets, procedural filtering, CSP, and CNAME;

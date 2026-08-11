@@ -53,6 +53,8 @@ earlier run.
 | Focused Chromium browser tests | 129 passed, 0 failed |
 | Product smoke (`native/scripts/smoke.mjs`) | passed |
 | Product churn exercise (`native/scripts/stress.mjs`) | passed |
+| Repeated cold launches of the built app | 5 of 5 reached a live browser |
+| Checkout reverse proof (`verify-checkout.sh`) | passed, and fails on introduced drift |
 | Repository test suites (`npm test`) | 89 passed, 0 failed, 0 skipped |
 | — protocol conformance | 8 passed |
 | — Canvas Design Lab | 32 passed |
@@ -278,6 +280,77 @@ product still work once it has been used hard. Observed on 2026-08-09,
 The flat heap across 15 remounts is the point of the exercise: a Canvas that
 retained listeners or observers per mount would show it here. This is a churn
 exercise, not a long-session soak; the soak remains a release gate below.
+
+## Two gates that were not gating
+
+Both were found by running the product rather than the suite, and both are
+fixed:
+
+- **The built app could fail to start at all.** macOS reported "Seoul cannot be
+  opened because of a problem" with no log line and no crash report.
+  Chromium's `CodeSignCloneManager` re-executes the browser from a copy of the
+  bundle in a temporary directory; a component build keeps its shared libraries
+  in the build directory and reaches them through an `@loader_path/../../..`
+  rpath that only resolves from the real build output, so dyld failed to load
+  `libc++_chrome.dylib` before any Chrome code ran. Patch 0026 skips the clone
+  in component builds, which is the trade upstream already makes for Chrome for
+  Testing. Five of five cold launches now reach a live browser; before the
+  patch the failure was reproducible.
+- **`verify-checkout.sh` could not pass.** Its reverse proof stages only
+  `git diff HEAD`, so the eleven files the patch series *creates* were absent
+  from the temporary index and the first patch that creates one failed to
+  reverse with "does not exist in index". The gate was reporting checkout drift
+  that did not exist, which is worse than not running: the honest reading of a
+  red reproducibility gate is that the build cannot be reproduced. It now
+  stages the created paths from git's own reading of each patch, passes on a
+  clean checkout, and still fails when real drift is introduced - both
+  directions verified.
+
+## Content blocking, as actually observed
+
+Measured on 2026-08-11 against a fresh profile with the built product, counting
+requests whose URL matches ad/tracker patterns:
+
+| Site | Blocked | Reached the network |
+|---|---|---|
+| theverge.com | 9 | 82 |
+| cnn.com | 0 | 23 |
+
+`gpt.js`, `pubads_impl.js`, DoubleClick pixels and Rubicon sync all load. This
+is the designed behavior of this build, not a regression, and the reason is
+worth stating here rather than only in the implementation notes:
+
+- the blocker ships a deliberately small Seoul-authored safety baseline - five
+  rules - so a first run with no network still blocks something;
+- the real lists arrive through a signed component, and
+  `seoul_adblock_component_public_key_hash` is empty in a development build, so
+  `RegisterAdBlockFilterComponent` skips registration rather than trusting a
+  placeholder identity. That fail-closed choice is deliberate;
+- the catalog additionally marks EasyList and EasyPrivacy as enabled-by-default
+  runtime downloads, but nothing reads `AdBlockListDelivery::kRuntimeDownload`:
+  no code path fetches them. The catalog therefore advertises a state the
+  product does not yet deliver, and that gap is real.
+
+So the engine, interception, cosmetic filtering, CSP, per-site modes and
+last-known-good storage are implemented and tested, and the rules they are fed
+in this build are the five-rule baseline. Brave-comparable blocking requires the
+release signing identity, a reviewed production list set, and a delivery path
+for the catalogued runtime lists. `docs/research/native-adblock-implementation.md`
+states the same conclusion and says Brave parity must not be claimed until then;
+this report agrees with it and adds the measured numbers.
+
+## First run, as actually seen
+
+Launching the product with no URL gives a window with the vertical rail, the
+command surface, and an empty content area: the startup tab is Seoul's synthetic
+placeholder on `about:blank`, which patch 0017 deliberately keeps as inert
+browser chrome rather than a user-visible New Tab Page. Once any real page is
+open the shell behaves as designed - rail, workspace label, favicon, domain-only
+resting URL - but the first thing a new user sees is a blank window.
+
+That is the Welcome/onboarding row of `docs/product/zen-chromium-parity.md`,
+which is marked `replace` and is not yet built. It is listed here because it is
+the first thing anyone evaluating the product will encounter.
 
 ## Native product state
 
