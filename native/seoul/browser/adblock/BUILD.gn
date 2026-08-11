@@ -45,6 +45,7 @@ group("rust_engine") {
 
 source_set("adblock") {
   sources = [
+    "ad_block_baseline_rules.h",
     "ad_block_component_installer.cc",
     "ad_block_component_installer.h",
     "ad_block_csp_throttle.cc",

@@ -299,7 +299,12 @@ TEST_F(AdBlockAsyncTest, FilterListStartupUsesBundledBaselineWithoutCache) {
   const AdBlockFilterListUpdateStatus status = started.Get();
   EXPECT_EQ(AdBlockFilterListState::kReady, status.state);
   EXPECT_EQ(AdBlockFilterListSource::kBundled, status.source);
-  EXPECT_EQ("0.1.0", status.version);
+  // 0.2.0 is the baseline that actually blocks. 0.1.0 was a single rule against
+  // a domain that does not exist, so this test passed while the shipped browser
+  // blocked nothing; the behavioural cases in AdBlockBaselineTest are what stop
+  // that happening again, and this one only pins the version the startup path
+  // reports.
+  EXPECT_EQ("0.2.0", status.version);
   EXPECT_TRUE(status.last_error.empty());
 }
 

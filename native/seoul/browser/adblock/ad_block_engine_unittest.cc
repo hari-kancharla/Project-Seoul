@@ -1,6 +1,7 @@
 // Project Seoul native blocker engine tests.
 
 #include "seoul/browser/adblock/ad_block_engine.h"
+#include "seoul/browser/adblock/ad_block_baseline_rules.h"
 
 #include <memory>
 #include <string>
@@ -27,6 +28,70 @@ AdBlockRequest ScriptRequest(std::string url,
                              bool is_third_party) {
   return AdBlockRequest(std::move(url), std::move(hostname),
                         std::move(source_hostname), "script", is_third_party);
+}
+
+// The compiled-in baseline is what the browser blocks with before any list
+// arrives, which - with no release component identity configured - is every
+// development build and every first run. It was once a single rule against a
+// domain that does not exist, so the shipped default blocked nothing at all
+// while every surrounding test still passed. These cases pin the floor to
+// observable behaviour instead: real ad hosts blocked, ordinary sites and
+// first-party requests untouched.
+TEST(AdBlockBaselineTest, BlocksWellKnownThirdPartyAdHosts) {
+  auto engine = Build(kSeoulBaselineDefaultRules);
+  ASSERT_TRUE(engine);
+
+  for (const char* host : {"doubleclick.net", "googlesyndication.com",
+                           "googletagservices.com", "adnxs.com",
+                           "rubiconproject.com", "criteo.com", "taboola.com",
+                           "scorecardresearch.com", "amazon-adsystem.com",
+                           "google-analytics.com", "hotjar.com"}) {
+    const std::string url = std::string("https://") + host + "/tag.js";
+    const AdBlockMatchResult result = engine->Evaluate(
+        ScriptRequest(url, host, "news.example", /*is_third_party=*/true));
+    EXPECT_TRUE(result.matched) << host << " must be blocked by the baseline";
+    EXPECT_FALSE(result.has_exception) << host;
+  }
+}
+
+TEST(AdBlockBaselineTest, LeavesOrdinaryAndFirstPartyRequestsAlone) {
+  auto engine = Build(kSeoulBaselineDefaultRules);
+  ASSERT_TRUE(engine);
+
+  // Hosts a blocker must not take out: a CDN, a login provider, a payment
+  // processor, and the site's own origin.
+  for (const char* host : {"cdn.jsdelivr.net", "accounts.google.com",
+                           "js.stripe.com", "unpkg.com", "fonts.gstatic.com"}) {
+    const std::string url = std::string("https://") + host + "/lib.js";
+    const AdBlockMatchResult result = engine->Evaluate(
+        ScriptRequest(url, host, "news.example", /*is_third_party=*/true));
+    EXPECT_FALSE(result.matched) << host << " must NOT be blocked";
+  }
+
+  // Every baseline rule is third-party scoped, so a site serving the same path
+  // from its own origin keeps working.
+  const AdBlockMatchResult first_party = engine->Evaluate(ScriptRequest(
+      "https://news.example/js/analytics.js", "news.example", "news.example",
+      /*is_third_party=*/false));
+  EXPECT_FALSE(first_party.matched)
+      << "first-party requests must never match the baseline";
+}
+
+TEST(AdBlockBaselineTest, IsNotAPlaceholder) {
+  // Guards the specific regression: a baseline whose only rule names a domain
+  // that cannot resolve looks like a working blocker to every other test.
+  const std::string_view rules(kSeoulBaselineDefaultRules);
+  EXPECT_EQ(rules.find(".invalid"), std::string_view::npos)
+      << "the shipped baseline must not be a placeholder";
+
+  size_t rule_count = 0;
+  for (size_t i = 0; i < rules.size(); ++i) {
+    if (rules[i] == '|' && (i == 0 || rules[i - 1] == '\n')) {
+      ++rule_count;
+    }
+  }
+  EXPECT_GT(rule_count, 20u)
+      << "the baseline should cover the common ad and measurement hosts";
 }
 
 TEST(AdBlockEngineTest, BlocksMatchingNetworkRequest) {

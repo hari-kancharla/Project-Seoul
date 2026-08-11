@@ -2,6 +2,8 @@
 
 #include "seoul/browser/adblock/ad_block_filter_list_manager.h"
 
+#include "seoul/browser/adblock/ad_block_baseline_rules.h"
+
 #include <algorithm>
 #include <optional>
 #include <string>
@@ -69,13 +71,9 @@ constexpr size_t kMaxManifestBytes = 64 * 1024;
 constexpr size_t kMaxRulesBytes = 32 * 1024 * 1024;
 constexpr size_t kMaxCombinedRulesBytes = 48 * 1024 * 1024;
 
-constexpr char kBundledVersion[] = "0.1.0";
-constexpr char kBundledDefaultRules[] =
-    "! Seoul safety baseline. Production lists arrive through a verified "
-    "component.\n"
-    "||seoul-adblock.invalid^\n";
-constexpr char kBundledAdditionalRules[] =
-    "! Seoul user/additional rule baseline.\n";
+constexpr char kBundledVersion[] = "0.2.0";
+constexpr const char* kBundledDefaultRules = kSeoulBaselineDefaultRules;
+constexpr const char* kBundledAdditionalRules = kSeoulBaselineAdditionalRules;
 
 constexpr char kStatePref[] = "seoul.adblock.filter_lists.state";
 constexpr char kSourcePref[] = "seoul.adblock.filter_lists.source";
