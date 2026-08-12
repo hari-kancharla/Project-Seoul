@@ -100,6 +100,15 @@ AdBlockSubscriptionDownloader::~AdBlockSubscriptionDownloader() = default;
 void AdBlockSubscriptionDownloader::Download(const GURL& url,
                                              std::string expected_sha256,
                                              CompletionCallback callback) {
+  Download(url, AdBlockSubscriptionIntegrity::kPinnedSha256,
+           std::move(expected_sha256), std::move(callback));
+}
+
+void AdBlockSubscriptionDownloader::Download(
+    const GURL& url,
+    AdBlockSubscriptionIntegrity integrity,
+    std::string expected_sha256,
+    CompletionCallback callback) {
   AdBlockSubscriptionDownloadResult error;
   if (is_downloading()) {
     error.error = "a filter-list download is already in progress";
@@ -111,12 +120,14 @@ void AdBlockSubscriptionDownloader::Download(const GURL& url,
     std::move(callback).Run(std::move(error));
     return;
   }
-  if (!IsValidSha256(expected_sha256)) {
+  if (integrity == AdBlockSubscriptionIntegrity::kPinnedSha256 &&
+      !IsValidSha256(expected_sha256)) {
     error.error = "trusted filter-list SHA-256 is invalid";
     std::move(callback).Run(std::move(error));
     return;
   }
 
+  integrity_ = integrity;
   expected_sha256_ = base::ToLowerASCII(expected_sha256);
   callback_ = std::move(callback);
 
@@ -192,7 +203,8 @@ void AdBlockSubscriptionDownloader::OnDownloaded(
     Finish(std::move(result));
     return;
   }
-  if (Sha256Hex(*body) != expected_sha256_) {
+  if (integrity_ == AdBlockSubscriptionIntegrity::kPinnedSha256 &&
+      Sha256Hex(*body) != expected_sha256_) {
     result.error = "filter-list response SHA-256 mismatch";
     Finish(std::move(result));
     return;
@@ -206,6 +218,7 @@ void AdBlockSubscriptionDownloader::OnDownloaded(
 void AdBlockSubscriptionDownloader::Finish(
     AdBlockSubscriptionDownloadResult result) {
   simple_url_loader_.reset();
+  integrity_ = AdBlockSubscriptionIntegrity::kPinnedSha256;
   expected_sha256_.clear();
   if (callback_) {
     std::move(callback_).Run(std::move(result));

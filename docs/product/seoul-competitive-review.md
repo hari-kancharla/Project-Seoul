@@ -1,6 +1,8 @@
 # Seoul competitive review
 
 Research date: 2026-07-11 (Arc, Zen, and VoiceOS primary sources rechecked).
+Seoul's own column re-measured 2026-08-11 against the running build; see
+section 4b, which supersedes the "unbuilt" status in the section 3 table.
 This document separates four things and never blends
 them: (a) documented competitor capability, (b) capability the reviewer could
 personally confirm from an official source, (c) uncertainty, and (d) Seoul's
@@ -161,7 +163,13 @@ measured, or user-visible capability yet.
 Each cell is a status, not a score. "documented" means an official source
 describes it; "not documented" means no official source was found (proving a
 negative is impossible, so this is not the same as "absent"); "source complete
-(unbuilt)" is Seoul's honest state at this milestone.
+(unbuilt)" was Seoul's honest state on 2026-07-11.
+
+The Seoul column below is therefore out of date: the product has since been
+built and driven. It is left as written rather than quietly rewritten, because
+the competitor cells were researched on that date too and re-dating one column
+without re-verifying the others would be worse. Section 4b carries the measured
+2026-08-11 state and is the one to read for where Seoul actually is.
 
 | Facet | Arc | Dia | Comet | Zen | Vivaldi | Opera Neon | Edge | Chrome | Seoul |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -217,6 +225,52 @@ advantages. Each is a hypothesis to test once Seoul compiles and runs.
 7. Context Threads make the forbidden content classes (passwords, cookies,
    tokens, raw audio, full history) structurally unrepresentable, and cloud
    scope is minimized before any send (`context/context_thread.*`).
+
+## 4b. Where Seoul actually stands, measured 2026-08-11
+
+Section 3 was written on 2026-07-11, when nothing was built; every Seoul cell
+there says "source complete (unbuilt)". The product now compiles, runs, and has
+been driven against live sites, so this section says what that produced. It is
+deliberately blunt, and where Seoul is behind it says so.
+
+### Behind
+
+| Axis | Reference | Seoul, measured | Gap |
+|---|---|---|---|
+| Content blocking | Brave, uBlock Origin | EasyList + EasyPrivacy fetched at runtime onto a native Rust engine: 13 of 15 ad requests blocked on theverge.com, 25 of 33 on reuters.com, 5 of 5 on bbc.com/news | Largely closed. Seoul now runs the same two lists that are uBlock Origin's default core and a large part of Brave's. What is still behind: the signed component channel does not exist, so list integrity rests on the maintainers' TLS rather than a Seoul signature; the optional lists (uBlock filters, Brave unbreak) are catalogued but not enabled; and no cosmetic-filtering comparison has been run. |
+| First run | Arc, Zen | A window with a rail, a command surface, and an empty content area | Arc and Zen both onboard. Seoul's startup tab is a deliberately inert placeholder, so the first thing a new user sees is nothing. The Welcome/onboarding row of the parity contract is marked `replace` and is not built. |
+| Stability | Chrome, Brave, Arc | Two distinct startup/exit aborts found and fixed on 2026-08-11 alone | Both were configuration rather than logic - a code-sign clone incompatible with a component build, and Chromium's development assertions left live in a non-official build - but they were found by launching the app, not by the suite, which is the point. A session-storage invariant that fired during shutdown remains unreproduced and open. |
+| Extensions | Chrome, Brave, Vivaldi, Zen | Not addressed in this repository | No claim is made here either way; it is simply not built. |
+
+### Comparable in presence, unproven in polish
+
+Vertical tab rail with workspaces, compact mode with hover reveal, split view,
+per-site CSS (Boosts), themes, command palette. Zen and Arc have shipped and
+iterated these with real users for a long time; Seoul has them implemented and
+covered by 129 browser-level cases. Feature presence is not the same as feel,
+and no comparative interaction measurement has been run - reaction to a real
+user's hand is exactly what has not been tested.
+
+### Structurally different, runtime unproven
+
+Voice-first operation, the adaptive Canvas, typed task execution with receipts
+and verification, Context Threads, Live Collections. No mainstream browser
+ships this combination, which is the actual thesis of the product. The code
+paths are compiled and deterministically tested; a credentialed session with a
+real model and a real microphone has not been recorded. Until it has, this is
+an architectural difference, not a demonstrated advantage.
+
+### The honest one-line answer
+
+Seoul is not currently better than Arc, Zen or Brave at the things those
+browsers are good at. Blocking is now roughly comparable on the measurements
+taken - it runs the same core lists on a native engine - but it onboards worse
+than Arc and Zen, has no extension story, and has far less shipping maturity
+than any of them. What it has that they do
+not is a browser-native voice, task and adaptive-surface layer wired into
+Chromium rather than bolted on, and that layer's advantage is unmeasured. The
+gap list above is what has to close before any superiority claim is made, and
+the constraint in section 5 stands unchanged.
 
 ## 5. What must be measured before any superiority claim
 

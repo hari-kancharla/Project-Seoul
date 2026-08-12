@@ -35,6 +35,7 @@ enum class AdBlockFilterListSource {
   kCache = 2,
   kVerifiedComponent = 3,
   kPinnedSubscription = 4,
+  kCatalogueSubscription = 5,
 };
 
 struct AdBlockFilterListUpdateStatus {
@@ -88,6 +89,16 @@ class AdBlockFilterListManager {
   void ActivatePinnedAdditionalRuleSet(std::string rules,
                                        const base::Version& rule_set_version,
                                        CompletionCallback callback);
+
+  // Installs catalogued upstream lists into the DEFAULT engine, appended after
+  // the Seoul baseline rather than replacing it, so the baseline stays a floor
+  // even when an upstream fetch has just succeeded. Separate from the pinned
+  // path because the catalogued lists are group kDefault: routing them through
+  // the additional engine would quietly give them the URL-rewrite capability
+  // that the two-engine policy reserves for user and optional lists.
+  void ActivateCatalogueDefaultLists(std::string rules,
+                                     const base::Version& list_version,
+                                     CompletionCallback callback);
   void ReportUpdateFailure(std::string error, CompletionCallback callback);
 
   const AdBlockFilterListUpdateStatus& status() const { return status_; }

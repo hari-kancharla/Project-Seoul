@@ -71,6 +71,35 @@ Each step maps to a repository script. Absolute paths assume the repo at
    into `out/SeoulBaseline`. Use `gen.sh --verify` on an incapable host to print
    effective args without running GN.
 
+   The baseline builds the **product** configuration, with Chromium's
+   development assertions off. `dcheck_always_on` otherwise defaults to true for
+   any non-official build, and a DCHECK failure aborts the whole browser - which
+   is right for a developer and wrong for someone using the app. To build the
+   **development** configuration instead, with assertions live:
+
+   `SEOUL_DCHECKS=1 native/scripts/gen.sh`
+
+   Run the native suites under that one when chasing an invariant bug.
+
+   **Flipping this flag requires a full rebuild of everything you intend to
+   run, test binaries included, and `autoninja chrome` is not enough.** The
+   define changes struct layouts in `//base` - `ScopedValidateThreadChecker`
+   exists only when assertions are on - so an object compiled on one side of
+   the flip and linked against one from the other side is an ODR violation.
+   What that looks like in practice is not a link error but memory corruption:
+   a `std::string` in a test's own stack frame came back with its first eight
+   bytes zeroed, and the symptom was a filter-list SHA-256 mismatch several
+   layers away from anything to do with hashing. `autoninja chrome` rebuilds
+   chrome's dependency graph and leaves every `seoul_*_unittests` binary on
+   the far side of the flip.
+
+   After changing it, drop the Seoul objects and let them rebuild:
+
+   ```sh
+   rm -rf "$SEOUL_CHROMIUM_ROOT/src/out/SeoulBaseline/obj/seoul"
+   npm run test:native
+   ```
+
 5b. Host-side parse gate (also runs in `npm run ci` wherever the pinned
    checkout exists)
    `native/scripts/syntax-check.sh`

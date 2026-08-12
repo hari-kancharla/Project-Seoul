@@ -55,6 +55,7 @@ earlier run.
 | Product churn exercise (`native/scripts/stress.mjs`) | passed |
 | Repeated cold launches of the built app | 5 of 5 reached a live browser |
 | Checkout reverse proof (`verify-checkout.sh`) | passed, and fails on introduced drift |
+| Development assertions in the product build | off; `SEOUL_DCHECKS=1` restores them |
 | Repository test suites (`npm test`) | 89 passed, 0 failed, 0 skipped |
 | — protocol conformance | 8 passed |
 | — Canvas Design Lab | 32 passed |
@@ -306,38 +307,106 @@ fixed:
   clean checkout, and still fails when real drift is introduced - both
   directions verified.
 
+## The browser aborted on an assertion
+
+`dcheck_always_on` defaults to `(build_with_chromium && !is_official_build)`,
+which is true for this build, so every Chromium DCHECK was live in the app a
+person actually runs. One of them - an upstream invariant about Chromium's own
+session-file bookkeeping in `CommandStorageBackend::AppendCommands`, reached on
+a BLOCK_SHUTDOWN task - aborted the browser, which macOS reports as "Seoul quit
+unexpectedly". Ten crash reports on this machine, seven of them that signature
+or the two earlier ones now fixed.
+
+A DCHECK is a development aid. Upstream writes them to catch invariant
+violations during development and ships Chrome with them compiled out,
+precisely because taking the whole browser down is the wrong response to one in
+a user's hands. Seoul writes no session commands of its own, so this is
+upstream's assertion about upstream's state, on a code path that ships in
+Chrome with the assertion absent.
+
+The baseline now sets `dcheck_always_on = false`, and `SEOUL_DCHECKS=1` puts
+them back for development and test runs. That is a configuration difference
+between a development build and a product build.
+
+It is not a root cause, and this report does not pretend otherwise. The
+assertion is still worth understanding: it fires while flushing session
+commands during shutdown, it was not reproducible across five deliberate
+attempts here - tab churn, SIGTERM, profile deletion under a live browser,
+graceful close after real navigations, and four sequential launches reusing one
+profile - and it therefore remains open. What has changed is that it no longer
+takes the browser down with it.
+
 ## Content blocking, as actually observed
 
-Measured on 2026-08-11 against a fresh profile with the built product, counting
-requests whose URL matches ad/tracker patterns:
+Measured on 2026-08-11 with the built product on a fresh profile, counting
+requests to known ad, ad-auction and cross-site-measurement hosts.
 
-| Site | Blocked | Reached the network |
-|---|---|---|
-| theverge.com | 9 | 82 |
-| cnn.com | 0 | 23 |
+Three states are compared: the shipped placeholder that blocked nothing, the
+Seoul-authored baseline that replaced it, and the catalogued upstream lists now
+fetched at runtime.
 
-`gpt.js`, `pubads_impl.js`, DoubleClick pixels and Rubicon sync all load. This
-is the designed behavior of this build, not a regression, and the reason is
-worth stating here rather than only in the implementation notes:
+| Site | Placeholder | Baseline only | With EasyList + EasyPrivacy |
+|---|---|---|---|
+| theverge.com | 0 blocked / 82 through | 22 / 5 | **13 / 2 (87%)** |
+| reuters.com | not measured | 21 / 2 | **25 / 8 (76%)** |
+| bbc.com/news | not measured | 4 / 0 | **5 / 0 (100%)** |
+| cnn.com | 0 / 23 | 0 / 0 | not re-measured |
 
-- the blocker ships a deliberately small Seoul-authored safety baseline - five
-  rules - so a first run with no network still blocks something;
-- the real lists arrive through a signed component, and
-  `seoul_adblock_component_public_key_hash` is empty in a development build, so
-  `RegisterAdBlockFilterComponent` skips registration rather than trusting a
-  placeholder identity. That fail-closed choice is deliberate;
-- the catalog additionally marks EasyList and EasyPrivacy as enabled-by-default
-  runtime downloads, but nothing reads `AdBlockListDelivery::kRuntimeDownload`:
-  no code path fetches them. The catalog therefore advertises a state the
-  product does not yet deliver, and that gap is real.
+Two things about these numbers rather than one. Sites load different inventory
+on different visits, so repeated runs move: an earlier run of the same build
+recorded theverge.com at 10 of 10 and reuters.com at 22 of 28. The figures above
+are the last run against the shipping binary and are reported rather than the
+best one. And the totals themselves fall between columns two and three -
+theverge.com attempts fifteen ad requests with the upstream lists where it
+attempted twenty-seven with the baseline alone - because the lists block the
+loaders that would have requested the rest. Fewer requests attempted is the
+better outcome, not a weaker measurement.
 
-So the engine, interception, cosmetic filtering, CSP, per-site modes and
-last-known-good storage are implemented and tested, and the rules they are fed
-in this build are the five-rule baseline. Brave-comparable blocking requires the
-release signing identity, a reviewed production list set, and a delivery path
-for the catalogued runtime lists. `docs/research/native-adblock-implementation.md`
-states the same conclusion and says Brave parity must not be claimed until then;
-this report agrees with it and adds the measured numbers.
+An earlier draft of this section reported "9 blocked" on theverge.com. That was
+wrong: those were requests that failed for unrelated reasons, counted as though
+the blocker had stopped them. The blocker had stopped nothing at all, because
+the compiled-in baseline was a single rule against `seoul-adblock.invalid` - a
+domain that does not exist. `filters/seoul-baseline.txt` looked like the real
+list, but no build rule and no loader referenced it; the catalog carried only
+the id string. Every adblock test passed throughout.
+
+The baseline is now a Seoul-authored set covering third-party advertising,
+ad-auction, cross-site measurement and session-replay hosts, every rule
+third-party scoped. cnn.com reports 0 and 0 because it loaded 110 responses
+without issuing a request matching those hosts within the measurement window,
+not because nothing was stopped.
+
+What this is not, still: list parity. The catalogued upstream lists remain
+undelivered, for two separate reasons that both stand.
+
+- The signed component is the designed delivery path and is registered at
+  Chromium's component-update seam, but `RegisterAdBlockFilterComponent` skips
+  registration while `seoul_adblock_component_public_key_hash` is empty, which
+  it is in every development build. That fail-closed choice is deliberate and
+  correct; it needs a release signing identity, not a code change.
+- The catalogued runtime downloads are now delivered. `AdBlockCatalogueSubscriber`
+  reads `AdBlockListDelivery::kRuntimeDownload`, fetches every enabled entry
+  over HTTPS, and installs the result into the default engine appended after
+  the baseline. Observed on a fresh profile: EasyList 2,063,536 bytes,
+  EasyPrivacy 1,494,149 bytes, installed together as 3,557,687 bytes with the
+  filter-list source recorded as `kCatalogueSubscription`.
+
+  This required a deliberate change of posture, stated plainly: a catalogued
+  upstream list has no stable hash to pin, because EasyList changes several
+  times a day, so `AdBlockSubscriptionIntegrity::kCataloguedHttps` accepts
+  transport integrity - HTTPS, no redirects, no credentials, bounded size,
+  HTTP 200, text content type, valid UTF-8 - without a content hash. The pinned
+  path is unchanged and still requires its SHA-256. The rules are not trusted
+  blindly even so: the manager validates the text and must construct a working
+  engine before anything is swapped in, a failed round installs nothing at all
+  rather than a partial set, and the Seoul baseline is never removed.
+
+  What remains genuinely undone is the signed component above, which is the
+  stronger channel and the one that removes the dependency on the list hosts'
+  own TLS.
+
+`docs/research/native-adblock-implementation.md` says Brave parity must not be
+claimed until those paths exist. That remains true.
 
 ## First run, as actually seen
 

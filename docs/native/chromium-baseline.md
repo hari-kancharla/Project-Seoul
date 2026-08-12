@@ -80,6 +80,7 @@ gate was disabled or weakened.
 is_debug = false
 is_component_build = true
 symbol_level = 0
+dcheck_always_on = false
 use_lld = false
 target_cpu = "arm64"
 ```

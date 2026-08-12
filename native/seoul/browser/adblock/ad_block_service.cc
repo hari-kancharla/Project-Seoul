@@ -2,6 +2,8 @@
 
 #include "seoul/browser/adblock/ad_block_service.h"
 
+#include "base/logging.h"
+
 #include <utility>
 
 #include "base/functional/bind.h"
@@ -40,8 +42,59 @@ AdBlockService::AdBlockService(Profile* profile)
     subscription_downloader_ = std::make_unique<AdBlockSubscriptionDownloader>(
         profile_->GetDefaultStoragePartition()
             ->GetURLLoaderFactoryForBrowserProcess());
+    catalogue_downloader_ = std::make_unique<AdBlockSubscriptionDownloader>(
+        profile_->GetDefaultStoragePartition()
+            ->GetURLLoaderFactoryForBrowserProcess());
     filter_list_manager_->Start(base::DoNothing());
+
+    // The catalog declares EasyList and EasyPrivacy as enabled-by-default
+    // runtime downloads. Until this was wired, nothing acted on that: the
+    // browser ran on the bundled baseline and the ad-serving class loaded
+    // normally. Started after the manager so a first run serves the cache or
+    // the baseline immediately and upgrades when the fetch lands, rather than
+    // blocking startup on the network.
+    catalogue_subscriber_ = std::make_unique<AdBlockCatalogueSubscriber>(
+        base::BindRepeating(&AdBlockService::FetchCatalogueEntry,
+                            weak_factory_.GetWeakPtr()),
+        base::BindRepeating(&AdBlockService::InstallCatalogueLists,
+                            weak_factory_.GetWeakPtr()));
+    catalogue_subscriber_->Start();
   }
+}
+
+void AdBlockService::FetchCatalogueEntry(
+    const AdBlockCatalogEntry& entry,
+    AdBlockCatalogueSubscriber::FetchCallback done) {
+  if (shutdown_ || !catalogue_downloader_) {
+    std::move(done).Run(false, std::string(),
+                        "filter-list downloader is unavailable");
+    return;
+  }
+  catalogue_downloader_->Download(
+      GURL(entry.url), AdBlockSubscriptionIntegrity::kCataloguedHttps,
+      std::string(),
+      base::BindOnce(
+          [](AdBlockCatalogueSubscriber::FetchCallback done,
+             AdBlockSubscriptionDownloadResult result) {
+            std::move(done).Run(result.success, std::move(result.rules),
+                                std::move(result.error));
+          },
+          std::move(done)));
+}
+
+void AdBlockService::InstallCatalogueLists(std::string rules,
+                                           base::OnceClosure done) {
+  if (shutdown_ || !filter_list_manager_) {
+    std::move(done).Run();
+    return;
+  }
+  filter_list_manager_->ActivateCatalogueDefaultLists(
+      std::move(rules), base::Version("1.0.0"),
+      base::BindOnce(
+          [](base::OnceClosure done, AdBlockFilterListUpdateStatus status) {
+            std::move(done).Run();
+          },
+          std::move(done)));
 }
 AdBlockService::~AdBlockService() = default;
 
@@ -241,7 +294,9 @@ base::WeakPtr<AdBlockService> AdBlockService::GetWeakPtr() {
 
 void AdBlockService::Shutdown() {
   shutdown_ = true;
+  catalogue_subscriber_.reset();
   subscription_downloader_.reset();
+  catalogue_downloader_.reset();
   if (filter_list_manager_) {
     filter_list_manager_->Shutdown();
   }
@@ -266,7 +321,9 @@ void AdBlockService::DisableFilterListManagerForTesting() {
   if (!filter_list_manager_) {
     return;
   }
+  catalogue_subscriber_.reset();
   subscription_downloader_.reset();
+  catalogue_downloader_.reset();
   filter_list_manager_->Shutdown();
   filter_list_manager_.reset();
 }

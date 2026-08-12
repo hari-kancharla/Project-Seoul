@@ -46,6 +46,8 @@ group("rust_engine") {
 source_set("adblock") {
   sources = [
     "ad_block_baseline_rules.h",
+    "ad_block_catalogue_subscriber.cc",
+    "ad_block_catalogue_subscriber.h",
     "ad_block_component_installer.cc",
     "ad_block_component_installer.h",
     "ad_block_csp_throttle.cc",
@@ -129,6 +131,7 @@ test("seoul_adblock_engine_unittests") {
 test("seoul_adblock_core_unittests") {
   testonly = true
   sources = [
+    "ad_block_catalogue_subscriber_unittest.cc",
     "ad_block_component_installer_unittest.cc",
     "ad_block_core_unittest.cc",
     "ad_block_filter_catalog_unittest.cc",

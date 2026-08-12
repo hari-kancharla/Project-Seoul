@@ -389,6 +389,38 @@ void AdBlockFilterListManager::ActivatePinnedAdditionalRuleSet(
                   true, std::string(), std::move(callback), std::move(package));
 }
 
+void AdBlockFilterListManager::ActivateCatalogueDefaultLists(
+    std::string rules,
+    const base::Version& list_version,
+    CompletionCallback callback) {
+  const uint64_t generation = BeginAttempt();
+  PackageLoadResult package;
+  if (!list_version.IsValid()) {
+    CompleteFailure(generation, "catalogue list version is invalid",
+                    std::move(callback));
+    return;
+  }
+  if (!ValidateRuleText(rules, false, "catalogue subscription",
+                        &package.error)) {
+    CompleteFailure(generation, std::move(package.error), std::move(callback));
+    return;
+  }
+  package.success = true;
+  package.version = list_version.GetString();
+  // The baseline leads. If an upstream list is later withdrawn, or a refresh
+  // returns something the engine cannot build, what remains is still the
+  // Seoul-authored floor rather than nothing.
+  package.default_rules = std::string(kBundledDefaultRules);
+  package.default_rules.append("\n");
+  package.default_rules.append(rules);
+  // The manager tracks only the active DEFAULT rules across activations, so
+  // there is no live additional set to carry forward here; the catalogued
+  // lists are group kDefault and the additional engine keeps its baseline.
+  package.additional_rules = std::string(kBundledAdditionalRules);
+  ActivatePackage(generation, AdBlockFilterListSource::kCatalogueSubscription,
+                  true, std::string(), std::move(callback), std::move(package));
+}
+
 void AdBlockFilterListManager::ReportUpdateFailure(
     std::string error,
     CompletionCallback callback) {

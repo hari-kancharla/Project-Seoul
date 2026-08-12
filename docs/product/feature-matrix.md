@@ -409,6 +409,40 @@ Milestones are a proposed ordering, not a schedule:
 
 ---
 
+## 11b. Content blocking
+
+- User problem: Advertising and cross-site measurement are the dominant cost of
+  the modern web in bandwidth, battery, latency and privacy, and a browser that
+  leaves them to an extension leaves them on by default for most people.
+- Reference browser behavior: Brave blocks ads and trackers natively with its
+  own Rust engine and shipped lists; uBlock Origin does the same as an
+  extension; Safari exposes a content-blocker API rather than blocking itself.
+- What Seoul implements today: a native browser-process blocker with a Rust
+  engine, network interception, frame-associated WebSocket interception, CSS
+  cosmetic filtering, a CSP response filter, per-site modes, temporary disable,
+  two engine groups, and last-known-good storage. All of it is compiled and
+  covered by three unit binaries plus browser and renderer cases.
+- What it runs: a Seoul-authored bundled baseline as the floor, plus EasyList
+  and EasyPrivacy fetched over HTTPS at startup and refreshed daily, installed
+  into the default engine on top of the baseline. Measured on 2026-08-12: 13 of
+  15 ad requests blocked on theverge.com, 25 of 33 on reuters.com, 5 of 5 on
+  bbc.com/news.
+- What is NOT true yet: the signed component channel does not exist, so list
+  integrity rests on the list hosts' TLS rather than a Seoul signature. That is
+  the stronger delivery path and it needs a release signing identity, not code.
+  The optional catalogued lists are not enabled by default, and no cosmetic
+  filtering comparison against Brave or uBlock has been run.
+- Upstream Chromium support already available: no native blocker; Chromium
+  supplies the URLLoader interception seam, content settings, and the component
+  updater that the signed list channel is registered against.
+- Native integration area: `seoul/browser/adblock/`, `seoul/renderer/`, and
+  patches 0020-0024.
+- Honest status: engine complete and tested; blocking materially better than
+  nothing and materially worse than Brave. See
+  `docs/release/seoul-product-readiness.md` for the measurement and
+  `docs/research/native-adblock-implementation.md` for the unfinished parity
+  list.
+
 ## 12. Native AI page understanding
 
 - User problem: Reading, summarizing, and asking questions about a page (or

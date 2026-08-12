@@ -17,6 +17,15 @@ compose_args() {
   else
     die "host is $(uname -m); target_cpu=arm64 is only added on Apple Silicon"
   fi
+  # The baseline turns Chromium's development assertions off, because they are
+  # live in a non-official build and abort the browser in a user's hands. They
+  # are still what catches invariant violations, so put them back on demand:
+  # this is the configuration to run the native suites under, and the one to
+  # reach for when reproducing a suspected invariant bug. It is last, so it
+  # overrides the baseline's value.
+  if [ -n "${SEOUL_DCHECKS:-}" ]; then
+    echo 'dcheck_always_on = true'
+  fi
 }
 
 VERIFY=0

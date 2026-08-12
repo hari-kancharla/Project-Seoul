@@ -16,6 +16,7 @@
 #include "components/keyed_service/core/keyed_service.h"
 #include "seoul/browser/adblock/ad_block_decision.h"
 #include "seoul/browser/adblock/ad_block_engine_host.h"
+#include "seoul/browser/adblock/ad_block_catalogue_subscriber.h"
 #include "seoul/browser/adblock/ad_block_filter_list_manager.h"
 #include "seoul/browser/adblock/ad_block_settings.h"
 #include "seoul/browser/adblock/ad_block_stats_service.h"
@@ -82,6 +83,12 @@ class AdBlockService : public KeyedService {
 
   AdBlockStatsService* stats() { return &stats_; }
   AdBlockFilterListUpdateStatus filter_list_status() const;
+
+  // Fetches one catalogued list through the shared downloader.
+  void FetchCatalogueEntry(const AdBlockCatalogEntry& entry,
+                           AdBlockCatalogueSubscriber::FetchCallback done);
+  // Installs a completed round into the default engine.
+  void InstallCatalogueLists(std::string rules, base::OnceClosure done);
   const std::optional<AdBlockBlockedNavigation>& last_blocked_navigation()
       const {
     return last_blocked_navigation_;
@@ -115,7 +122,15 @@ class AdBlockService : public KeyedService {
   bool shutdown_ = false;
   AdBlockEngineHost engine_host_;
   std::unique_ptr<AdBlockFilterListManager> filter_list_manager_;
+  // Two downloaders on purpose. Each one owns a single SimpleURLLoader and
+  // refuses a second concurrent request, so sharing one between the pinned
+  // path and the catalogue subscriber meant whichever started first made the
+  // other fail with "a filter-list download is already in progress" - and the
+  // subscriber starts one the moment the service is constructed, so in
+  // practice it was always the pinned path that lost.
   std::unique_ptr<AdBlockSubscriptionDownloader> subscription_downloader_;
+  std::unique_ptr<AdBlockSubscriptionDownloader> catalogue_downloader_;
+  std::unique_ptr<AdBlockCatalogueSubscriber> catalogue_subscriber_;
   AdBlockSettings settings_;
   AdBlockStatsService stats_;
   std::optional<AdBlockBlockedNavigation> last_blocked_navigation_;

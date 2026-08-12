@@ -41,10 +41,33 @@ struct AdBlockSubscriptionDownloadResult {
   std::string error;
 };
 
+// How the downloader decides a body is trustworthy.
+enum class AdBlockSubscriptionIntegrity {
+  // The body must hash to a SHA-256 the caller already knows. Use this for
+  // anything whose exact bytes were agreed in advance - a pinned rule set named
+  // by signed catalog metadata, for instance.
+  kPinnedSha256,
+
+  // Transport integrity only: HTTPS, no redirects, no credentials, bounded
+  // size, HTTP 200, a text content type, and valid UTF-8 - but no content hash.
+  //
+  // This exists because a catalogued upstream list has no stable hash to pin:
+  // EasyList changes whenever its maintainers publish, several times a day, so
+  // a pinned hash would either be wrong within hours or would freeze the list
+  // at one revision forever. Every blocker that consumes these lists is in the
+  // same position and resolves it the same way, by trusting HTTPS to the
+  // maintainers' own origin. The rules are still not trusted blindly: the
+  // filter-list manager validates the text and must construct a working engine
+  // from it before anything is swapped in, and a failure at any point retains
+  // the previously active engines.
+  kCataloguedHttps,
+};
+
 // Uses the profile's browser-process URLLoaderFactory, which is deliberately
 // outside Seoul's renderer/document/worker interceptor chain. Redirects are
-// rejected, credentials are omitted, response bytes are bounded, and the body
-// is accepted only when it matches a caller-supplied trusted SHA-256.
+// rejected, credentials are omitted, and response bytes are bounded. Whether
+// the body must also match a known hash is the caller's choice, per
+// AdBlockSubscriptionIntegrity.
 class AdBlockSubscriptionDownloader {
  public:
   using CompletionCallback =
@@ -58,7 +81,14 @@ class AdBlockSubscriptionDownloader {
   AdBlockSubscriptionDownloader& operator=(
       const AdBlockSubscriptionDownloader&) = delete;
 
+  // Pinned form, unchanged.
   void Download(const GURL& url,
+                std::string expected_sha256,
+                CompletionCallback callback);
+
+  // Explicit form. `expected_sha256` is ignored for kCataloguedHttps.
+  void Download(const GURL& url,
+                AdBlockSubscriptionIntegrity integrity,
                 std::string expected_sha256,
                 CompletionCallback callback);
   bool is_downloading() const { return simple_url_loader_ != nullptr; }
@@ -73,6 +103,8 @@ class AdBlockSubscriptionDownloader {
 
   const scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
   std::unique_ptr<network::SimpleURLLoader> simple_url_loader_;
+  AdBlockSubscriptionIntegrity integrity_ =
+      AdBlockSubscriptionIntegrity::kPinnedSha256;
   std::string expected_sha256_;
   CompletionCallback callback_;
 };
