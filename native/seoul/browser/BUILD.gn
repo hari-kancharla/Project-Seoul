@@ -11,6 +11,7 @@ group("browser") {
     "//seoul/browser/intelligence:intelligence_core",
     "//seoul/browser/library:library_core",
     "//seoul/browser/lifecycle",
+    "//seoul/browser/onboarding:onboarding_core",
     "//seoul/browser/organization",
     "//seoul/browser/policy:policy_core",
     "//seoul/browser/preview:preview_chromium",
@@ -37,10 +38,18 @@ group("browser") {
   }
 }
 
-# Aggregate of every Seoul unit-test target. A capable host builds and runs
-# this to exercise all pure-model tests in one target; the browser-test
-# targets that need InProcessBrowserTest are wired into //chrome/test through
-# the integration patch and are not part of this group.
+# NOTE: neither group in this file is reachable from the default build graph.
+# Chromium pulls Seoul in by depending on individual targets - //chrome/browser
+# depends on //seoul/browser/organization and friends directly - so nothing
+# references //seoul/browser:browser, GN never loads this file, and `gn desc`
+# reports both groups as matching no target. Adding a dependency here therefore
+# does nothing; a new module becomes buildable by acquiring a real consumer that
+# is itself reachable. Kept as documentation of the intended shape rather than
+# deleted, but do not mistake either group for the thing that builds Seoul.
+#
+# Aggregate of every Seoul unit-test target. The browser-test targets that need
+# InProcessBrowserTest are wired into //chrome/test through the integration
+# patch and are not part of this group.
 group("seoul_unittests") {
   testonly = true
   deps = [
@@ -55,6 +64,7 @@ group("seoul_unittests") {
     "//seoul/browser/library:seoul_library_unittests",
     "//seoul/browser/lifecycle:seoul_lifecycle_core_unittests",
     "//seoul/browser/lifecycle:seoul_lifecycle_state_unittests",
+    "//seoul/browser/onboarding:seoul_onboarding_unittests",
     "//seoul/browser/organization:seoul_organization_unittests",
     "//seoul/browser/policy:seoul_policy_unittests",
     "//seoul/browser/preview:seoul_preview_unittests",

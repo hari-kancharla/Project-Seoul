@@ -2,6 +2,8 @@
 
 #include "seoul/browser/product/browser/seoul_runtime_service.h"
 
+#include "seoul/browser/onboarding/onboarding_state.h"
+
 #include <algorithm>
 #include <tuple>
 #include <utility>
@@ -1428,6 +1430,10 @@ void SeoulRuntimeService::ContinueSceneRestore(const LiveWindowKey &window) {
 void SeoulRuntimeService::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable *registry) {
   registry->RegisterDictionaryPref(kProductRuntimePref);
+  // First-run state is profile-scoped and has to exist before the first window
+  // asks whether to onboard, which happens before any onboarding surface is
+  // constructed - so it is registered here rather than by a service of its own.
+  onboarding::RegisterProfilePrefs(registry);
 }
 
 void SeoulRuntimeService::RegisterBuiltinExecutors() {

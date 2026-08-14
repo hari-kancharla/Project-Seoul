@@ -1,0 +1,30 @@
+# Project Seoul first-run onboarding.
+
+import("//testing/test.gni")
+
+source_set("onboarding_core") {
+  sources = [
+    "onboarding_state.cc",
+    "onboarding_state.h",
+  ]
+
+  deps = [
+    "//base",
+    "//components/pref_registry",
+    "//components/prefs",
+  ]
+}
+
+test("seoul_onboarding_unittests") {
+  testonly = true
+  sources = [ "onboarding_state_unittest.cc" ]
+  deps = [
+    ":onboarding_core",
+    "//base",
+    "//base/test:run_all_unittests",
+    "//base/test:test_support",
+    "//components/prefs:test_support",
+    "//components/sync_preferences:test_support",
+    "//testing/gtest",
+  ]
+}

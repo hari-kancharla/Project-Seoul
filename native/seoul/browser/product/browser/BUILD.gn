@@ -70,6 +70,7 @@ source_set("product_chromium") {
     "//seoul/browser/library:library_core",
     "//seoul/browser/lifecycle",
     "//seoul/browser/lifecycle:lifecycle_core",
+    "//seoul/browser/onboarding:onboarding_core",
     "//seoul/browser/organization",
     "//seoul/browser/organization:organization_model",
     "//seoul/browser/policy:policy_core",

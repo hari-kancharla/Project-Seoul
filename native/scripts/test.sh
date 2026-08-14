@@ -44,6 +44,7 @@ run_unit_tests() {
     seoul_library_unittests
     seoul_lifecycle_core_unittests
     seoul_lifecycle_state_unittests
+    seoul_onboarding_unittests
     seoul_organization_unittests
     seoul_policy_unittests
     seoul_preview_unittests
@@ -76,6 +77,7 @@ run_unit_tests() {
     seoul/browser/library:seoul_library_unittests
     seoul/browser/lifecycle:seoul_lifecycle_core_unittests
     seoul/browser/lifecycle:seoul_lifecycle_state_unittests
+    seoul/browser/onboarding:seoul_onboarding_unittests
     seoul/browser/organization:seoul_organization_unittests
     seoul/browser/policy:seoul_policy_unittests
     seoul/browser/preview:seoul_preview_unittests
