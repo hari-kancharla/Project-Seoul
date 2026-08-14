@@ -14,7 +14,7 @@ mkdir -p "$SEOUL_CHROMIUM_ROOT_ABS"
 
 stage "depot_tools"
 DEPOT_REV="$(lock_depot_revision)"; [ -n "$DEPOT_REV" ] || die "no depotTools.revision in lock file"
-if [ -d "$DEPOT_TOOLS_DIR/.git" ]; then
+if is_git_checkout "$DEPOT_TOOLS_DIR"; then
   origin="$(git -C "$DEPOT_TOOLS_DIR" remote get-url origin 2>/dev/null || true)"
   case "$origin" in
     *depot_tools*) log "reusing existing depot_tools ($origin @ $(git_head_sha "$DEPOT_TOOLS_DIR"))" ;;
@@ -37,7 +37,7 @@ log "depot_tools pinned at $(git_head_sha "$DEPOT_TOOLS_DIR")"
 use_depot_tools
 
 stage "chromium checkout"
-if [ -d "$CHROMIUM_SRC/.git" ]; then
+if is_git_checkout "$CHROMIUM_SRC"; then
   log "existing checkout detected at $CHROMIUM_SRC (HEAD $(git_head_sha "$CHROMIUM_SRC"))"
   if ! git_is_clean "$CHROMIUM_SRC"; then
     die "existing checkout has uncommitted changes; resolve manually (this script will not reset it)"
@@ -51,6 +51,6 @@ CAFF=""; command -v caffeinate >/dev/null 2>&1 && CAFF="caffeinate -dimsu"
 log "fetching chromium (--no-history) into $SEOUL_CHROMIUM_ROOT_ABS; this downloads tens of GiB"
 ( cd "$SEOUL_CHROMIUM_ROOT_ABS" && $CAFF fetch --no-history --nohooks chromium )
 
-[ -d "$CHROMIUM_SRC/.git" ] || die "fetch did not produce a checkout at $CHROMIUM_SRC"
+is_git_checkout "$CHROMIUM_SRC" || die "fetch did not produce a checkout at $CHROMIUM_SRC"
 log "initial checkout complete at HEAD $(git_head_sha "$CHROMIUM_SRC")"
 log "next: native/scripts/sync.sh  (pins to $REV and syncs dependencies + hooks)"

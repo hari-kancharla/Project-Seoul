@@ -17,7 +17,7 @@ case "$MODE" in
   *) die "usage: test.sh [unit|browser|all]" ;;
 esac
 
-[ -d "$CHROMIUM_SRC/.git" ] ||
+is_git_checkout "$CHROMIUM_SRC" ||
   die "no Chromium checkout at $CHROMIUM_SRC (run fetch.sh + sync.sh first)"
 [ -f "$OUT_DIR/args.gn" ] ||
   die "build dir not generated; run gen.sh first"

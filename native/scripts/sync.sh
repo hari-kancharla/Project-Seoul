@@ -20,7 +20,7 @@ fi
 REV="$(lock_chromium_revision)"; [ -n "$REV" ] || die "no chromium.revision in lock file"
 log "locked chromium revision: $REV"
 
-[ -d "$CHROMIUM_SRC/.git" ] || die "no Chromium checkout at $CHROMIUM_SRC (run fetch.sh first)"
+is_git_checkout "$CHROMIUM_SRC" || die "no Chromium checkout at $CHROMIUM_SRC (run fetch.sh first)"
 
 current="$(git_head_sha "$CHROMIUM_SRC")"
 log "checkout HEAD: ${current:-<unknown>}"

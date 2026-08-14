@@ -60,7 +60,7 @@ for c in git python3; do command -v "$c" >/dev/null 2>&1 && pass "tool present: 
 [ -x "$DEPOT_TOOLS_DIR/gclient" ] && pass "depot_tools/gclient present" || note "depot_tools/gclient not present (gclient validate will be skipped)"
 
 # --- src checkout ---
-if [ ! -d "$CHROMIUM_SRC/.git" ]; then
+if ! is_git_checkout "$CHROMIUM_SRC"; then
   bad "no Chromium checkout at $CHROMIUM_SRC"
 else
   head="$(git_head_sha "$CHROMIUM_SRC")"
@@ -146,7 +146,7 @@ else
 fi
 
 # --- depot_tools revision ---
-if [ -d "$DEPOT_TOOLS_DIR/.git" ]; then
+if is_git_checkout "$DEPOT_TOOLS_DIR"; then
   dh="$(git_head_sha "$DEPOT_TOOLS_DIR")"
   if [ -n "$LOCK_DEPOT" ] && [ "$dh" = "$LOCK_DEPOT" ]; then pass "depot_tools HEAD equals locked revision ($dh)"
   else bad "depot_tools HEAD ($dh) does not equal locked revision (${LOCK_DEPOT:-?})"; fi
@@ -164,7 +164,7 @@ else
 fi
 
 # --- gclient validate (read-only consistency; safe, no network) ---
-if [ -x "$DEPOT_TOOLS_DIR/gclient" ] && [ -d "$CHROMIUM_SRC/.git" ]; then
+if [ -x "$DEPOT_TOOLS_DIR/gclient" ] && is_git_checkout "$CHROMIUM_SRC"; then
   use_depot_tools
   if ( cd "$CHROMIUM_SRC" && gclient validate >/dev/null 2>&1 ); then
     pass "gclient validate succeeded (dependency/config consistency)"

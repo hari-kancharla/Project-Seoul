@@ -40,7 +40,7 @@ case "$CMD" in
       log "no patches to apply-check (empty series)"
       exit 0
     fi
-    [ -d "$CHROMIUM_SRC/.git" ] || die "no checkout at $CHROMIUM_SRC; cannot apply-check patches"
+    is_git_checkout "$CHROMIUM_SRC" || die "no checkout at $CHROMIUM_SRC; cannot apply-check patches"
     if src_has_user_edits; then die "checkout has edits to tracked files; refusing to verify patches"; fi
     # Cumulative round trip: apply the whole series in ascending order, then
     # reverse it in descending order. This verifies an ordered series where a
@@ -75,7 +75,7 @@ case "$CMD" in
     ;;
 
   apply)
-    [ -d "$CHROMIUM_SRC/.git" ] || die "no checkout at $CHROMIUM_SRC (run fetch.sh + sync.sh first)"
+    is_git_checkout "$CHROMIUM_SRC" || die "no checkout at $CHROMIUM_SRC (run fetch.sh + sync.sh first)"
     if src_has_user_edits; then die "checkout has edits to tracked files; refusing to apply patches"; fi
     node "$SEOUL_SCRIPT_DIR/check-patch-manifest.mjs"
     entries="$(manifest_entries)"
@@ -90,7 +90,7 @@ case "$CMD" in
     ;;
 
   reverse)
-    [ -d "$CHROMIUM_SRC/.git" ] || die "no checkout at $CHROMIUM_SRC"
+    is_git_checkout "$CHROMIUM_SRC" || die "no checkout at $CHROMIUM_SRC"
     entries="$(manifest_entries | sort -rn)"
     if [ -z "$entries" ]; then log "empty series; nothing to reverse"; exit 0; fi
     stage "reverse patches (descending order)"

@@ -18,6 +18,16 @@ die()   { printf '[error] %s\n' "$*" >&2; exit 1; }
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"; }
 
+# True when $1 is a git working tree.
+#
+# `.git` is a DIRECTORY in a normal clone and a FILE in a git worktree, so
+# testing for a directory quietly refuses to operate on a worktree. That is
+# exactly the wrong way round: a worktree of the pinned checkout is the safe
+# place to prove the patch series applies to a pristine tree, because it leaves
+# a built checkout untouched. Ask git instead of guessing from the filesystem.
+is_git_checkout() { git -C "${1:-}" rev-parse --git-dir >/dev/null 2>&1; }
+
+
 # Chromium's current Python tooling uses syntax introduced in Python 3.10.
 # Resolve one executable once, then put its directory first so Ninja actions
 # that invoke the literal `python3` use the same interpreter. Prefer an

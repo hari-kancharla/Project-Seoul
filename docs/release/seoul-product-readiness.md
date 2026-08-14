@@ -513,6 +513,51 @@ native/scripts/materialize.sh apply
 native/scripts/materialize.sh verify
 ```
 
+## Reproducibility, proven from a pristine tree
+
+Every earlier claim about the patch series was made against the working
+checkout, which already had the series applied. That proves the series is
+*consistent with* a built tree; it does not prove it *builds* one. On
+2026-08-14 the series was applied to a genuinely pristine tree for the first
+time.
+
+Method: a git worktree of the pinned Chromium repository, detached at
+`6a7b3dbec3b2ca25877c2553b5473b2f277ef644`, 493,055 files, zero modified
+tracked files. Seoul source and the pinned blocker Rust closure were
+materialized into it, then `patches.sh verify` ran its cumulative round trip.
+The working checkout was not touched at any point.
+
+| Check | Result |
+|---|---|
+| Patches applied in ascending order, cumulatively | 26 of 26 |
+| Patches reversed in descending order | 26 of 26 |
+| Tracked files modified after the round trip | 0 |
+| HEAD after the round trip | unchanged at the pinned revision |
+
+Cumulative ordering matters here and a per-patch `--check` cannot show it: 0017
+extends a function 0014 introduces, so each patch has to apply to the tree the
+previous ones produced rather than to the pristine one.
+
+This did require a fix. Every native script tested `-d "$CHROMIUM_SRC/.git"`,
+and `.git` is a directory in a clone but a FILE in a worktree, so the scripts
+refused to operate on exactly the isolated tree that makes this proof safe.
+`is_git_checkout()` in `common.sh` now asks git instead of guessing from the
+filesystem, in all 14 places.
+
+## Continuous integration
+
+Also verified rather than assumed on 2026-08-14: GitHub Actions has run on every
+push to `main` and each one is green. The most recent run, `31758161612`, took
+1m18s across both jobs.
+
+| Job | Evidence |
+|---|---|
+| `checks` | resolve step reported `render smoke will drive: /usr/bin/google-chrome`, confirming the runner assumption the gate was built on |
+| `checks` | `design lab renders, patches in place, and preserves focus and scroll` PASSED in 13.5s with `skipped 0` - the render smoke really ran on Linux against stock Chrome rather than reporting itself skipped |
+| `swift` | 21 tests, 0 failures, on macOS |
+
+The last red run predates this work (2026-08-05).
+
 ## Public release gates
 
 The following work remains before Seoul can be called a distributable release:

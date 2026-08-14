@@ -23,7 +23,7 @@ need_cmd rsync
 [ -d "$SEOUL_PROTOCOL_DIR" ] || die "Seoul protocol dir not found: $SEOUL_PROTOCOL_DIR"
 [ -d "$SEOUL_ADBLOCK_RUST_DIR" ] ||
   die "Seoul adblock Rust source dir not found: $SEOUL_ADBLOCK_RUST_DIR"
-[ -d "$CHROMIUM_SRC/.git" ] || die "no Chromium checkout at $CHROMIUM_SRC (run fetch.sh + sync.sh first)"
+is_git_checkout "$CHROMIUM_SRC" || die "no Chromium checkout at $CHROMIUM_SRC (run fetch.sh + sync.sh first)"
 
 # Safety: both destinations must be the exact dedicated Seoul directories inside
 # the checkout, never a broader upstream Chromium path.

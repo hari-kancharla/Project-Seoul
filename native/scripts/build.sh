@@ -9,7 +9,7 @@ set -euo pipefail
 stage "build-host gate"
 "$SEOUL_SCRIPT_DIR/build-host-check.sh" || die "build-host gate failed; refusing to build (this machine cannot build Chromium)"
 
-[ -d "$CHROMIUM_SRC/.git" ] || die "no Chromium checkout at $CHROMIUM_SRC (run fetch.sh + sync.sh first)"
+is_git_checkout "$CHROMIUM_SRC" || die "no Chromium checkout at $CHROMIUM_SRC (run fetch.sh + sync.sh first)"
 [ -f "$OUT_DIR/args.gn" ]   || die "build dir not generated; run gen.sh first"
 
 REV="$(lock_chromium_revision)"
