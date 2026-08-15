@@ -267,8 +267,8 @@
     },
     {
       "id": "seoul-neutral-address-prompt",
-      "description": "Replace the default-search-provider advertising in Seoul's resting address pill with the neutral localized prompt “Search or enter an address,” while preserving keyword, AI-mode, and contextual-task placeholders.",
-      "rationale": "The integrated rail must not display “Search Google” as product chrome. A dedicated localized Seoul string keeps the command/address field provider-neutral without changing the user's configured search engine or URL/search behavior.",
+      "description": "Replace the default-search-provider advertising in Seoul's resting address pill with the neutral localized prompt \u201cSearch or enter an address,\u201d while preserving keyword, AI-mode, and contextual-task placeholders.",
+      "rationale": "The integrated rail must not display \u201cSearch Google\u201d as product chrome. A dedicated localized Seoul string keeps the command/address field provider-neutral without changing the user's configured search engine or URL/search behavior.",
       "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
       "order": 11,
       "file": "0011-seoul-neutral-address-prompt.patch",
@@ -734,6 +734,47 @@
       "sha256": "5d56b0fba3ce29d385e1d0aae9179ace0b348e9311c734cbb39e103343e4ca2a",
       "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0026-seoul-component-build-no-code-sign-clone.patch after applying patches 0001 through 0025",
       "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0026-seoul-component-build-no-code-sign-clone.patch",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-first-run-webui",
+      "description": "Register the first-run WebUI at chrome://seoul-welcome: its host, its Mojo binder, its grit id range, its resource pack, and the Lit visibility entry its resources build against.",
+      "rationale": "A WebUI only exists once Chromium's config map knows its host, and a WebUI resource target can only use the packaged Lit build after being named in that target's visibility list - both of which live in upstream files. The Canvas took the same two lines in 0001; this adds the equivalent pair for the welcome surface rather than growing the foundational patch, so the first-run flow stays independently reviewable and reversible. Rejected alternative: hosting onboarding inside the existing Canvas WebUI, which needs no upstream change but contradicts the Welcome/onboarding row of docs/product/zen-chromium-parity.md and would make the whole Canvas runtime a first-run dependency.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 27,
+      "file": "0027-seoul-first-run-webui.patch",
+      "affectedPaths": [
+        "third_party/lit/v3_0/BUILD.gn",
+        "tools/gritsettings/resource_ids.spec",
+        "chrome/chrome_paks.gni",
+        "chrome/browser/BUILD.gn",
+        "chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc",
+        "chrome/browser/ui/webui/chrome_web_ui_configs.cc"
+      ],
+      "dependencies": [
+        "seoul-native-core"
+      ],
+      "sha256": "28821d0286949dc941049ab4921fedb78c7830446cca549f9694773729dd9214",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-product-palette",
+      "description": "Paint the browser chrome in Seoul's own warm palette instead of Zen's cool neutral, so the frame matches the first-party surfaces it contains.",
+      "rationale": "The chrome resolved to #F0F0F4 / #17171A - the unthemed macOS material copied from Zen - while every surface Seoul actually renders (the Canvas, the first-run flow) is warm cream at #F2F1EB / #171715. The window and its contents therefore read as two applications beside each other, which is the single most visible reason the product looked unfinished. These are the same hex values the WebUI uses, so the two halves cannot drift again. Copying a competitor's neutral was also the wrong target: Seoul is not a Zen skin. Rejected alternative: restyling each shell view individually, which would have touched 46 call sites across four files and left the tokens Chromium itself paints with - frame, toolbar, tab backgrounds - still cool.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 28,
+      "file": "0028-seoul-product-palette.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/color/chrome_color_mixers.cc"
+      ],
+      "dependencies": [
+        "seoul-zen-interaction-and-visual-fidelity"
+      ],
+      "sha256": "13bc9eba1a1b8928c2b6b7e2dd8f1be2351681a0ca6e93b1444eb3599fc29281",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
       "reviewable": true
     }
   ]

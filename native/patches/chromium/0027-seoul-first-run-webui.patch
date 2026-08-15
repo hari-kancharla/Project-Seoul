@@ -1,0 +1,105 @@
+diff --git a/third_party/lit/v3_0/BUILD.gn b/third_party/lit/v3_0/BUILD.gn
+--- a/third_party/lit/v3_0/BUILD.gn
++++ b/third_party/lit/v3_0/BUILD.gn
+@@ -25,6 +25,7 @@
+     # and reduce the maintenance burden for the Desktop WebUI team).
+ 
+     "//seoul/browser/canvas/resources:build_ts",
++    "//seoul/browser/onboarding/resources:build_ts",
+     "//chrome/browser/resources/about_sys:build_ts",
+     "//chrome/browser/resources/access_code_cast:build_ts",
+     "//chrome/browser/resources/accessibility_annotator_info:build_ts",
+diff --git a/tools/gritsettings/resource_ids.spec b/tools/gritsettings/resource_ids.spec
+--- a/tools/gritsettings/resource_ids.spec
++++ b/tools/gritsettings/resource_ids.spec
+@@ -1746,6 +1746,13 @@
+     "includes": [10140],
+   },
+ 
++  # Project Seoul first-run WebUI (//seoul/browser/onboarding/resources).
++  # Next free block after the Canvas's 50 slots at 10140.
++  "<(SHARED_INTERMEDIATE_DIR)/seoul/browser/onboarding/resources/resources.grd": {
++    "META": {"sizes": {"includes": [30],}},
++    "includes": [10190],
++  },
++
+   "<(SHARED_INTERMEDIATE_DIR)/THIS_IS_A_PLACEHOLDER.grd": {
+     "META": {"sizes": {"includes": [800]}},
+     "includes": [12000],
+diff --git a/chrome/chrome_paks.gni b/chrome/chrome_paks.gni
+--- a/chrome/chrome_paks.gni
++++ b/chrome/chrome_paks.gni
+@@ -153,6 +153,7 @@
+       "$root_gen_dir/mojo/public/js/mojo_bindings_resources.pak",
+       "$root_gen_dir/net/net_resources.pak",
+       "$root_gen_dir/seoul/seoul_canvas_resources.pak",
++      "$root_gen_dir/seoul/seoul_welcome_resources.pak",
+       "$root_gen_dir/third_party/blink/public/resources/blink_resources.pak",
+       "$root_gen_dir/third_party/blink/public/resources/inspector_overlay_resources.pak",
+       "$root_gen_dir/third_party/blink/public/strings/permission_element_generated_strings.pak",
+@@ -190,6 +191,7 @@
+       "//mojo/public/js:resources",
+       "//net:net_resources",
+       "//seoul/browser/canvas/resources",
++      "//seoul/browser/onboarding/resources",
+       "//third_party/blink/public:devtools_inspector_resources",
+       "//third_party/blink/public:resources",
+       "//third_party/blink/public/strings:permission_element_generated_strings",
+diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
+--- a/chrome/browser/BUILD.gn
++++ b/chrome/browser/BUILD.gn
+@@ -303,6 +303,7 @@
+     "//seoul/browser/shell:shell_chromium",
+     "//seoul/browser/product/browser:product_chromium",
+     "//seoul/browser/canvas",
++    "//seoul/browser/onboarding:welcome_ui",
+ 
+     "//chrome/browser/browsing_data:impl",
+     "//chrome/browser/accessibility:impl",
+@@ -928,6 +929,7 @@
+     "//seoul/browser/shell:shell_chromium",
+     "//seoul/browser/product/browser:product_chromium",
+     "//seoul/browser/canvas",
++    "//seoul/browser/onboarding:welcome_ui",
+     "//chrome/browser/profiles:profile_util",
+     "//chrome/browser/profiles:profile_util_impl",
+     "//chrome/browser/profiles:profiles_extra_parts",
+diff --git a/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc b/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc
+--- a/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc
++++ b/chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc
+@@ -133,6 +133,7 @@
+ #include "mojo/public/cpp/bindings/pending_receiver.h"
+ #include "mojo/public/cpp/bindings/self_owned_receiver.h"
+ #include "seoul/browser/canvas/seoul_canvas_ui.h"
++#include "seoul/browser/onboarding/seoul_welcome_ui.h"
+ #include "ui/webui/color_change_listener/color_change_handler.h"
+ #include "ui/webui/resources/cr_components/app_management/app_management.mojom.h"
+ #include "ui/webui/resources/cr_components/color_change_listener/color_change_listener.mojom.h"
+@@ -639,6 +640,8 @@
+     content::WebUIBrowserInterfaceBrokerRegistry& registry) {
+   registry.ForWebUI<seoul::SeoulCanvasUI>()
+       .Add<seoul::canvas::mojom::PageHandlerFactory>();
++  registry.ForWebUI<seoul::SeoulWelcomeUI>()
++      .Add<seoul::welcome::mojom::PageHandlerFactory>();
+   // Note: The MetricsReporterService & ColorChangeListener are available to all
+   // WebUIs in the registry
+   registry.AddGlobal<metrics_reporter::mojom::PageMetricsHost>(
+diff --git a/chrome/browser/ui/webui/chrome_web_ui_configs.cc b/chrome/browser/ui/webui/chrome_web_ui_configs.cc
+--- a/chrome/browser/ui/webui/chrome_web_ui_configs.cc
++++ b/chrome/browser/ui/webui/chrome_web_ui_configs.cc
+@@ -14,6 +14,7 @@
+ #include "chrome/browser/ui/webui/accessibility/accessibility_ui.h"
+ #include "chrome/browser/ui/webui/accessibility_annotator_internals/accessibility_annotator_internals_ui.h"
+ #include "seoul/browser/canvas/seoul_canvas_ui.h"
++#include "seoul/browser/onboarding/seoul_welcome_ui.h"
+ #include "chrome/browser/ui/webui/actor_internals/actor_internals_ui.h"
+ #include "chrome/browser/ui/webui/autofill_and_password_manager_internals/autofill_internals_ui.h"
+ #include "chrome/browser/ui/webui/autofill_and_password_manager_internals/password_manager_internals_ui.h"
+@@ -244,6 +245,7 @@
+ 
+   auto& map = content::WebUIConfigMap::GetInstance();
+   map.AddWebUIConfig(std::make_unique<seoul::SeoulCanvasUIConfig>());
++  map.AddWebUIConfig(std::make_unique<seoul::SeoulWelcomeUIConfig>());
+   map.AddWebUIConfig(std::make_unique<AccessibilityUIConfig>());
+   map.AddWebUIConfig(
+       std::make_unique<AccessibilityAnnotatorInternalsUIConfig>());

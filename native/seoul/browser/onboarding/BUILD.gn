@@ -1,5 +1,10 @@
 # Project Seoul first-run onboarding.
+#
+# onboarding_core is the decision layer and has no Chromium UI dependencies, so
+# it stays unit-testable on its own. The WebUI target below is Chromium-facing
+# and needs a capable host to compile.
 
+import("//mojo/public/tools/bindings/mojom.gni")
 import("//testing/test.gni")
 
 source_set("onboarding_core") {
@@ -12,6 +17,40 @@ source_set("onboarding_core") {
     "//base",
     "//components/pref_registry",
     "//components/prefs",
+  ]
+}
+
+mojom("mojo_bindings") {
+  sources = [ "welcome.mojom" ]
+  webui_module_path = "/"
+}
+
+source_set("welcome_ui") {
+  sources = [
+    "seoul_welcome_page_handler.cc",
+    "seoul_welcome_page_handler.h",
+    "seoul_welcome_ui.cc",
+    "seoul_welcome_ui.h",
+  ]
+
+  public_deps = [
+    ":mojo_bindings",
+    "//chrome/browser:browser_public_dependencies",
+  ]
+
+  deps = [
+    ":onboarding_core",
+    "//base",
+    "//chrome/browser/profiles:profile",
+    "//chrome/browser/ui/tabs",
+    "//chrome/browser/ui/webui:webui_util",
+    "//chrome/browser/ui/webui/top_chrome",
+    "//components/prefs",
+    "//content/public/browser",
+    "//mojo/public/cpp/bindings",
+    "//seoul/browser/adblock:adblock",
+    "//seoul/browser/onboarding/resources",
+    "//ui/webui",
   ]
 }
 

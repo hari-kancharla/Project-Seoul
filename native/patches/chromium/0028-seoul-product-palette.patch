@@ -1,0 +1,60 @@
+diff --git a/chrome/browser/ui/color/chrome_color_mixers.cc b/chrome/browser/ui/color/chrome_color_mixers.cc
+--- a/chrome/browser/ui/color/chrome_color_mixers.cc
++++ b/chrome/browser/ui/color/chrome_color_mixers.cc
+@@ -57,28 +57,37 @@
+                                const ui::ColorProviderKey& key) {
+   const bool dark_mode =
+       key.color_mode == ui::ColorProviderKey::ColorMode::kDark;
+-  // Zen's unthemed macOS toolbar material is rgba(240, 240, 244, .6) in
+-  // light mode and rgba(23, 23, 26, .6) in dark mode. Chromium uses these
+-  // tokens in contrast calculations that require opaque backgrounds, so use
+-  // the exact neutral material endpoints rather than baking in an arbitrary
+-  // desktop color. Native window compositing still supplies the surrounding
+-  // macOS material.
+-  const SkColor rail = dark_mode ? SkColorSetRGB(0x17, 0x17, 0x1A)
+-                                 : SkColorSetRGB(0xF0, 0xF0, 0xF4);
+-  const SkColor rail_inactive = rail;
+-  const SkColor reverse_brand = dark_mode ? SkColorSetRGB(0xE2, 0xE2, 0xE2)
+-                                          : SkColorSetRGB(0x10, 0x10, 0x10);
+-  const SkColor canvas = dark_mode ? SkColorSetRGB(0x1B, 0x1B, 0x1B)
+-                                   : SkColorSetRGB(0xEB, 0xEB, 0xEB);
++  // Seoul's palette, and the whole product's.
++  //
++  // These were previously Zen's unthemed macOS material - a cool neutral at
++  // #F0F0F4 / #17171A. That made the browser chrome cool grey while every
++  // first-party surface Seoul actually renders (the Canvas, the first-run
++  // flow) is a warm cream at #F2F1EB / #171715, so the frame and its contents
++  // read as two different applications sitting next to each other. Copying a
++  // competitor's neutral was also the wrong goal: Seoul is not a Zen skin, and
++  // its chrome should look like the product it is.
++  //
++  // Warm, and shared with the WebUI surfaces to the exact hex. Chromium uses
++  // these tokens in contrast calculations that require opaque backgrounds, so
++  // they remain fully opaque endpoints; native window compositing still
++  // supplies the surrounding macOS material.
++  const SkColor rail = dark_mode ? SkColorSetRGB(0x17, 0x17, 0x15)
++                                 : SkColorSetRGB(0xF2, 0xF1, 0xEB);
++  const SkColor rail_inactive = rail;
++  const SkColor reverse_brand = dark_mode ? SkColorSetRGB(0xF4, 0xF2, 0xEC)
++                                          : SkColorSetRGB(0x16, 0x15, 0x0F);
++  const SkColor canvas = dark_mode ? SkColorSetRGB(0x10, 0x0F, 0x0E)
++                                   : SkColorSetRGB(0xEA, 0xE8, 0xE0);
+   const SkColor canvas_text = reverse_brand;
+-  const SkColor canvas_text_muted = dark_mode ? SkColorSetRGB(0xAA, 0xAA, 0xAA)
+-                                              : SkColorSetRGB(0x4F, 0x4F, 0x4F);
+-  // Zen's expanded URL bar is #fbfbfb in light mode. In dark mode it mixes
+-  // its 6.7% neutral base with the active Space color at 30%.
++  const SkColor canvas_text_muted = dark_mode ? SkColorSetRGB(0xA5, 0xA1, 0x96)
++                                              : SkColorSetRGB(0x5D, 0x5A, 0x51);
++  // The field the omnibox sits in. Warm white in light mode; in dark mode the
++  // active Space colour is mixed into a warm near-black rather than a neutral
++  // one, so a themed Space tints the field without turning it blue.
+   const ui::ColorTransform command_surface =
+       dark_mode ? ui::AlphaBlend({ui::kColorAccent},
+-                                 {SkColorSetRGB(0x11, 0x11, 0x11)}, 0x4D)
+-                : ui::ColorTransform{SkColorSetRGB(0xFB, 0xFB, 0xFB)};
++                                 {SkColorSetRGB(0x1F, 0x1E, 0x1B)}, 0x4D)
++                : ui::ColorTransform{SkColorSetRGB(0xFD, 0xFC, 0xF8)};
+ 
+   ui::ColorMixer& mixer = provider->AddMixer();
+   mixer[ui::kColorFrameActive] = {rail};

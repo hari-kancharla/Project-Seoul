@@ -1,0 +1,654 @@
+/* #css_wrapper_metadata_start
+ * #type=style-lit
+ * #scheme=relative
+ * #css_wrapper_metadata_end */
+
+/* Project Seoul first run.
+ *
+ * Full-bleed rather than a dialog. This is the most-seen surface in the
+ * product and the only one a person meets before they have any reason to
+ * trust it, so it is composed like a launch screen: one idea per screen, type
+ * at display scale, and motion that arrives in a deliberate order rather than
+ * everything appearing at once.
+ *
+ * Dark is the primary treatment because that is how the browser ships and how
+ * this surface will be seen; light is a full counterpart, not an inversion. */
+
+:host {
+  /* Dark - the hero treatment. */
+  --ink: #f4f2ec;
+  --ink-dim: #a5a196;
+  --ink-faint: #6c6960;
+  --bg-0: #100f0e;
+  --bg-1: #191816;
+  --line: rgb(255 255 255 / 9%);
+  --line-strong: rgb(255 255 255 / 18%);
+  --accent: #8fd6b0;
+  --accent-deep: #2c6f52;
+  --accent-glow: rgb(143 214 176 / 18%);
+  --surface: rgb(255 255 255 / 4%);
+  --surface-hi: rgb(255 255 255 / 8%);
+  --on-accent: #0a1a13;
+
+  /* One curve for everything that moves. A slightly overshooting ease-out
+     reads as physical rather than mechanical; durations differ, feel does
+     not. */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-0);
+  color: var(--ink);
+  font: 400 15px/1.6 system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: light) {
+  :host {
+    --ink: #16150f;
+    --ink-dim: #5d5a51;
+    --ink-faint: #8e8b81;
+    --bg-0: #f7f5ef;
+    --bg-1: #efece3;
+    --line: rgb(20 18 12 / 10%);
+    --line-strong: rgb(20 18 12 / 20%);
+    --accent: #2f6f57;
+    --accent-deep: #1d5540;
+    --accent-glow: rgb(47 111 87 / 12%);
+    --surface: rgb(20 18 12 / 4%);
+    --surface-hi: rgb(20 18 12 / 7%);
+    --on-accent: #fff;
+  }
+}
+
+/* ---------------------------------------------------------------- shell -- */
+
+.stage {
+  position: relative;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  isolation: isolate;
+}
+
+/* Depth without an image: two off-centre radial washes over a diagonal ramp.
+   Cheap to paint, and it survives any window size. */
+.stage::before {
+  position: absolute;
+  content: '';
+  inset: 0;
+  background:
+    radial-gradient(60% 50% at 22% 18%, var(--accent-glow), transparent 70%),
+    radial-gradient(50% 45% at 84% 78%, var(--surface), transparent 72%),
+    linear-gradient(160deg, var(--bg-1), var(--bg-0) 62%);
+  z-index: -2;
+}
+
+/* A faint rule grid, masked to the centre, so the space reads as composed
+   rather than merely unfilled. */
+.stage::after {
+  position: absolute;
+  content: '';
+  inset: 0;
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 88px 88px;
+  mask-image: radial-gradient(75% 65% at 50% 42%, #000 20%, transparent 78%);
+  opacity: 0.5;
+  z-index: -1;
+}
+
+/* --------------------------------------------------------------- lockup -- */
+
+.lockup {
+  position: absolute;
+  top: 34px;
+  left: 40px;
+  z-index: 2;
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  color: var(--ink);
+}
+
+.lockup .mark {
+  color: var(--accent);
+}
+
+.wordmark {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* --------------------------------------------------------------- centre -- */
+
+.centre {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  padding: 0 40px;
+  text-align: center;
+}
+
+.panel {
+  width: min(680px, 100%);
+}
+
+h1 {
+  margin: 0 0 14px;
+  font-size: clamp(38px, 5.4vw, 60px);
+  font-weight: 600;
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+}
+
+.lede {
+  max-width: 46ch;
+  margin: 0 auto;
+  color: var(--ink-dim);
+  font-size: 17px;
+  line-height: 1.62;
+}
+
+.lede strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* Three claims as columns rather than a bulleted list: this is a launch
+   screen, and a <ul> reads as documentation. */
+.claims {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 26px;
+  margin-top: 40px;
+  text-align: left;
+}
+
+.claim {
+  padding-top: 15px;
+  border-top: 1px solid var(--line-strong);
+}
+
+.claim b {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.claim span {
+  color: var(--ink-faint);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* -------------------------------------------------------------- artwork -- */
+
+.art {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 216px;
+  margin-bottom: 34px;
+  place-items: center;
+}
+
+.art-hero .hero-mark {
+  color: var(--accent);
+  filter: drop-shadow(0 10px 34px var(--accent-glow));
+}
+
+.ring,
+.glow {
+  position: absolute;
+  border-radius: 50%;
+}
+
+.ring {
+  border: 1px solid var(--line-strong);
+}
+
+.ring-1 {
+  width: 168px;
+  height: 168px;
+}
+
+.ring-2 {
+  width: 240px;
+  height: 240px;
+  opacity: 0.62;
+}
+
+.ring-3 {
+  width: 312px;
+  height: 312px;
+  opacity: 0.32;
+}
+
+.glow {
+  width: 210px;
+  height: 210px;
+  background: radial-gradient(circle, var(--accent-glow), transparent 68%);
+}
+
+/* Window schematic. The rail column is one custom property, so the diagram and
+   the real rail agree about what "compact" means. */
+.art-layout {
+  --rail: 76px;
+}
+
+.art-layout.is-collapsed {
+  --rail: 20px;
+}
+
+.win {
+  display: grid;
+  width: min(430px, 100%);
+  height: 190px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 13px;
+  background: var(--surface);
+  grid-template-columns: var(--rail) 1fr;
+}
+
+.win-rail {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  padding: 14px 9px;
+  border-right: 1px solid var(--line);
+  background: var(--surface-hi);
+}
+
+.rail-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.rail-line,
+.page-line {
+  height: 7px;
+  border-radius: 4px;
+  background: var(--line-strong);
+}
+
+.rail-line.short {
+  width: 62%;
+}
+
+.win-page {
+  display: grid;
+  align-content: start;
+  gap: 11px;
+  padding: 20px;
+}
+
+.w70 {
+  width: 70%;
+}
+
+.w90 {
+  width: 90%;
+}
+
+.w50 {
+  width: 50%;
+}
+
+/* Blocking. Tracers run right to left; three stop dead at the shield and one
+   passes, because a shield that stopped everything would be describing a
+   firewall rather than a content blocker. */
+.art-blocking {
+  overflow: hidden;
+}
+
+.shield {
+  display: grid;
+  width: 74px;
+  height: 74px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface-hi);
+  color: var(--accent);
+  place-items: center;
+}
+
+.tracer {
+  position: absolute;
+  top: 50%;
+  width: 42px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--ink-faint));
+}
+
+.tracer.pass {
+  background: linear-gradient(90deg, transparent, var(--accent));
+}
+
+/* -------------------------------------------------------------- choices -- */
+
+.choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 13px;
+  margin-top: 34px;
+  text-align: left;
+}
+
+.choice {
+  display: grid;
+  gap: 3px;
+  padding: 15px 17px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.choice:hover {
+  background: var(--surface-hi);
+}
+
+.choice.on {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.choice b {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.choice span {
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+
+.status {
+  display: inline-flex;
+  gap: 9px;
+  align-items: center;
+  margin-top: 28px;
+  padding: 9px 15px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-dim);
+  font-size: 13.5px;
+}
+
+.status .pip {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.status.weak .pip {
+  background: var(--ink-faint);
+}
+
+/* The default-browser offer sits on its own line and is sized to its label.
+   Stretched across the panel it read as a text field rather than a button. */
+.offer {
+  margin-top: 22px;
+}
+
+.settled {
+  margin: 16px 0 0;
+  color: var(--ink-faint);
+  font-size: 13.5px;
+}
+
+/* --------------------------------------------------------------- rail ---- */
+
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 26px 40px 34px;
+}
+
+.dots {
+  display: flex;
+  gap: 7px;
+}
+
+.dot {
+  width: 22px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+
+.dot.on {
+  background: var(--accent);
+}
+
+.dot.done {
+  background: var(--accent-deep);
+}
+
+.buttons {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+}
+
+button {
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  font: inherit;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.primary {
+  padding: 11px 26px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.secondary {
+  padding: 11px 20px;
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--surface-hi);
+}
+
+.ghost {
+  padding: 11px 16px;
+  background: none;
+  color: var(--ink-faint);
+}
+
+.ghost:hover {
+  color: var(--ink-dim);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* -------------------------------------------------------------- motion --- */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Everything that arrives does so in the same direction on the same curve,
+     staggered by depth. `--i` orders elements within a screen. */
+  .rise {
+    animation: rise 620ms var(--ease) backwards;
+    animation-delay: calc(var(--i, 0) * 80ms);
+  }
+
+  .win,
+  .choice,
+  button {
+    transition:
+      grid-template-columns 420ms var(--ease),
+      background-color 180ms var(--ease),
+      border-color 180ms var(--ease),
+      filter 180ms var(--ease),
+      color 180ms var(--ease);
+  }
+
+  .ring {
+    animation: settle 900ms var(--ease) backwards;
+  }
+
+  .ring-1 {
+    animation-delay: 120ms;
+  }
+
+  .ring-2 {
+    animation-delay: 200ms;
+  }
+
+  .ring-3 {
+    animation-delay: 280ms;
+  }
+
+  .glow {
+    animation: breathe 5.5s ease-in-out infinite;
+  }
+
+  .tracer {
+    animation: fly 2.6s linear infinite;
+  }
+
+  .t1 {
+    animation-delay: 0s;
+  }
+
+  .t2 {
+    top: 34%;
+    animation-delay: 0.55s;
+  }
+
+  .t3 {
+    top: 66%;
+    animation-delay: 1.15s;
+  }
+
+  .t4 {
+    top: 50%;
+    animation-delay: 1.7s;
+    animation-name: fly-through;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(15px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.75;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.07);
+  }
+}
+
+@keyframes fly {
+  0% {
+    opacity: 0;
+    transform: translateX(300px);
+  }
+
+  12% {
+    opacity: 1;
+  }
+
+  46% {
+    opacity: 1;
+    transform: translateX(52px);
+  }
+
+  58% {
+    opacity: 0;
+    transform: translateX(46px);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(46px);
+  }
+}
+
+@keyframes fly-through {
+  0% {
+    opacity: 0;
+    transform: translateX(300px);
+  }
+
+  12% {
+    opacity: 1;
+  }
+
+  88% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(-300px);
+  }
+}
+
+@media (width <= 720px) {
+  .claims {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+
+  .art {
+    height: 168px;
+  }
+}

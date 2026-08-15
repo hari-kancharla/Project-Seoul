@@ -1,0 +1,76 @@
+// Copyright 2026 The Project Seoul Authors
+// Use of this source code is governed by the MPL-2.0 licence.
+
+module seoul.welcome.mojom;
+
+// Everything the welcome page needs to render itself.
+//
+// Every field is observed, never assumed. The page shows what the browser is
+// actually doing - whether it is already the default, which rules are actually
+// loaded - because a first-run screen that states a capability the build does
+// not have is the most expensive lie a product can tell.
+struct WelcomeState {
+  // Step to show now, by the same stable id the prefs persist. Empty when the
+  // flow is finished.
+  string current_step;
+  // Completed steps, so the page renders progress without recomputing it.
+  array<string> completed_steps;
+  // All steps in order, so the page never hardcodes a list that can drift out
+  // of step with the browser's own.
+  array<string> all_steps;
+
+  // Whether Seoul is already the default browser.
+  bool is_default_browser;
+  // Whether the platform can be asked at all. On a managed or unsupported
+  // configuration the offer is hidden rather than shown and silently ignored.
+  bool can_set_default_browser;
+
+  // Content blocking, as measured rather than promised. `filter_source` is
+  // reported verbatim - "bundled" is the Seoul baseline alone, "catalogue"
+  // means the upstream lists arrived - so a first run with no network cannot
+  // claim protection it does not have.
+  bool blocking_enabled;
+  string filter_source;
+
+  // The vertical rail's resting state for the hosting window.
+  bool rail_collapsed;
+};
+
+// There is deliberately no browser-to-page channel here.
+//
+// The obvious design pushes state when the filter lists finish downloading,
+// which routinely happens while the user is still on the first screen. Nothing
+// in the blocker exposes an observer to drive that, and declaring a method
+// nothing ever calls is worse than not having it: the next person reads the
+// interface and believes the push exists. The page pulls with GetState() when
+// it reaches the step that displays the value instead, which is a real
+// guarantee rather than an implied one.
+interface PageHandler {
+  // Initial paint. The page has state before its first frame rather than
+  // rendering empty and filling in.
+  GetState() => (WelcomeState state);
+
+  // Records a step as done and returns the resulting state, so the page
+  // advances from what the browser recorded rather than what it assumed.
+  // Completing a step twice is not an error.
+  CompleteStep(string step_id) => (WelcomeState state);
+
+  // Ends the flow without completing the remaining steps. Distinct from
+  // completing them: a person who skipped chose nothing.
+  Skip();
+
+  // Sets the rail's resting state for the hosting window, applied live so the
+  // choice is visible behind the surface as it is made.
+  SetRailCollapsed(bool collapsed);
+
+  // Asks the platform to make Seoul the default, and reports whether it
+  // actually became the default. On macOS this opens a system prompt the user
+  // can refuse; returning success regardless would be a lie told by the very
+  // first screen.
+  RequestDefaultBrowser() => (bool is_default_now);
+};
+
+// Created by the WebUI controller, bound by the page.
+interface PageHandlerFactory {
+  CreatePageHandler(pending_receiver<PageHandler> handler);
+};

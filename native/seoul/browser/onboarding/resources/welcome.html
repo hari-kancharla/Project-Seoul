@@ -1,0 +1,35 @@
+<!doctype html>
+<!-- Project Seoul first run. All UI is rendered by the packaged Lit component;
+     CSP is supplied by SeoulWelcomeUI and permits no inline or remote script. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Welcome to Seoul</title>
+    <link rel="icon" type="image/svg+xml" href="seoul_icon.svg">
+    <style>
+      /* The UA's 8px body margin reads as a Chromium inset between the rail
+         and this surface, which is exactly the seam a first run must not show. */
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        color-scheme: light dark;
+      }
+      html, body {
+        background: light-dark(#f7f5ef, #100f0e);
+      }
+      seoul-welcome-app {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <seoul-welcome-app></seoul-welcome-app>
+    <script type="module" src="welcome.js"></script>
+  </body>
+</html>
