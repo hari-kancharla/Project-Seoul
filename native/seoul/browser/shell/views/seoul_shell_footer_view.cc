@@ -127,12 +127,9 @@ class SpaceSwitcherButton final : public views::LabelButton {
                       const ShellSpaceItem& space)
       : views::LabelButton(std::move(callback), std::u16string()) {
     SetHorizontalAlignment(gfx::ALIGN_CENTER);
-    SetPreferredSize(gfx::Size(space_visuals::kSwitcherButtonSize,
-                               space_visuals::kSwitcherButtonSize));
-    SetMinSize(gfx::Size(space_visuals::kSwitcherButtonSize,
-                         space_visuals::kSwitcherButtonSize));
-    SetMaxSize(gfx::Size(space_visuals::kSwitcherButtonSize,
-                         space_visuals::kSwitcherButtonSize));
+    // Width is not fixed: the current Space carries a pill and needs room for
+    // it. ApplySizeForState() is the single place that decides.
+    ApplySizeForState(space.is_active);
     SetBorder(views::CreateEmptyBorder(gfx::Insets()));
     SetEnabledTextColors(kColorToolbarText);
     SetFocusRingCornerRadius(space_visuals::kSwitcherCornerRadius);
@@ -221,12 +218,25 @@ class SpaceSwitcherButton final : public views::LabelButton {
     cc::PaintFlags flags;
     flags.setAntiAlias(true);
     flags.setStyle(cc::PaintFlags::kFill_Style);
+    // The current Space draws at full strength; the others recede, so the strip
+    // reads at a glance without needing colour.
     flags.setColor(
         SkColorSetA(GetColorProvider()->GetColor(kColorToolbarButtonIcon),
-                    /*a=*/102));
-    canvas->DrawCircle(
-        gfx::RectF(GetLocalBounds()).CenterPoint(),
-        static_cast<float>(space_visuals::kEmptyIconDiameter) / 2.0f, flags);
+                    /*a=*/active_ ? 217 : 102));
+    const gfx::PointF centre = gfx::RectF(GetLocalBounds()).CenterPoint();
+    const float radius =
+        static_cast<float>(space_visuals::kEmptyIconDiameter) / 2.0f;
+    if (!active_) {
+      canvas->DrawCircle(centre, radius, flags);
+      return;
+    }
+    // An elongated dot, not a different shape: same height, same corner radius,
+    // more width. Anything taller would read as a second kind of control.
+    const float half_width =
+        static_cast<float>(space_visuals::kCurrentSpacePillWidth) / 2.0f;
+    const gfx::RectF pill(centre.x() - half_width, centre.y() - radius,
+                          half_width * 2.0f, radius * 2.0f);
+    canvas->DrawRoundRect(pill, radius, flags);
   }
 
   void SetActive(bool active, bool animate) {
@@ -234,7 +244,21 @@ class SpaceSwitcherButton final : public views::LabelButton {
       return;
     }
     active_ = active;
+    ApplySizeForState(active_);
     ApplyVisualState(animate);
+  }
+
+  // A dot-sized button for every Space except the current one, which is wide
+  // enough to hold the pill. Min and max are pinned to the same value so the
+  // BoxLayout cannot stretch a dot into a pill or squeeze the pill back.
+  void ApplySizeForState(bool active) {
+    const int width = active ? space_visuals::kCurrentSpaceButtonWidth
+                             : space_visuals::kSwitcherButtonSize;
+    const gfx::Size size(width, space_visuals::kSwitcherButtonSize);
+    SetPreferredSize(size);
+    SetMinSize(size);
+    SetMaxSize(size);
+    PreferredSizeChanged();
   }
 
   void ApplyVisualState(bool animate) {
@@ -296,11 +320,19 @@ SeoulShellFooterView::SeoulShellFooterView(ShellController* controller) {
   // moved Chromium's vertical-tab compact mode. The toolbar's is the one that
   // remains, at the position browsers conventionally use.
   //
-  // Removing it left the centre control off-centre, because it was centred by
-  // having equal-width controls on both sides. A leading spacer the same size
-  // as Create New restores the balance: Zen's `justify-content: space-between`
-  // needs two edges, and this is the one that is no longer a button.
-  leading_spacer_ = controls_row_->AddChildView(std::make_unique<views::View>());
+  // Downloads leads the row. It replaced a placeholder spacer that existed only
+  // to keep the Space strip centred after the duplicate sidebar toggle was
+  // removed - a blank view holding a position is a smell, and Downloads is the
+  // control that belongs at that edge.
+  downloads_button_ = controls_row_->AddChildView(
+      std::make_unique<views::LabelButton>(
+          base::BindRepeating(&SeoulShellFooterView::OnDownloadsPressed,
+                              base::Unretained(this)),
+          std::u16string()));
+  StyleFooterButton(downloads_button_);
+  SetFooterIcon(downloads_button_, kSeoulDownloadIcon);
+  downloads_button_->SetTooltipText(u"Downloads");
+  downloads_button_->GetViewAccessibility().SetName(u"Downloads");
 
   spaces_container_ =
       controls_row_->AddChildView(std::make_unique<views::View>());
@@ -323,7 +355,6 @@ SeoulShellFooterView::SeoulShellFooterView(ShellController* controller) {
   SetFooterIcon(create_new_button_, kSeoulPlusIcon);
   create_new_button_->SetTooltipText(u"Create New");
   create_new_button_->GetViewAccessibility().SetName(u"Create New");
-  leading_spacer_->SetPreferredSize(create_new_button_->GetPreferredSize());
 
   reconcile_button_ = AddChildView(std::make_unique<views::LabelButton>(
       base::BindRepeating(&SeoulShellFooterView::OnReconcilePressed,
@@ -508,6 +539,13 @@ bool SeoulShellFooterView::first_space_uses_empty_icon_dot_for_testing() const {
   return !space_buttons_.empty() &&
          static_cast<const SpaceSwitcherButton*>(space_buttons_.front().get())
              ->uses_empty_icon_dot_for_testing();
+}
+
+void SeoulShellFooterView::OnDownloadsPressed() {
+  if (!controller_) {
+    return;
+  }
+  std::ignore = controller_->RunUtilityAction(ShellUtilityAction::kOpenDownloads);
 }
 
 void SeoulShellFooterView::OnCreateNewPressed() {

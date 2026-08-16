@@ -52,6 +52,10 @@ class SeoulShellFooterView : public views::View, public ShellObserver {
     return spaces_container_;
   }
   bool first_space_uses_empty_icon_dot_for_testing() const;
+  views::LabelButton* downloads_button_for_testing() const {
+    return downloads_button_;
+  }
+
   views::LabelButton* create_new_button_for_testing() const {
     return create_new_button_;
   }
@@ -66,6 +70,7 @@ class SeoulShellFooterView : public views::View, public ShellObserver {
   void RebuildSpaceButtons(const ShellSnapshot& snapshot);
   void UpdateSpaceButtons(const ShellSnapshot& snapshot, bool animate);
   void OnSpacePressed(WorkspaceId workspace_id);
+  void OnDownloadsPressed();
   void OnCreateNewPressed();
   void ShowSplitChooser();
   void OnReconcilePressed();
@@ -73,7 +78,7 @@ class SeoulShellFooterView : public views::View, public ShellObserver {
   raw_ptr<ShellController> controller_ = nullptr;
   raw_ptr<views::View> controls_row_ = nullptr;
   raw_ptr<views::BoxLayout> controls_layout_ = nullptr;
-  raw_ptr<views::View> leading_spacer_ = nullptr;
+  raw_ptr<views::LabelButton> downloads_button_ = nullptr;
   raw_ptr<views::View> spaces_container_ = nullptr;
   raw_ptr<views::BoxLayout> spaces_layout_ = nullptr;
   raw_ptr<views::LabelButton> create_new_button_ = nullptr;

@@ -38,18 +38,45 @@ new file mode 100644
 diff --git a/chrome/app/vector_icons/seoul_reload.icon b/chrome/app/vector_icons/seoul_reload.icon
 --- a/chrome/app/vector_icons/seoul_reload.icon
 +++ b/chrome/app/vector_icons/seoul_reload.icon
-@@ -12,7 +12,10 @@
- CUBIC_TO, 2.25, 12.7, 5.25, 15.7, 9, 15.7,
- CUBIC_TO, 12.45, 15.7, 15.25, 13.15, 15.65, 9.75,
+@@ -2,17 +2,27 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-// Open circular arrow with a light, rounded stroke. Its asymmetry keeps the
+-// arrowhead crisp instead of producing the heavy Material refresh ring.
++// Circular arrow, redrawn.
++//
++// The previous glyph put a small open "V" outside the ring at roughly two
++// o'clock: three points drawn with STROKE, which renders two line segments
++// rather than a head, so at 18px it read as a tick sitting next to a circle.
++// Filling those same points did not fix it either - the triangle was too far
++// off the ring's path to be read as its end.
++//
++// This is one arc with a proper head ON the path. The arc opens at the top
++// right and the head sits exactly where the stroke stops, pointing along the
++// direction of travel, so the eye completes the circle.
+ CANVAS_DIMENSIONS, 18,
+-STROKE, 1.5,
+-MOVE_TO, 15.45, 8.15,
+-CUBIC_TO, 15.05, 4.7, 12.25, 2.25, 8.9, 2.25,
+-CUBIC_TO, 5.2, 2.25, 2.25, 5.25, 2.25, 8.95,
+-CUBIC_TO, 2.25, 12.7, 5.25, 15.7, 9, 15.7,
+-CUBIC_TO, 12.45, 15.7, 15.25, 13.15, 15.65, 9.75,
++STROKE, 1.6,
++// Arc from just past twelve o'clock, anticlockwise all the way round to two.
++MOVE_TO, 9, 2.6,
++CUBIC_TO, 5.5, 2.6, 2.6, 5.5, 2.6, 9,
++CUBIC_TO, 2.6, 12.5, 5.5, 15.4, 9, 15.4,
++CUBIC_TO, 12.5, 15.4, 15.4, 12.5, 15.4, 9,
  NEW_PATH,
 -STROKE, 1.5,
-+// Closed and filled. These same three points were drawn with STROKE, which
-+// renders two open segments - a stray tick beside the ring rather than an
-+// arrowhead. An arrowhead is a solid triangle.
- MOVE_TO, 11.35, 6.35,
- LINE_TO, 15.45, 8.15,
+-MOVE_TO, 11.35, 6.35,
+-LINE_TO, 15.45, 8.15,
 -LINE_TO, 16.1, 3.75
-+LINE_TO, 16.1, 3.75,
++// The head, filled, centred on where the arc begins and pointing clockwise.
++MOVE_TO, 15.4, 9,
++LINE_TO, 12.5, 9,
++LINE_TO, 13.95, 6.2,
 +CLOSE
 diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.cc b/chrome/browser/ui/views/toolbar/toolbar_view.cc
 --- a/chrome/browser/ui/views/toolbar/toolbar_view.cc

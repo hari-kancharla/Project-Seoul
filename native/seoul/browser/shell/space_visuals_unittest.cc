@@ -38,6 +38,12 @@ TEST(SpaceVisualsTest, UsesZenSwitcherAndIndicatorMetrics) {
   EXPECT_EQ(kSwitcherButtonSize, 28);
   EXPECT_EQ(kSwitcherGap, 3);
   EXPECT_EQ(kEmptyIconDiameter, 6);
+  // The current Space is the same height as the other dots and wider, so the
+  // strip reads as one line with one elongated member.
+  EXPECT_EQ(kCurrentSpacePillWidth, 22);
+  EXPECT_EQ(kCurrentSpaceButtonWidth, 34);
+  EXPECT_GT(kCurrentSpacePillWidth, kEmptyIconDiameter);
+  EXPECT_GT(kCurrentSpaceButtonWidth, kCurrentSpacePillWidth);
   EXPECT_EQ(GetIndicatorHeight(false), 44);
   EXPECT_EQ(GetIndicatorHeight(true), 38);
   EXPECT_EQ(kIndicatorActionSize, 26);
