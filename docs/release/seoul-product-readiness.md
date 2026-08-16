@@ -558,6 +558,25 @@ push to `main` and each one is green. The most recent run, `31758161612`, took
 
 The last red run predates this work (2026-08-05).
 
+## Known open issues
+
+Current, specific, and found by driving the product rather than by the suites:
+
+1. **Shell controls are invisible to macOS accessibility.** System Events sees
+   only the titlebar buttons on a Seoul window; the rail, the Space strip,
+   Downloads, and Create New are not reachable as accessibility elements from
+   outside the process. The in-process Views accessibility (names, roles, live
+   regions) is implemented and tested, so this is about the mac-side bridge,
+   not missing labels. Blocks the screen-reader half of release gate 6.
+2. **The Space-container cookie test crashes under the launcher's
+   parallel-jobs mode.** Stable across five serial repeats, and the project's
+   own runner is serial, so the gate is green; the parallel teardown crash is
+   real and uninvestigated.
+3. **A profile that went through the earlier session-store crashes shows a
+   persistent "Recovery required" banner.** Correct behaviour on genuinely
+   damaged state, but there is no user-facing path that repairs and clears it
+   beyond acknowledging.
+
 ## Public release gates
 
 The following work remains before Seoul can be called a distributable release:
