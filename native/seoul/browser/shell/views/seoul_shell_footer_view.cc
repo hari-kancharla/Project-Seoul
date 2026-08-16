@@ -287,16 +287,20 @@ SeoulShellFooterView::SeoulShellFooterView(ShellController* controller) {
   controls_layout_->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kCenter);
 
-  // Zen's production default is intentionally only Toggle Sidebar, Workspaces,
-  // and Create New, in that order. The flexible middle control produces the
-  // same expanded space-between distribution without placeholder controls.
-  toggle_sidebar_button_ =
-      controls_row_->AddChildView(std::make_unique<views::LabelButton>(
-          base::BindRepeating(&SeoulShellFooterView::OnToggleSidebarPressed,
-                              base::Unretained(this)),
-          std::u16string()));
-  StyleFooterButton(toggle_sidebar_button_);
-  SetFooterIcon(toggle_sidebar_button_, kSeoulExpandSidebarIcon);
+  // Workspaces sits centred between the row's edges, with Create New trailing.
+  //
+  // There is no leading button any more. The footer used to carry a sidebar
+  // toggle here, duplicating the toolbar's at top left - two buttons for one
+  // user intent, drawn from different icon sets and, worse, driving different
+  // state: this one moved Seoul's ShellAppearanceLayoutMode while the toolbar's
+  // moved Chromium's vertical-tab compact mode. The toolbar's is the one that
+  // remains, at the position browsers conventionally use.
+  //
+  // Removing it left the centre control off-centre, because it was centred by
+  // having equal-width controls on both sides. A leading spacer the same size
+  // as Create New restores the balance: Zen's `justify-content: space-between`
+  // needs two edges, and this is the one that is no longer a button.
+  leading_spacer_ = controls_row_->AddChildView(std::make_unique<views::View>());
 
   spaces_container_ =
       controls_row_->AddChildView(std::make_unique<views::View>());
@@ -319,6 +323,7 @@ SeoulShellFooterView::SeoulShellFooterView(ShellController* controller) {
   SetFooterIcon(create_new_button_, kSeoulPlusIcon);
   create_new_button_->SetTooltipText(u"Create New");
   create_new_button_->GetViewAccessibility().SetName(u"Create New");
+  leading_spacer_->SetPreferredSize(create_new_button_->GetPreferredSize());
 
   reconcile_button_ = AddChildView(std::make_unique<views::LabelButton>(
       base::BindRepeating(&SeoulShellFooterView::OnReconcilePressed,
@@ -397,15 +402,6 @@ void SeoulShellFooterView::RebuildFromSnapshot(const ShellSnapshot& snapshot) {
     UpdateSpaceButtons(snapshot, /*animate=*/true);
   }
 
-  toggle_sidebar_button_->SetVisible(true);
-  const bool sidebar_collapsed =
-      snapshot.appearance_layout.available &&
-      snapshot.appearance_layout.mode == ShellAppearanceLayoutMode::kCollapsed;
-  const std::u16string toggle_sidebar_label =
-      sidebar_collapsed ? u"Expand Sidebar" : u"Collapse Sidebar";
-  toggle_sidebar_button_->SetTooltipText(toggle_sidebar_label);
-  toggle_sidebar_button_->GetViewAccessibility().SetName(toggle_sidebar_label);
-  toggle_sidebar_button_->SetEnabled(snapshot.appearance_layout.available);
   spaces_container_->SetVisible(!snapshot.spaces.empty());
   create_new_button_->SetVisible(true);
 
@@ -478,21 +474,6 @@ void SeoulShellFooterView::OnSpacePressed(WorkspaceId workspace_id) {
   }
 }
 
-void SeoulShellFooterView::OnToggleSidebarPressed() {
-  if (!controller_) {
-    return;
-  }
-  const ShellAppearanceLayoutState& appearance =
-      controller_->snapshot().appearance_layout;
-  if (!appearance.available) {
-    return;
-  }
-  const ShellAppearanceLayoutMode target =
-      appearance.mode == ShellAppearanceLayoutMode::kCollapsed
-          ? ShellAppearanceLayoutMode::kSingle
-          : ShellAppearanceLayoutMode::kCollapsed;
-  std::ignore = controller_->SetAppearanceLayoutMode(target);
-}
 
 bool SeoulShellFooterView::ShowCommandLauncher() {
   if (!controller_ || !GetWidget()) {

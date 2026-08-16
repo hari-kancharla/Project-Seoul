@@ -776,6 +776,27 @@
       "applyVerify": "git apply --check",
       "reverseVerify": "git apply -R --check",
       "reviewable": true
+    },
+    {
+      "id": "seoul-rail-glyphs",
+      "description": "Fix the reload arrowhead, add the collapse half of the sidebar glyph pair, and give the toolbar's sidebar control a Seoul icon instead of Chromium's stock one.",
+      "rationale": "The reload arrowhead was three points drawn with STROKE, which renders two open segments - a stray tick beside the ring rather than an arrow. Closed and filled. The sidebar glyph existed only in its expand direction, so the toolbar control fell back to kLeftPanelCloseIcon, a bare square and bar from an unrelated family; the pair now mirrors on the same frame and divider. Safe in the toolbar specifically: it already links chrome/app/vector_icons for kSeoulReloadIcon. Rejected alternative: theming the vertical tab strip's own collapse button in chrome/browser/ui/tabs, which segfaults on first paint - those icons are declared with a plain extern and no COMPONENT_EXPORT, so a component outside chrome/ that names one resolves to null at load.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 29,
+      "file": "0029-seoul-rail-glyphs.patch",
+      "affectedPaths": [
+        "chrome/app/vector_icons/BUILD.gn",
+        "chrome/app/vector_icons/seoul_collapse_sidebar.icon",
+        "chrome/app/vector_icons/seoul_reload.icon",
+        "chrome/browser/ui/views/toolbar/toolbar_view.cc"
+      ],
+      "dependencies": [
+        "seoul-zen-interaction-and-visual-fidelity"
+      ],
+      "sha256": "9d5c77b7649ddf9ebe4bd7b732e4c59ea0a1851f351c6f4efb419ec6109beec1",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
     }
   ]
 }

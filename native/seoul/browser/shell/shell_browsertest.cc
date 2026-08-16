@@ -786,24 +786,29 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   footer->SetPresentationCollapsed(false);
   browser_view->GetWidget()->LayoutRootViewIfNecessary();
   views::View* controls = footer->controls_row_for_testing();
-  views::LabelButton* toggle_sidebar =
-      footer->toggle_sidebar_button_for_testing();
   views::View* workspaces = footer->workspaces_control_for_testing();
   views::LabelButton* create_new = footer->create_new_button_for_testing();
   ASSERT_TRUE(controls);
-  ASSERT_TRUE(toggle_sidebar);
   ASSERT_TRUE(workspaces);
   ASSERT_TRUE(create_new);
 
+  // Two controls, not three. The footer used to carry a sidebar toggle as
+  // well, which duplicated the toolbar's at top left - two buttons for one
+  // user intent, drawn from different icon sets, and driving different state:
+  // this one moved Seoul's ShellAppearanceLayoutMode while the toolbar's moved
+  // Chromium's vertical-tab compact mode. The toolbar's is the one that
+  // remains, at the position browsers conventionally use for it.
+  // Three children, one of them not a button: a leading spacer the width of
+  // Create New, which is what keeps Workspaces centred now that the footer's
+  // sidebar toggle is gone.
   const auto& children = controls->children();
   ASSERT_EQ(3u, children.size());
-  EXPECT_EQ(toggle_sidebar, children[0]);
   EXPECT_EQ(workspaces, children[1]);
   EXPECT_EQ(create_new, children[2]);
-  EXPECT_TRUE(toggle_sidebar->GetVisible());
+  EXPECT_EQ(create_new->GetPreferredSize().width(),
+            children[0]->GetPreferredSize().width());
   EXPECT_TRUE(workspaces->GetVisible());
   EXPECT_TRUE(create_new->GetVisible());
-  EXPECT_EQ(u"Collapse Sidebar", toggle_sidebar->GetAccessibleName());
   EXPECT_EQ(u"Workspaces", workspaces->GetAccessibleName());
   EXPECT_EQ(u"Create New", create_new->GetAccessibleName());
 
@@ -812,13 +817,6 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   ASSERT_TRUE(create_new_icon);
   ASSERT_TRUE(create_new_icon->IsVectorIcon());
   EXPECT_EQ(&kSeoulPlusIcon, create_new_icon->GetVectorIcon().vector_icon());
-
-  const std::optional<ui::ImageModel>& toggle_sidebar_icon =
-      toggle_sidebar->GetImageModel(views::Button::STATE_NORMAL);
-  ASSERT_TRUE(toggle_sidebar_icon);
-  ASSERT_TRUE(toggle_sidebar_icon->IsVectorIcon());
-  EXPECT_EQ(&kSeoulExpandSidebarIcon,
-            toggle_sidebar_icon->GetVectorIcon().vector_icon());
 
   ASSERT_EQ(1u, workspaces->children().size());
   auto* workspace_button =
@@ -829,23 +827,17 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   EXPECT_TRUE(!workspace_icon || workspace_icon->IsEmpty());
   EXPECT_TRUE(footer->first_space_uses_empty_icon_dot_for_testing());
 
-  // Equal edge controls and a flexible centered workspace control reproduce
-  // Zen's expanded `justify-content: space-between` footer.
-  EXPECT_EQ(toggle_sidebar->width(), create_new->width());
+  // A flexible centred workspace control between the edges still reproduces
+  // Zen's `justify-content: space-between` footer with one edge control.
   EXPECT_EQ(controls->GetLocalBounds().CenterPoint().x(),
-            workspaces->bounds().CenterPoint().x());
-  EXPECT_LT(toggle_sidebar->bounds().CenterPoint().x(),
             workspaces->bounds().CenterPoint().x());
   EXPECT_LT(workspaces->bounds().CenterPoint().x(),
             create_new->bounds().CenterPoint().x());
 
   footer->SetPresentationCollapsed(true);
   browser_view->GetWidget()->LayoutRootViewIfNecessary();
-  EXPECT_TRUE(toggle_sidebar->GetVisible());
   EXPECT_TRUE(workspaces->GetVisible());
   EXPECT_TRUE(create_new->GetVisible());
-  EXPECT_LT(toggle_sidebar->bounds().CenterPoint().y(),
-            workspaces->bounds().CenterPoint().y());
   EXPECT_LT(workspaces->bounds().CenterPoint().y(),
             create_new->bounds().CenterPoint().y());
 
