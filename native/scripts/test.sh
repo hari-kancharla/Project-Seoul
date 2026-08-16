@@ -38,6 +38,7 @@ run_unit_tests() {
     seoul_command_core_unittests
     seoul_development_keychain_policy_unittests
     seoul_connectors_unittests
+    seoul_containers_unittests
     seoul_context_unittests
     seoul_data_unittests
     seoul_intelligence_unittests
@@ -71,6 +72,7 @@ run_unit_tests() {
     seoul/browser/commands:seoul_command_core_unittests
     chrome/app:seoul_development_keychain_policy_unittests
     seoul/browser/connectors:seoul_connectors_unittests
+    seoul/browser/containers:seoul_containers_unittests
     seoul/browser/context:seoul_context_unittests
     seoul/browser/data:seoul_data_unittests
     seoul/browser/intelligence:seoul_intelligence_unittests

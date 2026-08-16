@@ -1,0 +1,27 @@
+# Project Seoul Space containers.
+#
+# The naming and validation rule is deliberately free of Chromium dependencies
+# so it can be unit-tested on its own; the Chromium-facing wiring that turns a
+# partition name into a StoragePartition lives with the tab-creation path.
+
+import("//testing/test.gni")
+
+source_set("containers_core") {
+  sources = [
+    "space_container.cc",
+    "space_container.h",
+  ]
+
+  deps = [ "//base" ]
+}
+
+test("seoul_containers_unittests") {
+  testonly = true
+  sources = [ "space_container_unittest.cc" ]
+  deps = [
+    ":containers_core",
+    "//base",
+    "//base/test:run_all_unittests",
+    "//testing/gtest",
+  ]
+}
