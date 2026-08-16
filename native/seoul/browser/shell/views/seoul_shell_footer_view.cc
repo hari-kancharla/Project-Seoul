@@ -302,6 +302,23 @@ class SpaceSwitcherButton final : public views::LabelButton {
     if (!GetColorProvider()) {
       return;
     }
+    // Every Space is a tile, so the strip reads as one family of controls:
+    // a rounded square per Space, and the current one stretched into a pill
+    // that carries its name. Depth comes from the fill, not a border - the
+    // current Space is the most filled, the others recede, hover brightens.
+    {
+      cc::PaintFlags tile;
+      tile.setAntiAlias(true);
+      tile.setStyle(cc::PaintFlags::kFill_Style);
+      const bool hovered = GetState() == views::Button::STATE_HOVERED ||
+                           GetState() == views::Button::STATE_PRESSED;
+      const SkAlpha alpha =
+          active_ ? 0x2E : (hovered ? 0x24 : 0x14);
+      tile.setColor(SkColorSetA(
+          GetColorProvider()->GetColor(kColorToolbarButtonIcon), alpha));
+      canvas->DrawRoundRect(gfx::RectF(GetLocalBounds()),
+                            space_visuals::kSwitcherCornerRadius, tile);
+    }
     if (!builtin_icon_ref_.empty()) {
       ui::ColorId color_id = kColorToolbarButtonIcon;
       if (GetState() == views::Button::STATE_HOVERED) {
@@ -317,33 +334,20 @@ class SpaceSwitcherButton final : public views::LabelButton {
                                 GetColorProvider()->GetColor(color_id));
       return;
     }
-    if (!uses_empty_icon_dot_) {
+    if (!uses_empty_icon_dot_ || active_) {
+      // The tile above is the whole story; emoji or name is drawn by the label.
       return;
     }
+    // A Space with neither icon nor pill still needs a mark inside its tile.
     cc::PaintFlags flags;
     flags.setAntiAlias(true);
     flags.setStyle(cc::PaintFlags::kFill_Style);
-    const gfx::PointF centre = gfx::RectF(GetLocalBounds()).CenterPoint();
-    if (!active_) {
-      // A Space with no icon of its own still needs to be visible in the strip.
-      flags.setColor(
-          SkColorSetA(GetColorProvider()->GetColor(kColorToolbarButtonIcon),
-                      /*a=*/102));
-      canvas->DrawCircle(
-          centre, static_cast<float>(space_visuals::kEmptyIconDiameter) / 2.0f,
-          flags);
-      return;
-    }
-    // The current Space is a filled pill carrying its icon and name, which is
-    // how Arc and Zen say where you are. Drawn behind the label rather than as
-    // a border, so the text sits on it rather than beside it.
     flags.setColor(
         SkColorSetA(GetColorProvider()->GetColor(kColorToolbarButtonIcon),
-                    /*a=*/28));
-    canvas->DrawRoundRect(
-        gfx::RectF(GetLocalBounds()),
-        static_cast<float>(space_visuals::kCurrentSpacePillCornerRadius),
-        flags);
+                    /*a=*/102));
+    canvas->DrawCircle(
+        gfx::RectF(GetLocalBounds()).CenterPoint(),
+        static_cast<float>(space_visuals::kEmptyIconDiameter) / 2.0f, flags);
   }
 
   void SetActive(bool active, bool animate) {

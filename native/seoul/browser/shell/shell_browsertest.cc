@@ -869,6 +869,58 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
       << "the container must still hold only its own cookie";
 }
 
+// The Space strip's shape contract: the current Space is a wide labelled pill,
+// every other Space is a small square tile, and switching moves the pill.
+// Pinned as a test because this is the strip's design - if a refactor collapses
+// the two shapes into one, the strip stops saying where you are.
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest, SpaceStripShapesFollowActivation) {
+  SeoulOrganizationService* svc = service();
+  ASSERT_TRUE(svc);
+  auto second = svc->model().CreateWorkspace("Play");
+  ASSERT_TRUE(second.has_value());
+  ASSERT_TRUE(svc->model().SetWorkspaceIcon(second.value(), "🎮").has_value());
+  base::RunLoop().RunUntilIdle();
+
+  SeoulShellFooterView* footer =
+      svc->shell_service()->GetFooterForTesting(WindowKey());
+  ASSERT_TRUE(footer);
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  browser_view->GetWidget()->LayoutRootViewIfNecessary();
+
+  views::View* strip = footer->workspaces_control_for_testing();
+  ASSERT_TRUE(strip);
+  ASSERT_EQ(2u, strip->children().size());
+
+  auto* first_button =
+      views::AsViewClass<views::LabelButton>(strip->children()[0]);
+  auto* second_button =
+      views::AsViewClass<views::LabelButton>(strip->children()[1]);
+  ASSERT_TRUE(first_button);
+  ASSERT_TRUE(second_button);
+
+  // The active Space (Default, first) is the pill: wider than tall, carrying
+  // its name. The other is a square tile carrying its emoji.
+  EXPECT_GT(first_button->width(), first_button->height());
+  EXPECT_NE(first_button->GetText().find(u"Default"), std::u16string::npos);
+  EXPECT_EQ(second_button->width(), second_button->height());
+  EXPECT_EQ(u"🎮", second_button->GetText());
+
+  // Switch, and the shapes swap.
+  ShellController* controller =
+      svc->shell_service()->GetController(WindowKey());
+  ASSERT_TRUE(controller);
+  ASSERT_TRUE(controller->SwitchWorkspace(second.value()).has_value());
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    browser_view->GetWidget()->LayoutRootViewIfNecessary();
+    return second_button->width() > second_button->height();
+  })) << "the pill must move to the newly current Space";
+  EXPECT_EQ(first_button->width(), first_button->height())
+      << "the previous Space must shrink back to a square tile";
+  EXPECT_NE(second_button->GetText().find(u"Play"), std::u16string::npos)
+      << "the pill carries the name, not only the emoji";
+}
+
 IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest, ScrollingTheSpaceStripSwitches) {
   SeoulOrganizationService* svc = service();
   ASSERT_TRUE(svc);
