@@ -1,0 +1,91 @@
+diff --git a/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc b/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
+--- a/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
++++ b/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
+@@ -73,16 +73,22 @@
+ #endif
+ }
+ 
+-gfx::Insets GetSeoulContentSeparationInsets() {
+-#if BUILDFLAG(IS_MAC)
+-  // Zen's macOS splitter occupies two DIPs of the normal eight-DIP leading
+-  // separation. The web surface is therefore six DIPs from the rail while the
+-  // remaining three sides retain the authored eight-DIP material gap.
+-  return gfx::Insets::TLBR(kSeoulContentSeparation, 6, kSeoulContentSeparation,
+-                           kSeoulContentSeparation);
+-#else
+-  return gfx::Insets(kSeoulContentSeparation);
+-#endif
++// The same visible gap on all four sides.
++//
++// `leading_already_applied` is any leading inset the caller has already added
++// that is platform compensation rather than gap - in practice the two DIPs
++// macOS contributes in compact mode. Subtracting it here keeps the gap the user
++// sees at eight DIPs in every mode.
++//
++// This used to be a flat six on the leading edge for macOS. That produced the
++// right total in compact mode (two plus six) and the wrong one everywhere else:
++// expanded, nothing contributed the missing two, so the page sat six DIPs from
++// the rail and eight from the window's other three edges.
++gfx::Insets GetSeoulContentSeparationInsets(int leading_already_applied) {
++  const int leading =
++      std::max(0, kSeoulContentSeparation - leading_already_applied);
++  return gfx::Insets::TLBR(kSeoulContentSeparation, leading,
++                           kSeoulContentSeparation, kSeoulContentSeparation);
+ }
+ 
+ // Maximum portion of the window a "size-restricted" contents-height side panel
+@@ -714,9 +720,20 @@
+   const bool adjust_for_cracking = AvoidCrackingForFractionalDisplay();
+   const TabStripType tab_strip_type = GetTabStripType();
+   HorizontalLayout horizontal_layout = CalculateHorizontalLayout(params);
++  // The top-container separator is a one-DIP rule across the client area, and
++  // showing it pushes the contents down by that DIP - which is why the page sat
++  // nine DIPs from the top while its other three edges sat at eight. Seoul's
++  // rail owns the toolbar and draws its own boundary, so upstream's rule has
++  // nothing left to separate here; suppressing it makes the gap even on all
++  // four sides.
++  const bool seoul_rail_owns_top_chrome =
++      views().vertical_tab_strip_region_view &&
++      views().toolbar &&
++      views().toolbar->parent() == views().vertical_tab_strip_region_view;
+   const bool suppress_top_separator =
+-      horizontal_layout.has_side_panel() &&
+-      horizontal_layout.force_top_container_to_top;
++      seoul_rail_owns_top_chrome ||
++      (horizontal_layout.has_side_panel() &&
++       horizontal_layout.force_top_container_to_top);
+ 
+   // Lay out horizontal tab strip region if present.
+   if (IsParentedTo(views().horizontal_tab_strip_region_view,
+@@ -808,8 +825,12 @@
+       const bool seoul_compact_mode =
+           views().vertical_tab_strip_region_view->IsSeoulCompactModeEnabled();
+       int inset_amount;
++      // How much of `inset_amount` is macOS platform compensation rather than
++      // the authored gap, so the separation below can subtract it.
++      int leading_compensation = 0;
+       if (seoul_compact_mode) {
+         const int compact_layout_inset = GetSeoulCompactLayoutInset();
++        leading_compensation = compact_layout_inset;
+         // During the initial compact transition, smoothly release all but the
+         // platform compensation inset. Hover reveal is always a flyover and
+         // therefore never moves the page.
+@@ -861,7 +882,7 @@
+         inset_amount -= 1;
+       }
+       params.InsetHorizontal(inset_amount, /*leading=*/true);
+-      params.Inset(GetSeoulContentSeparationInsets());
++      params.Inset(GetSeoulContentSeparationInsets(leading_compensation));
+ 
+       // Let the vertical tab strip animate out over the content.
+       if (vertical_tab_strip_animation.current_motion) {
+@@ -876,7 +897,8 @@
+         unclipped_contents_region.Inset(
+             gfx::Insets::TLBR(0, inset_amount, 0, 0));
+       }
+-      unclipped_contents_region.Inset(GetSeoulContentSeparationInsets());
++      unclipped_contents_region.Inset(
++          GetSeoulContentSeparationInsets(leading_compensation));
+     }
+     layout.AddChild(views().vertical_tab_strip_region_view,
+                     vertical_tab_strip_bounds,

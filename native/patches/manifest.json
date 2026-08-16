@@ -797,6 +797,24 @@
       "applyVerify": "git apply --check",
       "reverseVerify": "git apply -R --check",
       "reviewable": true
+    },
+    {
+      "id": "seoul-even-content-gaps",
+      "description": "Give the page the same gap on all four sides: drop the macOS leading-edge special case and suppress the top-container separator when Seoul's rail owns the chrome.",
+      "rationale": "Measured against the running product, the page sat 9 DIP from the top, 8 from the right and bottom, and 6 from the rail. The leading six came from a special case asserting that Zen's splitter occupied the other two, but Seoul's resize area is kViewIgnoredByLayoutKey - an invisible drag target that consumes no layout space - so nothing occupied them. The extra top DIP was the top-container separator, a one-DIP rule whose height is added to the contents origin; the rail owns the toolbar and draws its own boundary, so that rule has nothing left to separate. Both removed, and all four gaps now measure 8.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 30,
+      "file": "0030-seoul-even-content-gaps.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc"
+      ],
+      "dependencies": [
+        "seoul-zen-product-surface"
+      ],
+      "sha256": "d745cd8e5d88bd7c5733dbcea4cbcfd76ccd1a18e7ee235915cf392f24bf85ba",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
     }
   ]
 }
