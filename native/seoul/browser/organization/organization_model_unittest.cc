@@ -87,6 +87,45 @@ TEST_F(OrganizationModelTest, CreateRenameReorder) {
             OrganizationError::kWorkspaceNotFound);
 }
 
+// Storage isolation survives being set, being snapshotted, and being loaded
+// back. This is the test that was missing when containers were wired, and its
+// absence cost an afternoon: the browser-level cookie test could only say the
+// containers did not work, not which of four layers had dropped the flag.
+TEST_F(OrganizationModelTest, WorkspaceIsolationSetsReadsAndRoundTrips) {
+  const WorkspaceId id = InitDefault();
+  const WorkspaceRecord* record = model_.FindWorkspace(id);
+  ASSERT_TRUE(record);
+  EXPECT_FALSE(record->isolated) << "a Space is not isolated until asked";
+
+  ASSERT_TRUE(model_.SetWorkspaceIsolated(id, true).has_value());
+  record = model_.FindWorkspace(id);
+  ASSERT_TRUE(record);
+  EXPECT_TRUE(record->isolated) << "the flag must be readable immediately";
+
+  // Through a snapshot and back, which is the path persistence takes.
+  const OrganizationSnapshot snap = model_.ToSnapshot();
+  auto isolated_in_snapshot = std::ranges::find_if(
+      snap.workspaces,
+      [&id](const WorkspaceRecord& w) { return w.id == id; });
+  ASSERT_NE(isolated_in_snapshot, snap.workspaces.end());
+  EXPECT_TRUE(isolated_in_snapshot->isolated)
+      << "the flag must survive ToSnapshot, or persistence loses it";
+
+  OrganizationModel reloaded(
+      base::BindLambdaForTesting([this]() { return clock_; }));
+  ASSERT_TRUE(reloaded.LoadSnapshot(snap).has_value());
+  const WorkspaceRecord* after = reloaded.FindWorkspace(id);
+  ASSERT_TRUE(after);
+  EXPECT_TRUE(after->isolated)
+      << "the flag must survive LoadSnapshot, or it is lost on every restart";
+
+  // And it can be turned off again.
+  ASSERT_TRUE(model_.SetWorkspaceIsolated(id, false).has_value());
+  record = model_.FindWorkspace(id);
+  ASSERT_TRUE(record);
+  EXPECT_FALSE(record->isolated);
+}
+
 TEST_F(OrganizationModelTest, SetAndClearWorkspaceIcon) {
   const WorkspaceId id = InitDefault();
   RecordingObserver observer;
