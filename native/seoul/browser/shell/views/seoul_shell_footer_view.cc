@@ -249,18 +249,10 @@ class SpaceSwitcherButton final : public views::LabelButton {
     // somewhere. Every other Space stays at icon size and carries the icon
     // alone, because a strip of names is a menu, not a switcher.
     const std::u16string name = base::UTF8ToUTF16(space.name);
-    if (space.is_active) {
-      std::u16string pill_text = icon;
-      if (!name.empty()) {
-        pill_text = pill_text.empty() ? name : pill_text + u"  " + name;
-      }
-      SetText(pill_text);
-      label()->SetElideBehavior(gfx::ELIDE_TAIL);
-    } else if (uses_empty_icon_dot_ || !builtin_icon_ref_.empty()) {
-      SetText(std::u16string());
-    } else {
-      SetText(icon);
-    }
+    icon_text_ = icon;
+    name_text_ = name;
+    active_ = space.is_active;
+    ApplyLabelForState();
     SetActive(space.is_active, animate);
 
     SetTooltipText(name.empty() ? u"Space" : name);
@@ -277,6 +269,21 @@ class SpaceSwitcherButton final : public views::LabelButton {
   }
 
   bool uses_empty_icon_dot_for_testing() const { return uses_empty_icon_dot_; }
+
+  // In a collapsed rail there is no room for a labelled pill - the rail is a
+  // narrow icon column - so the current Space falls back to the same icon-sized
+  // square as the others and keeps only its emoji. Without this the pill
+  // measures its name and overflows the rail, which is exactly what it did.
+  void SetPresentationCollapsed(bool collapsed) {
+    if (presentation_collapsed_ == collapsed) {
+      return;
+    }
+    presentation_collapsed_ = collapsed;
+    ApplyLabelForState();
+    ApplySizeForState(active_);
+    SchedulePaint();
+  }
+
 
  private:
   void PaintButtonContents(gfx::Canvas* canvas) override {
@@ -340,8 +347,31 @@ class SpaceSwitcherButton final : public views::LabelButton {
   // a labelled pill wide enough for its icon and name. Width is measured from
   // the name and then clamped, so a long name elides instead of pushing
   // Downloads and Create New out of the footer.
+  // The current Space is labelled with its emoji and its name, which is what
+  // makes the strip say where you are rather than only that you are somewhere.
+  // Every other Space stays at icon size and carries the icon alone, because a
+  // strip of names is a menu, not a switcher. A collapsed rail has room for
+  // neither, so it keeps the icon.
+  void ApplyLabelForState() {
+    if (active_ && !presentation_collapsed_) {
+      std::u16string pill_text = icon_text_;
+      if (!name_text_.empty()) {
+        pill_text =
+            pill_text.empty() ? name_text_ : pill_text + u"  " + name_text_;
+      }
+      SetText(pill_text);
+      label()->SetElideBehavior(gfx::ELIDE_TAIL);
+      return;
+    }
+    if (uses_empty_icon_dot_ || !builtin_icon_ref_.empty()) {
+      SetText(std::u16string());
+      return;
+    }
+    SetText(icon_text_);
+  }
+
   void ApplySizeForState(bool active) {
-    if (!active) {
+    if (!active || presentation_collapsed_) {
       const gfx::Size size(space_visuals::kSwitcherButtonSize,
                            space_visuals::kSwitcherButtonSize);
       SetPreferredSize(size);
@@ -397,6 +427,9 @@ class SpaceSwitcherButton final : public views::LabelButton {
 
   bool active_ = false;
   bool uses_empty_icon_dot_ = false;
+  bool presentation_collapsed_ = false;
+  std::u16string icon_text_;
+  std::u16string name_text_;
   std::string builtin_icon_ref_;
 };
 
@@ -507,6 +540,12 @@ void SeoulShellFooterView::SetPresentationCollapsed(bool collapsed) {
     return;
   }
   presentation_collapsed_ = collapsed;
+  // The Space indicators drop their labels in a collapsed rail; a pill measured
+  // from a name does not fit a narrow icon column and overflows it.
+  for (auto& button : space_buttons_) {
+    static_cast<SpaceSwitcherButton*>(button.get())
+        ->SetPresentationCollapsed(collapsed);
+  }
   controls_layout_->ClearFlexForView(spaces_container_);
   controls_layout_->SetOrientation(
       collapsed ? views::BoxLayout::Orientation::kVertical
@@ -589,6 +628,7 @@ void SeoulShellFooterView::RebuildSpaceButtons(const ShellSnapshot& snapshot) {
                                 base::Unretained(this), space.workspace_id),
             space);
     auto* button = static_cast<SpaceSwitcherButton*>(owned_button.get());
+    button->SetPresentationCollapsed(presentation_collapsed_);
     spaces_container_->AddChildView(std::move(owned_button));
     space_buttons_.push_back(button);
   }

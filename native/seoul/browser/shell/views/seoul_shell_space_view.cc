@@ -1,6 +1,7 @@
 // Copyright 2026 The Project Seoul Authors
 
 #include "seoul/browser/shell/views/seoul_shell_space_view.h"
+#include "base/strings/string_util.h"
 
 #include <memory>
 #include <optional>
@@ -105,6 +106,22 @@ class WorkspaceIndicatorIconView final : public views::Label {
  private:
   void OnPaint(gfx::Canvas* canvas) override {
     if (builtin_icon_ref_.empty()) {
+      // A Space with no chosen icon falls back to the first letter of its name,
+      // and a bare letter floating in a narrow rail reads as stray text rather
+      // than as the Space it stands for. Give it the same rounded tile the tabs
+      // beneath it use, so the column is a column of tiles.
+      const std::u16string_view text = GetText();
+      const bool is_letter_avatar =
+          text.size() == 1 && base::IsAsciiAlpha(text[0]);
+      if (is_letter_avatar && GetColorProvider()) {
+        cc::PaintFlags flags;
+        flags.setAntiAlias(true);
+        flags.setStyle(cc::PaintFlags::kFill_Style);
+        flags.setColor(SkColorSetA(
+            GetColorProvider()->GetColor(kColorToolbarButtonIcon), 0x1F));
+        canvas->DrawRoundRect(gfx::RectF(GetLocalBounds()),
+                              space_visuals::kSwitcherCornerRadius, flags);
+      }
       views::Label::OnPaint(canvas);
       return;
     }
