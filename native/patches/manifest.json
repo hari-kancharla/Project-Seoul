@@ -793,7 +793,7 @@
       "dependencies": [
         "seoul-zen-interaction-and-visual-fidelity"
       ],
-      "sha256": "ed33acb455e419b41734adf7e64d758a15f91bb58db59e3becd68f6f88f4149c",
+      "sha256": "27e3691417e2b42bf96e7fa734e24be65ab543b0eb6fcc6e6d0b32b1171b8f83",
       "applyVerify": "git apply --check",
       "reverseVerify": "git apply -R --check",
       "reviewable": true

@@ -5,6 +5,10 @@
 
 #include "base/memory/raw_ptr.h"
 
+namespace views {
+class View;
+}  // namespace views
+
 class BrowserWindowInterface;
 class Profile;
 class VerticalTabStripRegionView;
@@ -48,6 +52,7 @@ private:
   raw_ptr<VerticalTabStripRegionView> region_ = nullptr;
   raw_ptr<SeoulShellHeaderView> header_ = nullptr;
   raw_ptr<SeoulShellSpaceView> space_ = nullptr;
+  raw_ptr<views::View> footer_spacer_ = nullptr;
   raw_ptr<SeoulShellFooterView> footer_ = nullptr;
 };
 

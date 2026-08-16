@@ -11,6 +11,7 @@
 // symbols link through //chrome/browser like the other circular includes.
 #include "chrome/browser/ui/views/frame/vertical_tab_strip_region_view.h"  // nogncheck
 #include "seoul/browser/shell/views/seoul_shell_footer_view.h"
+#include "ui/views/layout/flex_layout_types.h"
 #include "seoul/browser/shell/views/seoul_shell_header_view.h"
 #include "seoul/browser/shell/views/seoul_shell_space_view.h"
 #include "ui/gfx/geometry/insets.h"
@@ -42,6 +43,23 @@ void SeoulShellRegionHost::Attach(VerticalTabStripRegionView* region,
     header_->BindBrowserContext(browser_window, profile);
   }
   if (!footer_) {
+    // A flexible spacer, then the footer.
+    //
+    // The rail's footer belongs at the bottom, but nothing was holding it
+    // there: the tab strip carries the only unbounded flex in the rail, and an
+    // empty or hidden strip contributes no height, so the footer rode up and
+    // sat directly under the search field - the whole control row at the top of
+    // the window instead of the bottom. This spacer always absorbs whatever
+    // height is left over, so the footer's position does not depend on how many
+    // tabs happen to exist.
+    auto spacer = std::make_unique<views::View>();
+    spacer->SetProperty(
+        views::kFlexBehaviorKey,
+        views::FlexSpecification(views::MinimumFlexSizeRule::kScaleToZero,
+                                 views::MaximumFlexSizeRule::kUnbounded)
+            .WithOrder(2));
+    footer_spacer_ = region->AddChildView(std::move(spacer));
+
     auto footer = std::make_unique<SeoulShellFooterView>(controller);
     footer_ = region->AddChildView(std::move(footer));
   } else {
@@ -81,7 +99,13 @@ void SeoulShellRegionHost::Attach(VerticalTabStripRegionView* region,
   }
   if (bottom) {
     if (std::optional<size_t> bottom_index = region->GetIndexOf(bottom)) {
-      region->ReorderChildView(footer_, bottom_index.value() + 1);
+      // Spacer first, then the footer, both after the tab strip.
+      if (footer_spacer_) {
+        region->ReorderChildView(footer_spacer_, bottom_index.value() + 1);
+        region->ReorderChildView(footer_, bottom_index.value() + 2);
+      } else {
+        region->ReorderChildView(footer_, bottom_index.value() + 1);
+      }
     }
   }
 }

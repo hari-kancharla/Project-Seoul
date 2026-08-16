@@ -2,6 +2,8 @@
 
 #include "seoul/browser/shell/views/seoul_shell_footer_view.h"
 
+#include <algorithm>
+
 #include <tuple>
 #include <utility>
 
@@ -161,22 +163,30 @@ class SpaceSwitcherButton final : public views::LabelButton {
                                     ? base::UTF8ToUTF16(space.icon)
                                     : std::u16string();
     uses_empty_icon_dot_ = space.icon.empty();
-    if (uses_empty_icon_dot_ || !builtin_icon_ref_.empty()) {
+    SetImageModel(views::Button::STATE_NORMAL, ui::ImageModel());
+    SetImageModel(views::Button::STATE_HOVERED, ui::ImageModel());
+    SetImageModel(views::Button::STATE_PRESSED, ui::ImageModel());
+    SetImageModel(views::Button::STATE_DISABLED, ui::ImageModel());
+
+    // The current Space is labelled: its emoji and its name, which is what
+    // makes the pill say where you are rather than merely that you are
+    // somewhere. Every other Space stays at icon size and carries the icon
+    // alone, because a strip of names is a menu, not a switcher.
+    const std::u16string name = base::UTF8ToUTF16(space.name);
+    if (space.is_active) {
+      std::u16string pill_text = icon;
+      if (!name.empty()) {
+        pill_text = pill_text.empty() ? name : pill_text + u"  " + name;
+      }
+      SetText(pill_text);
+      label()->SetElideBehavior(gfx::ELIDE_TAIL);
+    } else if (uses_empty_icon_dot_ || !builtin_icon_ref_.empty()) {
       SetText(std::u16string());
-      SetImageModel(views::Button::STATE_NORMAL, ui::ImageModel());
-      SetImageModel(views::Button::STATE_HOVERED, ui::ImageModel());
-      SetImageModel(views::Button::STATE_PRESSED, ui::ImageModel());
-      SetImageModel(views::Button::STATE_DISABLED, ui::ImageModel());
     } else {
-      SetImageModel(views::Button::STATE_NORMAL, ui::ImageModel());
-      SetImageModel(views::Button::STATE_HOVERED, ui::ImageModel());
-      SetImageModel(views::Button::STATE_PRESSED, ui::ImageModel());
-      SetImageModel(views::Button::STATE_DISABLED, ui::ImageModel());
       SetText(icon);
     }
     SetActive(space.is_active, animate);
 
-    const std::u16string name = base::UTF8ToUTF16(space.name);
     SetTooltipText(name.empty() ? u"Space" : name);
     std::u16string accessible_name =
         space.is_active ? u"Current Space" : u"Switch to Space";
@@ -218,25 +228,27 @@ class SpaceSwitcherButton final : public views::LabelButton {
     cc::PaintFlags flags;
     flags.setAntiAlias(true);
     flags.setStyle(cc::PaintFlags::kFill_Style);
-    // The current Space draws at full strength; the others recede, so the strip
-    // reads at a glance without needing colour.
-    flags.setColor(
-        SkColorSetA(GetColorProvider()->GetColor(kColorToolbarButtonIcon),
-                    /*a=*/active_ ? 217 : 102));
     const gfx::PointF centre = gfx::RectF(GetLocalBounds()).CenterPoint();
-    const float radius =
-        static_cast<float>(space_visuals::kEmptyIconDiameter) / 2.0f;
     if (!active_) {
-      canvas->DrawCircle(centre, radius, flags);
+      // A Space with no icon of its own still needs to be visible in the strip.
+      flags.setColor(
+          SkColorSetA(GetColorProvider()->GetColor(kColorToolbarButtonIcon),
+                      /*a=*/102));
+      canvas->DrawCircle(
+          centre, static_cast<float>(space_visuals::kEmptyIconDiameter) / 2.0f,
+          flags);
       return;
     }
-    // An elongated dot, not a different shape: same height, same corner radius,
-    // more width. Anything taller would read as a second kind of control.
-    const float half_width =
-        static_cast<float>(space_visuals::kCurrentSpacePillWidth) / 2.0f;
-    const gfx::RectF pill(centre.x() - half_width, centre.y() - radius,
-                          half_width * 2.0f, radius * 2.0f);
-    canvas->DrawRoundRect(pill, radius, flags);
+    // The current Space is a filled pill carrying its icon and name, which is
+    // how Arc and Zen say where you are. Drawn behind the label rather than as
+    // a border, so the text sits on it rather than beside it.
+    flags.setColor(
+        SkColorSetA(GetColorProvider()->GetColor(kColorToolbarButtonIcon),
+                    /*a=*/28));
+    canvas->DrawRoundRect(
+        gfx::RectF(GetLocalBounds()),
+        static_cast<float>(space_visuals::kCurrentSpacePillCornerRadius),
+        flags);
   }
 
   void SetActive(bool active, bool animate) {
@@ -248,13 +260,30 @@ class SpaceSwitcherButton final : public views::LabelButton {
     ApplyVisualState(animate);
   }
 
-  // A dot-sized button for every Space except the current one, which is wide
-  // enough to hold the pill. Min and max are pinned to the same value so the
-  // BoxLayout cannot stretch a dot into a pill or squeeze the pill back.
+  // An icon-sized button for every Space except the current one, which becomes
+  // a labelled pill wide enough for its icon and name. Width is measured from
+  // the name and then clamped, so a long name elides instead of pushing
+  // Downloads and Create New out of the footer.
   void ApplySizeForState(bool active) {
-    const int width = active ? space_visuals::kCurrentSpaceButtonWidth
-                             : space_visuals::kSwitcherButtonSize;
-    const gfx::Size size(width, space_visuals::kSwitcherButtonSize);
+    if (!active) {
+      const gfx::Size size(space_visuals::kSwitcherButtonSize,
+                           space_visuals::kSwitcherButtonSize);
+      SetPreferredSize(size);
+      SetMinSize(size);
+      SetMaxSize(size);
+      PreferredSizeChanged();
+      return;
+    }
+    int width = space_visuals::kCurrentSpacePillMinWidth;
+    if (!label()->GetText().empty()) {
+      width = space_visuals::kCurrentSpacePillHorizontalPadding * 2 +
+              space_visuals::kEmptyIconDiameter * 2 +
+              space_visuals::kCurrentSpacePillIconLabelGap +
+              label()->GetPreferredSize(views::SizeBounds()).width();
+    }
+    width = std::clamp(width, space_visuals::kCurrentSpacePillMinWidth,
+                       space_visuals::kCurrentSpacePillMaxWidth);
+    const gfx::Size size(width, space_visuals::kCurrentSpacePillHeight);
     SetPreferredSize(size);
     SetMinSize(size);
     SetMaxSize(size);

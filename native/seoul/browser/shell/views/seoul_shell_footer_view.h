@@ -52,6 +52,12 @@ class SeoulShellFooterView : public views::View, public ShellObserver {
     return spaces_container_;
   }
   bool first_space_uses_empty_icon_dot_for_testing() const;
+  // The Space strip's buttons, in order, so a test can read what the current
+  // Space's pill actually says rather than inferring it from the layout.
+  const std::vector<raw_ptr<views::LabelButton>>& space_buttons_for_testing()
+      const {
+    return space_buttons_;
+  }
   views::LabelButton* downloads_button_for_testing() const {
     return downloads_button_;
   }

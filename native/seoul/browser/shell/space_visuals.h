@@ -11,12 +11,17 @@ inline constexpr int kSwitcherButtonSize = 28;
 inline constexpr int kSwitcherGap = 3;
 inline constexpr int kSwitcherCornerRadius = 7;
 inline constexpr int kEmptyIconDiameter = 6;
-// The current Space reads as an elongated pill rather than another dot, so the
-// strip says which one you are in without a colour or a tooltip. Same height as
-// the dots, so the row is one optical line rather than two sizes of thing.
-inline constexpr int kCurrentSpacePillWidth = 22;
-// The button that carries the pill has to be wide enough for it.
-inline constexpr int kCurrentSpaceButtonWidth = 34;
+// The current Space is a labelled pill - its icon and its name on a filled
+// rounded background - the way Arc and Zen show the space you are in. The other
+// Spaces stay as icon-sized buttons, so the strip has exactly one wide member
+// and reads at a glance without needing colour.
+inline constexpr int kCurrentSpacePillHeight = 26;
+inline constexpr int kCurrentSpacePillCornerRadius = 13;
+// Room for the icon, the gap, and a short name before elision.
+inline constexpr int kCurrentSpacePillMinWidth = 64;
+inline constexpr int kCurrentSpacePillMaxWidth = 132;
+inline constexpr int kCurrentSpacePillHorizontalPadding = 9;
+inline constexpr int kCurrentSpacePillIconLabelGap = 6;
 inline constexpr int kExpandedIndicatorHeight = 44;
 inline constexpr int kCollapsedIndicatorHeight = 38;
 inline constexpr int kIndicatorActionSize = 26;
