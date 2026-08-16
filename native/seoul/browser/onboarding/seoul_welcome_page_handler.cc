@@ -138,10 +138,18 @@ void SeoulWelcomePageHandler::Skip() {
 }
 
 void SeoulWelcomePageHandler::SetRailCollapsed(bool collapsed) {
-  if (tabs::VerticalTabStripStateController* const rail =
-          RailController(browser_window_)) {
-    rail->RequestCollapse(collapsed);
+  tabs::VerticalTabStripStateController* const rail =
+      RailController(browser_window_);
+  if (!rail) {
+    return;
   }
+  // Compact is expand-on-hover plus collapsed, which is what the toolbar's own
+  // compact control does. Collapsing alone produces the sixty-DIP icon rail,
+  // not the five-DIP edge - CollapsedRegionWidth() only returns the compact
+  // width when expand-on-hover is enabled - so the first-run screen was
+  // offering "Compact" and delivering something else.
+  rail->SetExpandOnHoverEnabledForWindow(collapsed);
+  rail->RequestCollapse(collapsed);
 }
 
 void SeoulWelcomePageHandler::RequestDefaultBrowser(

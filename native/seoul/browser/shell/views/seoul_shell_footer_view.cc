@@ -251,9 +251,21 @@ class SpaceSwitcherButton final : public views::LabelButton {
     const std::u16string name = base::UTF8ToUTF16(space.name);
     icon_text_ = icon;
     name_text_ = name;
+
+    // Order matters, and getting it wrong is how the pill ended up showing
+    // "D..." instead of "Default". SetActive() early-returns when the active
+    // flag has not changed, so assigning active_ before calling it skipped the
+    // resize entirely: the button kept its icon-sized square while the label
+    // grew a name, and the name then elided to a single character.
+    //
+    // The label is applied first because the size is measured from it, then the
+    // size, then the visual state. active_ is set here rather than left to
+    // SetActive() because ApplyLabelForState() reads it.
+    const bool was_active = active_;
     active_ = space.is_active;
     ApplyLabelForState();
-    SetActive(space.is_active, animate);
+    ApplySizeForState(active_);
+    ApplyVisualState(animate && was_active == active_);
 
     SetTooltipText(name.empty() ? u"Space" : name);
     std::u16string accessible_name =
