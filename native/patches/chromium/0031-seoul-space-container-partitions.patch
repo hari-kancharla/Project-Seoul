@@ -1,0 +1,54 @@
+diff --git a/chrome/browser/ui/navigator/BUILD.gn b/chrome/browser/ui/navigator/BUILD.gn
+--- a/chrome/browser/ui/navigator/BUILD.gn
++++ b/chrome/browser/ui/navigator/BUILD.gn
+@@ -78,6 +78,9 @@
+     sources += [ "browser_navigator.cc" ]
+ 
+     deps += [
++      # Seoul decides the initial StoragePartition for a tab opened in an
++      # isolated Space, so the navigator has to be able to ask it.
++      "//seoul/browser/product/browser:product_chromium",
+       "//chrome/browser/apps/app_service",
+       "//chrome/browser/apps/link_capturing",
+       "//chrome/browser/ui/browser_window",
+diff --git a/chrome/browser/ui/navigator/browser_navigator.cc b/chrome/browser/ui/navigator/browser_navigator.cc
+--- a/chrome/browser/ui/navigator/browser_navigator.cc
++++ b/chrome/browser/ui/navigator/browser_navigator.cc
+@@ -38,6 +38,7 @@
+ #include "chrome/browser/ui/singleton_tabs.h"
+ #include "chrome/browser/ui/status_bubble.h"
+ #include "chrome/browser/ui/tab_helpers.h"
++#include "seoul/browser/product/browser/space_partition_resolver.h"
+ #include "chrome/browser/ui/tabs/split_tab_metrics.h"
+ #include "chrome/browser/ui/tabs/tab_strip_model.h"
+ #include "chrome/browser/ui/tabs/tab_strip_user_gesture_details.h"
+@@ -491,10 +492,25 @@
+   // subsequent navigation is cross-process (i.e. cross-SiteInstance), then it
+   // will stay in the same BrowsingInstance (creating frame proxies as needed)
+   // preserving the requested opener relationship along the way.
+-  scoped_refptr<content::SiteInstance> initial_site_instance_for_new_contents =
+-      params.opener ? params.opener->GetSiteInstance()
+-                    : tab_util::GetSiteInstanceForNewTab(
+-                          params.browser->GetProfile(), url);
++  // A tab opened in an isolated Space starts in that Space's own
++  // StoragePartition, so its cookies and site data cannot be seen from any
++  // other Space. Seoul returns null when the active Space is not isolated,
++  // which leaves Chromium's ordinary choice untouched.
++  //
++  // The opener branch is checked first and deliberately: a tab opened from
++  // another tab inherits its opener's SiteInstance, which already carries the
++  // partition, so following a link out of a container keeps you inside it.
++  scoped_refptr<content::SiteInstance> initial_site_instance_for_new_contents;
++  if (params.opener) {
++    initial_site_instance_for_new_contents = params.opener->GetSiteInstance();
++  } else {
++    initial_site_instance_for_new_contents =
++        seoul::SiteInstanceForNewTabInActiveSpace(params.browser, url);
++    if (!initial_site_instance_for_new_contents) {
++      initial_site_instance_for_new_contents = tab_util::GetSiteInstanceForNewTab(
++          params.browser->GetProfile(), url);
++    }
++  }
+ 
+   WebContents::CreateParams create_params(
+       params.browser->GetProfile(), initial_site_instance_for_new_contents);

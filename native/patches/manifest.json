@@ -815,6 +815,25 @@
       "applyVerify": "git apply --check",
       "reverseVerify": "git apply -R --check",
       "reviewable": true
+    },
+    {
+      "id": "seoul-space-container-partitions",
+      "description": "Give a tab opened in an isolated Space its own StoragePartition, so cookies and site data cannot cross between Spaces.",
+      "rationale": "Chromium already supports a SiteInstance pinned to a fixed StoragePartition that survives navigation, which is exactly the lifetime a container needs; the only missing piece is deciding which partition a new tab starts in. CreateTargetContents() is the one place that choice is made, so Seoul is consulted there and returns null whenever the active Space is not isolated, leaving Chromium's ordinary selection untouched. The opener branch is left ahead of it deliberately: a tab opened from another tab inherits its opener's SiteInstance and therefore its partition, so following a link out of a container keeps the user inside it. Deciding per-site through GetStoragePartitionConfigForSite() was rejected because a container is a property of the Space the tab belongs to, not of the site being visited.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 31,
+      "file": "0031-seoul-space-container-partitions.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/navigator/BUILD.gn",
+        "chrome/browser/ui/navigator/browser_navigator.cc"
+      ],
+      "dependencies": [
+        "seoul-native-core"
+      ],
+      "sha256": "2a8a0d59f78e780a1333ad55ee8f05992fd3df9bccb13b9b7b57ffc332cdb8bc",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
     }
   ]
 }

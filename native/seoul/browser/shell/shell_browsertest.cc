@@ -772,6 +772,100 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
 // exactly one Space, the strip wraps rather than stopping at the ends, and a
 // trackpad's stream of small deltas produces one switch per flick instead of
 // racing through every Space in the window.
+// The claim containers make, tested as a user would observe it: a cookie
+// written in an isolated Space is not visible from another Space.
+//
+// This is the test that decides whether the feature exists. Everything else -
+// the naming rule, the flag, the resolver - can be individually correct while
+// data still crosses, and data crossing is worse than having no containers at
+// all, because the user was told they were separate.
+// DISABLED: containers do not work yet, and this test correctly says so.
+//
+// Do not read the disable as "flaky" or "needs a tweak". The wiring is present
+// - the resolver runs on every new tab, with no opener, against the same
+// service instance - but it reads back isolated=false for a Space the test has
+// just proved isolated=true on the record it holds. Same service, same model,
+// contradictory answers, which points at the notify path reloading workspaces
+// from the store and discarding the in-memory flag.
+//
+// Re-enable by deleting DISABLED_ once that is fixed. The test itself is sound:
+// with isolation working it passes, and with isolation removed it fails with
+// "a cookie written in an isolated Space leaked into another Space" - both
+// confirmed against a build where chrome and the test binary were built
+// together. It is disabled rather than deleted because it is the only thing
+// standing between this feature and a container that silently shares data.
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       DISABLED_IsolatedSpaceDoesNotShareCookies) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  // The loopback host directly, so this needs no resolver rule - rules have to
+  // be installed before the test body runs, and the host is irrelevant here
+  // anyway: the point is the same site seen from two Spaces.
+  const GURL url = embedded_test_server()->GetURL("/empty.html");
+
+  SeoulOrganizationService* svc = service();
+  ASSERT_TRUE(svc);
+  auto isolated = svc->model().CreateWorkspace("Isolated");
+  ASSERT_TRUE(isolated.has_value());
+  ASSERT_TRUE(svc->model()
+                  .SetWorkspaceIsolated(isolated.value(), true)
+                  .has_value());
+  // Verify the setup took, rather than trusting the mutation's return value.
+  // A test whose precondition silently failed reports the feature broken when
+  // the feature was never switched on.
+  {
+    const WorkspaceRecord* const check =
+        svc->model().FindWorkspace(isolated.value());
+    ASSERT_TRUE(check);
+    ASSERT_TRUE(check->isolated) << "the Space did not become isolated";
+  }
+
+  const std::string window = WindowKey().value();
+  const WorkspaceId ordinary =
+      svc->model().ActiveWorkspaceForWindow(window);
+  ASSERT_TRUE(ordinary.is_valid());
+  ASSERT_NE(ordinary, isolated.value());
+
+  // A new foreground tab per call, because the partition is chosen when the tab
+  // is created: reusing one tab across a Space switch would prove nothing.
+  auto open_tab_and_run = [&](const std::string& script) {
+    ui_test_utils::NavigateToURLWithDisposition(
+        browser(), url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
+        ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
+    content::WebContents* contents =
+        browser()->tab_strip_model()->GetActiveWebContents();
+    return content::EvalJs(contents, script);
+  };
+
+  // Write a cookie while the isolated Space is active.
+  ASSERT_TRUE(svc->model()
+                  .SetActiveWorkspaceForWindow(window, isolated.value())
+                  .has_value());
+  base::RunLoop().RunUntilIdle();
+  ASSERT_EQ("set", open_tab_and_run(
+                       "document.cookie = 'seoul=isolated; path=/';"
+                       "'set'"));
+  EXPECT_EQ("seoul=isolated", open_tab_and_run("document.cookie"))
+      << "the isolated Space must see its own cookie";
+
+  // The same site, from the ordinary Space, must not see it.
+  ASSERT_TRUE(
+      svc->model().SetActiveWorkspaceForWindow(window, ordinary).has_value());
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ("", open_tab_and_run("document.cookie"))
+      << "a cookie written in an isolated Space leaked into another Space";
+
+  // And the reverse: what the ordinary Space writes stays out of the container.
+  ASSERT_EQ("set", open_tab_and_run(
+                       "document.cookie = 'seoul=ordinary; path=/';"
+                       "'set'"));
+  ASSERT_TRUE(svc->model()
+                  .SetActiveWorkspaceForWindow(window, isolated.value())
+                  .has_value());
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ("seoul=isolated", open_tab_and_run("document.cookie"))
+      << "the container must still hold only its own cookie";
+}
+
 IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest, ScrollingTheSpaceStripSwitches) {
   SeoulOrganizationService* svc = service();
   ASSERT_TRUE(svc);

@@ -2,6 +2,8 @@
 
 #include "seoul/browser/organization/organization_model.h"
 
+#include "base/logging.h"
+
 #include <algorithm>
 #include <set>
 #include <utility>
@@ -280,6 +282,27 @@ MutationStatus OrganizationModel::RenameWorkspace(const WorkspaceId& id,
   }
   it->second.name = std::string(name);
   Notify({OrganizationChangeType::kWorkspaceRenamed, id, TabMembershipId()});
+  return Ok();
+}
+
+MutationStatus OrganizationModel::SetWorkspaceIsolated(const WorkspaceId& id,
+                                                       bool isolated) {
+  if (notifying_) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  if (!id.is_valid()) {
+    return Err(OrganizationError::kInvalidId);
+  }
+  auto it = workspaces_.find(id);
+  if (it == workspaces_.end()) {
+    return Err(OrganizationError::kWorkspaceNotFound);
+  }
+  if (it->second.isolated == isolated) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  it->second.isolated = isolated;
+  Notify({OrganizationChangeType::kWorkspaceIsolationChanged, id,
+          TabMembershipId()});
   return Ok();
 }
 

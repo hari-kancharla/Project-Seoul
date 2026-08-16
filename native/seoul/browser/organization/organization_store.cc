@@ -38,6 +38,7 @@ base::DictValue WorkspaceToDict(const WorkspaceRecord& w) {
   d.Set("last_active_at", base::TimeToValue(w.last_active_at));
   d.Set("archived", w.archived);
   d.Set("is_default", w.is_default);
+  d.Set("isolated", w.isolated);
   return d;
 }
 
@@ -220,6 +221,10 @@ MutationResult<OrganizationSnapshot> DeserializeSnapshot(
       w.last_active_at = ReadTime(*d, "last_active_at");
       w.archived = d->FindBool("archived").value_or(false);
       w.is_default = d->FindBool("is_default").value_or(false);
+      // Absent in stores written before containers existed, and absent means
+      // not isolated - never a default that would silently partition an
+      // existing Space and hide everything already stored in it.
+      w.isolated = d->FindBool("isolated").value_or(false);
       snap.workspaces.push_back(std::move(w));
     }
   }

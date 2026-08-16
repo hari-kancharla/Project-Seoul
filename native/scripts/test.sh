@@ -138,9 +138,18 @@ run_browser_tests() {
   filter="${filter}:AdBlockBrowserTest.*"
   filter="${filter}:CosmeticFilterAgentTest.*"
 
-  stage "build focused Seoul browser tests (-j $JOBS)"
+  # `chrome` is built alongside the test binary, and that is not belt and
+  # braces. This is a component build: most Seoul code the browser tests
+  # exercise is linked into libchrome_dll.dylib rather than into the test
+  # executable, so building the test target alone leaves those libraries at
+  # whatever revision they were last built at. The suite then runs new test code
+  # against old product code and reports results for a build that does not
+  # exist - passing changes that are broken, failing changes that are correct.
+  # Cost me most of a day before I worked out which half was stale.
+  stage "build focused Seoul browser tests and the product libraries (-j $JOBS)"
   (cd "$CHROMIUM_SRC" &&
     autoninja -C "out/$OUT_DIR_NAME" -j "$JOBS" \
+      chrome \
       seoul/browser/product/browser:seoul_browser_tests)
 
   [ -x "$OUT_DIR/seoul_browser_tests" ] ||

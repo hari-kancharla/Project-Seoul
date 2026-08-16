@@ -25,6 +25,8 @@ source_set("product_chromium") {
     "seoul_runtime_service_factory.h",
     "site_layer_applicator.cc",
     "site_layer_applicator.h",
+    "space_partition_resolver.cc",
+    "space_partition_resolver.h",
   ]
 
   # The macOS Keychain store is Objective-C++ and only builds on Mac; the rest

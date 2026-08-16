@@ -517,6 +517,13 @@ SeoulShellFooterView::SeoulShellFooterView(ShellController* controller) {
 
   status_label_ = AddChildView(std::make_unique<views::Label>(
       u"", views::style::CONTEXT_LABEL, views::style::STYLE_SECONDARY));
+  // Wrap rather than run off the edge. A single-line Label in a rail this
+  // narrow clips its own text - "Showing all tabs while the layout rec..." -
+  // and a status message the user cannot finish reading is worse than none,
+  // because it is telling them something is wrong without saying what.
+  status_label_->SetMultiLine(true);
+  status_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+  status_label_->SetElideBehavior(gfx::NO_ELIDE);
   status_label_->GetViewAccessibility().SetLiveRegionContainer(
       views::ViewAccessibility::LiveRegionStatus::kPolite);
 

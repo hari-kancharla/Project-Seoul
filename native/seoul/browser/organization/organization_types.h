@@ -64,6 +64,11 @@ struct WorkspaceRecord {
   base::Time last_active_at;
   bool archived = false;
   bool is_default = false;
+  // Storage isolation. An isolated Space puts its tabs in their own
+  // StoragePartition, so cookies and site data cannot cross between Spaces.
+  // Off by default: turning it on for an existing Space would make every login
+  // in it disappear, which must be the user's choice rather than a migration.
+  bool isolated = false;
 };
 
 struct EssentialRecord {
@@ -242,6 +247,7 @@ enum class OrganizationChangeType {
   kWorkspaceCreated,
   kWorkspaceRenamed,
   kWorkspaceIconChanged,
+  kWorkspaceIsolationChanged,
   kWorkspaceReordered,
   kWorkspaceArchived,
   kWorkspaceRestored,

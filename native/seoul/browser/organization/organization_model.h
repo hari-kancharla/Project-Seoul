@@ -63,6 +63,12 @@ class OrganizationModel {
   // Non-empty values are validated opaque built-in tokens or UTF-8 emoji,
   // never navigable URLs.
   MutationStatus SetWorkspaceIcon(const WorkspaceId& id, std::string_view icon);
+  // Turns storage isolation on or off for a Space. Changing it does not move
+  // data between partitions - what was stored in one is simply no longer the
+  // partition the Space's tabs use - so callers are expected to make that
+  // consequence explicit to the user rather than treating this as a toggle
+  // with no cost.
+  MutationStatus SetWorkspaceIsolated(const WorkspaceId& id, bool isolated);
   MutationStatus ReorderWorkspace(const WorkspaceId& id, int new_order);
   MutationStatus ArchiveWorkspace(const WorkspaceId& id);
   MutationStatus RestoreWorkspace(const WorkspaceId& id);
