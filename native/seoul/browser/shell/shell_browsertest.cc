@@ -766,6 +766,92 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   popup->UpdatePopupAppearance();
 }
 
+// Scrolling the Space strip moves between Spaces, the way Zen and Arc do it.
+//
+// Covers the three things that are easy to get wrong: a wheel notch moves
+// exactly one Space, the strip wraps rather than stopping at the ends, and a
+// trackpad's stream of small deltas produces one switch per flick instead of
+// racing through every Space in the window.
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest, ScrollingTheSpaceStripSwitches) {
+  SeoulOrganizationService* svc = service();
+  ASSERT_TRUE(svc);
+  ASSERT_TRUE(svc->model().CreateWorkspace("Second").has_value());
+  ASSERT_TRUE(svc->model().CreateWorkspace("Third").has_value());
+  base::RunLoop().RunUntilIdle();
+
+  SeoulShellFooterView* footer =
+      svc->shell_service()->GetFooterForTesting(WindowKey());
+  ASSERT_TRUE(footer);
+  views::View* strip = footer->workspaces_control_for_testing();
+  ASSERT_TRUE(strip);
+
+  ShellController* controller = svc->shell_service()->GetController(WindowKey());
+  ASSERT_TRUE(controller);
+  ASSERT_GE(controller->snapshot().spaces.size(), 3u);
+
+  auto active_index = [&]() -> int {
+    const auto& spaces = controller->snapshot().spaces;
+    for (size_t i = 0; i < spaces.size(); ++i) {
+      if (spaces[i].is_active) {
+        return static_cast<int>(i);
+      }
+    }
+    return -1;
+  };
+  const int count = static_cast<int>(controller->snapshot().spaces.size());
+  const int start = active_index();
+  ASSERT_GE(start, 0);
+
+  auto wheel = [&](int y_offset) {
+    ui::MouseWheelEvent event(gfx::Vector2d(0, y_offset), gfx::Point(1, 1),
+                              gfx::Point(1, 1), base::TimeTicks::Now(),
+                              ui::EF_NONE, ui::EF_NONE);
+    strip->OnMouseWheel(event);
+    base::RunLoop().RunUntilIdle();
+  };
+
+  // One notch down, one Space forward.
+  wheel(-120);
+  EXPECT_EQ((start + 1) % count, active_index());
+
+  // And back.
+  wheel(120);
+  EXPECT_EQ(start, active_index());
+
+  // Wraps rather than stopping: scrolling back past the first lands on the last.
+  wheel(120);
+  EXPECT_EQ((start - 1 + count) % count, active_index())
+      << "the strip should wrap, not stop at the end";
+
+  // A trackpad flick is many small deltas. Below the threshold nothing moves.
+  const int before_flick = active_index();
+  for (int i = 0; i < 3; ++i) {
+    ui::ScrollEvent small(ui::EventType::kScroll, gfx::Point(1, 1),
+                          base::TimeTicks::Now(), ui::EF_NONE,
+                          /*x_offset=*/0, /*y_offset=*/-5,
+                          /*x_offset_ordinal=*/0, /*y_offset_ordinal=*/-5,
+                          /*finger_count=*/2);
+    strip->OnScrollEvent(&small);
+  }
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(before_flick, active_index())
+      << "incidental movement must not change Space";
+
+  // Crossing the threshold moves exactly one, not one per delta.
+  for (int i = 0; i < 8; ++i) {
+    ui::ScrollEvent step(ui::EventType::kScroll, gfx::Point(1, 1),
+                         base::TimeTicks::Now(), ui::EF_NONE,
+                         /*x_offset=*/0, /*y_offset=*/-10,
+                         /*x_offset_ordinal=*/0, /*y_offset_ordinal=*/-10,
+                         /*finger_count=*/2);
+    strip->OnScrollEvent(&step);
+  }
+  base::RunLoop().RunUntilIdle();
+  const int moved = ((active_index() - before_flick) % count + count) % count;
+  EXPECT_GE(moved, 1);
+  EXPECT_LE(moved, 2) << "a single flick must not race through every Space";
+}
+
 IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
                        FooterMatchesZenDefaultControlsAndLayout) {
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());

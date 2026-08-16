@@ -1,6 +1,7 @@
 // Copyright 2026 The Project Seoul Authors
 
 #include "seoul/browser/shell/views/seoul_shell_footer_view.h"
+#include "ui/events/event.h"
 
 #include <algorithm>
 
@@ -121,6 +122,81 @@ class CreateNewButton final : public views::LabelButton {
 };
 
 BEGIN_METADATA(CreateNewButton)
+END_METADATA
+
+// The Space strip, which switches Space when you scroll over it.
+//
+// Zen and Arc both do this and it is the fastest way to move between Spaces
+// without leaving the pointer where it already is. Two details matter:
+//
+//   - A trackpad emits a long stream of small deltas for one flick. Acting on
+//     each would fly through every Space in the window. Delta is accumulated
+//     and one switch is emitted per threshold crossing.
+//   - Reversing direction mid-gesture resets the accumulator, so a correction
+//     takes effect immediately instead of first having to pay off the travel
+//     already banked in the other direction.
+class SpaceStripView final : public views::View {
+  METADATA_HEADER(SpaceStripView, views::View)
+
+ public:
+  using SwitchCallback = base::RepeatingCallback<void(int direction)>;
+
+  explicit SpaceStripView(SwitchCallback on_switch)
+      : on_switch_(std::move(on_switch)) {}
+  SpaceStripView(const SpaceStripView&) = delete;
+  SpaceStripView& operator=(const SpaceStripView&) = delete;
+  ~SpaceStripView() override = default;
+
+  bool OnMouseWheel(const ui::MouseWheelEvent& event) override {
+    // A wheel notch is already discrete, so it moves exactly one Space. The
+    // horizontal axis is honoured too: a tilt wheel and a two-finger sideways
+    // swipe are the same intent as scrolling the strip itself.
+    const int offset = event.y_offset() != 0 ? event.y_offset()
+                                             : event.x_offset();
+    if (offset == 0) {
+      return false;
+    }
+    accumulated_ = 0;
+    on_switch_.Run(offset < 0 ? 1 : -1);
+    return true;
+  }
+
+  void OnScrollEvent(ui::ScrollEvent* event) override {
+    if (event->type() != ui::EventType::kScroll) {
+      return;
+    }
+    const float offset =
+        event->y_offset() != 0 ? event->y_offset() : event->x_offset();
+    if (offset == 0) {
+      return;
+    }
+    // Direction change means the user corrected; do not make them pay off the
+    // travel banked the other way first.
+    if ((offset > 0) != (accumulated_ > 0)) {
+      accumulated_ = 0;
+    }
+    accumulated_ += offset;
+    if (std::abs(accumulated_) < kScrollSwitchThreshold) {
+      event->SetHandled();
+      return;
+    }
+    const int direction = accumulated_ < 0 ? 1 : -1;
+    accumulated_ = 0;
+    on_switch_.Run(direction);
+    event->SetHandled();
+  }
+
+ private:
+  // Roughly one deliberate trackpad flick. Low enough to feel immediate, high
+  // enough that incidental movement while reaching for a button does not
+  // change Space underneath the pointer.
+  static constexpr float kScrollSwitchThreshold = 40.0f;
+
+  const SwitchCallback on_switch_;
+  float accumulated_ = 0.0f;
+};
+
+BEGIN_METADATA(SpaceStripView)
 END_METADATA
 
 class SpaceSwitcherButton final : public views::LabelButton {
@@ -363,8 +439,10 @@ SeoulShellFooterView::SeoulShellFooterView(ShellController* controller) {
   downloads_button_->SetTooltipText(u"Downloads");
   downloads_button_->GetViewAccessibility().SetName(u"Downloads");
 
-  spaces_container_ =
-      controls_row_->AddChildView(std::make_unique<views::View>());
+  spaces_container_ = controls_row_->AddChildView(
+      std::make_unique<SpaceStripView>(base::BindRepeating(
+          &SeoulShellFooterView::OnSpaceScrollSwitch,
+          base::Unretained(this))));
   spaces_layout_ =
       spaces_container_->SetLayoutManager(std::make_unique<views::BoxLayout>(
           views::BoxLayout::Orientation::kHorizontal, gfx::Insets(),
@@ -526,6 +604,27 @@ void SeoulShellFooterView::UpdateSpaceButtons(const ShellSnapshot& snapshot,
         ->UpdateSpace(snapshot.spaces[i], animate);
   }
   rendered_spaces_ = snapshot.spaces;
+}
+
+void SeoulShellFooterView::OnSpaceScrollSwitch(int direction) {
+  if (!controller_ || direction == 0) {
+    return;
+  }
+  const std::vector<ShellSpaceItem>& spaces = controller_->snapshot().spaces;
+  if (spaces.size() < 2) {
+    // One Space cannot be scrolled away from, and zero has nothing to show.
+    return;
+  }
+  auto current = std::ranges::find_if(
+      spaces, [](const ShellSpaceItem& space) { return space.is_active; });
+  if (current == spaces.end()) {
+    return;
+  }
+  const int count = static_cast<int>(spaces.size());
+  const int index = static_cast<int>(std::distance(spaces.begin(), current));
+  // Wraps, so a strip of Spaces is a loop rather than a wall at each end.
+  const int next = ((index + direction) % count + count) % count;
+  std::ignore = controller_->SwitchWorkspace(spaces[next].workspace_id);
 }
 
 void SeoulShellFooterView::OnSpacePressed(WorkspaceId workspace_id) {

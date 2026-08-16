@@ -75,6 +75,7 @@ class SeoulShellFooterView : public views::View, public ShellObserver {
   bool CanUpdateSpaceButtons(const ShellSnapshot& snapshot) const;
   void RebuildSpaceButtons(const ShellSnapshot& snapshot);
   void UpdateSpaceButtons(const ShellSnapshot& snapshot, bool animate);
+  void OnSpaceScrollSwitch(int direction);
   void OnSpacePressed(WorkspaceId workspace_id);
   void OnDownloadsPressed();
   void OnCreateNewPressed();
