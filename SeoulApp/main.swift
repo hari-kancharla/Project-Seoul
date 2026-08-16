@@ -37,9 +37,13 @@ final class SeoulAppController: NSObject {
     private var clearHotKeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
 
-    /// Which app owned the page the current sketch points at, captured when the
-    /// query was fired. Used to tell "switched away" from "switched back".
-    private var annotationOwnerPID: pid_t?
+    /// In-flight queries, what is drawn, and which app each belongs to.
+    ///
+    /// One object rather than three fields: the owner pid, the pending map and
+    /// the live element set have to change together, and when they were separate
+    /// they drifted — a response could be drawn against a request that had
+    /// already been cancelled, using an owner captured for a different query.
+    private var ledger = OverlayRequestLedger()
 
     /// Editable from the menu so several queries can be tried without a rebuild.
     private var queries = [
@@ -52,12 +56,6 @@ final class SeoulAppController: NSObject {
     ]
     private var activeQuery = 0
 
-    private struct Pending {
-        let query: String
-        let t0: DispatchTime          // hotkey pressed
-        var t1: DispatchTime?         // request written to socket
-    }
-    private var pending: [String: Pending] = [:]
     private var requestCounter = 0
 
     /// Scroll re-anchors. Counted rather than logged, then summarised on
@@ -66,10 +64,6 @@ final class SeoulAppController: NSObject {
     private var updateCount = 0
     private var updateNanosTotal: Double = 0
     private var updateNanosWorst: Double = 0
-
-    /// Elements already on screen, so a scroll update re-anchors instead of
-    /// replaying the draw-on. Keyed by the page's element id.
-    private var liveElementIDs: Set<String> = []
 
     private let selfTest: Bool
     private var selfTestFired = false
@@ -103,12 +97,19 @@ final class SeoulAppController: NSObject {
     }
 
     private func frontmostChanged(to app: NSRunningApplication?) {
-        // Nothing drawn: nothing to do. Without this the log would narrate every
-        // app switch the user ever makes.
-        guard let owner = annotationOwnerPID else { return }
-        // Switching BACK to the annotated browser is not a reason to clear.
-        if let app, app.processIdentifier == owner { return }
-        clear(reason: "frontmost app -> \(app?.localizedName ?? "unknown")")
+        // Runs even when nothing is drawn: a query fired at one app and answered
+        // after switching to another must not paint over the new app, so the
+        // in-flight request has to be cancelled here too.
+        let outcome = ledger.frontmostChanged(to: app?.processIdentifier)
+        guard outcome.clearedOverlay || !outcome.cancelledRequests.isEmpty else { return }
+
+        let where_ = app?.localizedName ?? "unknown"
+        if outcome.clearedOverlay { OverlayPanel.clear() }
+        if !outcome.cancelledRequests.isEmpty {
+            elog("frontmost app -> \(where_); cancelled in-flight " +
+                 outcome.cancelledRequests.joined(separator: ", "))
+        }
+        if outcome.clearedOverlay { elog("overlay cleared (frontmost app -> \(where_))") }
     }
 
     // MARK: - Menu
@@ -226,6 +227,14 @@ final class SeoulAppController: NSObject {
                 self.updateNanosTotal = 0
                 self.updateNanosWorst = 0
             }
+            // The browser is gone, so no in-flight query can still be answered
+            // truthfully. Drop them rather than leaving them to match a
+            // response from whatever connects next.
+            let cancelled = self.ledger.cancelAll()
+            if !cancelled.isEmpty {
+                elog("cancelled in-flight " + cancelled.joined(separator: ", ") + " (bridge disconnected)")
+            }
+            OverlayPanel.clear()
             elog("SeoulHost disconnected")
         }
         server.onMessage = { [weak self] data in
@@ -254,13 +263,36 @@ final class SeoulAppController: NSObject {
               let ctx = response.ctx else {
             elog("find [\(response.requestId)] -> \(response.status)" +
                  (response.error.map { " (\($0))" } ?? ""))
-            pending.removeValue(forKey: response.requestId)
+            ledger.abandon(response.requestId)
             return
         }
 
         let elementID = response.elementId ?? response.requestId
+
+        // DECIDE BEFORE DRAWING.
+        //
+        // Everything past this point touches the screen, so a response that is
+        // no longer wanted must never reach it. The previous order drew first
+        // and consulted the pending map afterwards, which meant a slow answer
+        // repainted a sketch the user had already cleared — and did it against
+        // whichever application happened to be in front by then.
+        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let verdict = ledger.admit(requestId: response.requestId,
+                                   elementID: elementID,
+                                   frontmostPID: frontmost)
+        let request: OverlayRequestLedger.PendingRequest?
+        switch verdict {
+        case .reject(let reason):
+            elog("dropped response [\(response.requestId)] -> \(reason.rawValue)")
+            return
+        case .reanchor:
+            request = nil
+        case .render(let admitted):
+            request = admitted
+        }
+
         let (screenRect, debugInfo) = transform(rects: rects, ctx: ctx)
-        let isUpdate = liveElementIDs.contains(elementID)
+        let isUpdate = request == nil
 
         // Logged on every find, not only when the overlay is visible: the whole
         // point is to be able to read the numbers back after a bad landing.
@@ -279,10 +311,9 @@ final class SeoulAppController: NSObject {
                               label: isUpdate ? nil : response.label,
                               elementID: elementID,
                               debug: debugInfo)
-        liveElementIDs.insert(elementID)
         let t3 = DispatchTime.now()
 
-        guard let request = pending.removeValue(forKey: response.requestId) else {
+        guard let request else {
             // A scroll update: no hotkey behind it, so there is no t0/t1 to
             // report. Not logged per event — these arrive at frame rate — but
             // counted, so a scroll session can be confirmed after the fact.
@@ -292,7 +323,7 @@ final class SeoulAppController: NSObject {
             updateNanosWorst = max(updateNanosWorst, ns)
             return
         }
-        report(query: request.query, t0: request.t0, t1: request.t1, t2: t2, t3: t3)
+        report(request: request, t2: t2, t3: t3)
     }
 
     /// Page rects (CSS px, viewport-relative, y down) -> one AppKit screen rect.
@@ -389,14 +420,17 @@ final class SeoulAppController: NSObject {
         return (appKitRect, info)
     }
 
-    private func report(query: String, t0: DispatchTime, t1: DispatchTime?, t2: DispatchTime, t3: DispatchTime) {
-        func ms(_ a: DispatchTime, _ b: DispatchTime) -> String {
-            let ns = Double(b.uptimeNanoseconds &- a.uptimeNanoseconds)
-            return String(format: "%.2f ms", ns / 1_000_000)
+    private func report(request: OverlayRequestLedger.PendingRequest,
+                        t2: DispatchTime, t3: DispatchTime) {
+        func ms(_ a: UInt64, _ b: UInt64) -> String {
+            String(format: "%.2f ms", Double(b &- a) / 1_000_000)
         }
-        let t1 = t1 ?? t0
+        let t0 = request.startedAtNanos
+        let t1 = request.sentAtNanos ?? t0
+        let t2 = t2.uptimeNanoseconds
+        let t3 = t3.uptimeNanoseconds
         elog("""
-        timing for "\(query)"
+        timing for "\(request.query)"
           t0 -> t1  write request to socket   \(ms(t0, t1))
           t1 -> t2  browser round trip        \(ms(t1, t2))
           t2 -> t3  transform + render sketch \(ms(t2, t3))
@@ -473,8 +507,14 @@ final class SeoulAppController: NSObject {
         }
         // Captured now, while the browser is still frontmost: the hotkey is
         // global and this app never activates, so whatever is in front at this
-        // instant is the window the answer will land on.
-        annotationOwnerPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        // instant is the window the answer will land on. Stored PER REQUEST —
+        // two queries fired at two windows have two different owners, and a
+        // single shared field attributes the second one's owner to the first
+        // one's answer.
+        guard let owner = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
+            elog("no frontmost application — nothing to annotate")
+            return
+        }
 
         requestCounter += 1
         let requestId = "req-\(requestCounter)"
@@ -485,14 +525,17 @@ final class SeoulAppController: NSObject {
             elog("could not encode request")
             return
         }
-        pending[requestId] = Pending(query: query, t0: t0, t1: nil)
+        let superseded = ledger.register(requestId: requestId, query: query,
+                                         ownerPID: owner, atNanos: t0.uptimeNanoseconds)
         let ok = server.send(payload)
-        let t1 = DispatchTime.now()
-        pending[requestId]?.t1 = t1
+        ledger.markSent(requestId, atNanos: DispatchTime.now().uptimeNanoseconds)
         if !ok {
             elog("failed to write request to socket")
-            pending.removeValue(forKey: requestId)
+            ledger.abandon(requestId)
             return
+        }
+        if !superseded.isEmpty {
+            elog("superseded in-flight " + superseded.joined(separator: ", "))
         }
         elog("find [\(requestId)] \"\(query)\"")
     }
@@ -532,21 +575,28 @@ final class SeoulAppController: NSObject {
         OverlayPanel.debugEnabled.toggle()
         sender.state = OverlayPanel.debugEnabled ? .on : .off
         elog("coordinate debug overlay \(OverlayPanel.debugEnabled ? "ON" : "OFF")")
-        if !OverlayPanel.debugEnabled { OverlayPanel.clear(); liveElementIDs.removeAll() }
+        // Through the same centralised path as every other clear, so the
+        // pending requests and the owner go with it rather than being left
+        // behind to redraw later.
+        if !OverlayPanel.debugEnabled { clear(reason: "debug overlay off") }
     }
 
     @objc private func clearOverlay() {
         clear(reason: "menu")
     }
 
-    /// Every route to an empty overlay goes through here, and says why. There
-    /// are now three of them — the menu, the hotkey, and losing focus — and
-    /// "the sketch vanished" is not a useful thing to have to debug.
+    /// The ONE route to an empty overlay, and it says why.
+    ///
+    /// Cancelling the in-flight requests is part of clearing, not a separate
+    /// step: leaving them pending is what let a slow answer redraw a sketch the
+    /// user had just dismissed.
     private func clear(reason: String) {
-        let hadSomething = annotationOwnerPID != nil || !liveElementIDs.isEmpty
+        let hadSomething = ledger.hasOverlayState
+        let cancelled = ledger.cancelAll()
         OverlayPanel.clear()
-        liveElementIDs.removeAll()
-        annotationOwnerPID = nil
+        if !cancelled.isEmpty {
+            elog("cancelled in-flight " + cancelled.joined(separator: ", ") + " (\(reason))")
+        }
         if hadSomething { elog("overlay cleared (\(reason))") }
     }
 
