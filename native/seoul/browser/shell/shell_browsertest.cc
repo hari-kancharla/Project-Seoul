@@ -217,18 +217,33 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
             "Showing all tabs while the layout recovers.");
 }
 
-IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
-                       DefaultWorkspaceHeaderHasNoSyntheticInitial) {
+// The current Space is named exactly once, in the footer pill. The rail used
+// to carry a second name above the tabs; that indicator is deliberately no
+// longer installed, and this test is the contract that it stays out.
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest, SpaceIsNamedOnceInTheFooter) {
   SeoulOrganizationService* svc = service();
   ASSERT_TRUE(svc);
-  SeoulShellSpaceView* space =
-      svc->shell_service()->GetSpaceForTesting(WindowKey());
-  ASSERT_TRUE(space);
-  EXPECT_EQ(u"Default", space->text_for_testing());
+  EXPECT_EQ(nullptr, svc->shell_service()->GetSpaceForTesting(WindowKey()))
+      << "the top-of-rail Space indicator must not be installed";
+
+  SeoulShellFooterView* footer =
+      svc->shell_service()->GetFooterForTesting(WindowKey());
+  ASSERT_TRUE(footer);
+  views::View* strip = footer->workspaces_control_for_testing();
+  ASSERT_TRUE(strip);
+  ASSERT_FALSE(strip->children().empty());
+  auto* pill =
+      views::AsViewClass<views::LabelButton>(strip->children().front());
+  ASSERT_TRUE(pill);
+  EXPECT_EQ(u"Default", pill->GetText())
+      << "the footer pill is the single place the current Space is named";
 }
 
+// Pinned-section collapse survives the removal of the Space indicator that
+// used to host its toggle. The strip API is the contract; the affordance gets
+// a new home when pinned tabs get their next pass.
 IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
-                       SpaceIndicatorPrecedesPinnedTabsAndOwnsCollapseState) {
+                       PinnedCollapseWorksWithoutTheSpaceIndicator) {
   BrowserView* const browser_view =
       BrowserView::GetBrowserViewForBrowser(browser());
   ASSERT_TRUE(browser_view);
@@ -238,18 +253,6 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   VerticalTabStripView* const tab_strip =
       vertical_region->GetSeoulTabStripView();
   ASSERT_TRUE(tab_strip);
-  SeoulShellSpaceView* const space =
-      service()->shell_service()->GetSpaceForTesting(WindowKey());
-  ASSERT_TRUE(space);
-
-  const views::ProposedLayout layout = tab_strip->CalculateProposedLayout(
-      views::SizeBounds(gfx::Size(280, 720)));
-  const views::ChildLayout* const indicator_layout = layout.GetLayoutFor(space);
-  const views::ChildLayout* const pinned_layout =
-      layout.GetLayoutFor(tab_strip->pinned_tabs_scroll_view_for_testing());
-  ASSERT_TRUE(indicator_layout);
-  ASSERT_TRUE(pinned_layout);
-  EXPECT_EQ(indicator_layout->bounds.bottom(), pinned_layout->bounds.y());
 
   tab_strip->SetSeoulPinnedTabsCollapsed(true);
   EXPECT_TRUE(tab_strip->seoul_pinned_tabs_collapsed_for_testing());

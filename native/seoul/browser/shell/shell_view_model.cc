@@ -160,8 +160,21 @@ ShellSnapshot ShellViewModel::Build(const OrganizationModel& model,
     return snapshot;
   }
 
-  if (context.lifecycle_degraded ||
-      projection.status == ProjectionStatus::kReconciliationRequired) {
+  const bool switching_now =
+      context.switch_phase == WorkspaceSwitchPhase::kValidating ||
+      context.switch_phase == WorkspaceSwitchPhase::kCalculating ||
+      context.switch_phase == WorkspaceSwitchPhase::kAwaitingActivation ||
+      context.switch_phase == WorkspaceSwitchPhase::kCommitting;
+  // A Space switch is checked before the degraded states, not after. Mid-switch
+  // the projection passes through fail-open and reconciliation-pending for a
+  // few frames by design, and surfacing those as banners meant every switch
+  // flashed "Showing all tabs while the layout recovers." at the user - a
+  // scary message for a working feature. A switch is not an error. Degradation
+  // that persists past the switch still shows, because the phase clears.
+  if (switching_now) {
+    snapshot.status = ShellStatus::kSwitchingWorkspace;
+  } else if (context.lifecycle_degraded ||
+             projection.status == ProjectionStatus::kReconciliationRequired) {
     snapshot.status = ShellStatus::kReconciliationRequired;
     snapshot.show_status_banner = true;
     snapshot.status_message = "Reconciliation required.";
@@ -170,10 +183,6 @@ ShellSnapshot ShellViewModel::Build(const OrganizationModel& model,
     snapshot.status = ShellStatus::kFailOpen;
     snapshot.show_status_banner = true;
     snapshot.status_message = "Showing all tabs while the layout recovers.";
-  } else if (context.switch_phase ==
-                 WorkspaceSwitchPhase::kAwaitingActivation ||
-             context.switch_phase == WorkspaceSwitchPhase::kCommitting) {
-    snapshot.status = ShellStatus::kSwitchingWorkspace;
   } else if (projection.empty_workspace) {
     snapshot.status = ShellStatus::kEmptyWorkspace;
     snapshot.show_empty_workspace = true;

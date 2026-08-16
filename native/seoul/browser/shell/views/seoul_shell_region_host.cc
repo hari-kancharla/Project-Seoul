@@ -65,25 +65,16 @@ void SeoulShellRegionHost::Attach(VerticalTabStripRegionView* region,
   } else {
     footer_->BindController(controller);
   }
-  if (!space_) {
-    if (VerticalTabStripView* tab_strip = region->GetSeoulTabStripView()) {
-      auto space = std::make_unique<SeoulShellSpaceView>(controller);
-      space_ = static_cast<SeoulShellSpaceView*>(
-          tab_strip->SetSeoulSpaceIndicator(std::move(space)));
-      // Chromium's default vertical strip reserves eight DIPs above its first
-      // row. The integrated Seoul toolbar already owns the titlebar spacing,
-      // so retain only one compact Zen-style separation here.
-      tab_strip->SetProperty(views::kMarginsKey, gfx::Insets::TLBR(4, 0, 8, 0));
-    }
-  } else {
-    space_->BindController(controller);
-  }
-  if (space_) {
-    if (VerticalTabStripView* tab_strip = region->GetSeoulTabStripView()) {
-      space_->SetPinnedCollapsedChangedCallback(base::BindRepeating(
-          &VerticalTabStripView::SetSeoulPinnedTabsCollapsed,
-          base::Unretained(tab_strip)));
-    }
+  // No Space indicator at the top of the rail. The window used to name the
+  // current Space twice - an indicator row above the tabs and the pill in the
+  // footer - and two displays of one fact is one too many: they can disagree,
+  // they cost rail height, and the footer pill is the one that also switches.
+  // The indicator view still exists for the workspace menu; it is simply not
+  // installed. Pinned-section collapse, which lived on the indicator, remains
+  // reachable through VerticalTabStripView::SetSeoulPinnedTabsCollapsed and
+  // needs a new affordance when pinned tabs get their next pass.
+  if (VerticalTabStripView* tab_strip = region->GetSeoulTabStripView()) {
+    tab_strip->SetProperty(views::kMarginsKey, gfx::Insets::TLBR(4, 0, 8, 0));
   }
 
   views::View* separator = region->GetSeoulShellSeparatorAnchor();
