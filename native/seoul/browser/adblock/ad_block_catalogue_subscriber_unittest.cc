@@ -3,6 +3,9 @@
 
 #include "seoul/browser/adblock/ad_block_catalogue_subscriber.h"
 
+#include <algorithm>
+#include <string_view>
+
 #include <string>
 #include <vector>
 
@@ -49,6 +52,19 @@ TEST_F(AdBlockCatalogueSubscriberTest, ProductionCatalogSubscribesToRealLists) {
     EXPECT_EQ(0u, entry.url.rfind("https://", 0))
         << entry.id << " must be fetched over HTTPS";
   }
+
+  // Pinned by id: EasyList alone leaves same-origin ad surfaces standing -
+  // YouTube's sponsored cards most visibly - and uBlock's filters carry the
+  // cosmetic rules that hide that class. Dropping any of these from the
+  // default subscription quietly reintroduces the ads a user notices first.
+  auto has = [&selected](std::string_view id) {
+    return std::ranges::any_of(selected, [&id](const AdBlockCatalogEntry& e) {
+      return e.id == id;
+    });
+  };
+  EXPECT_TRUE(has("easylist"));
+  EXPECT_TRUE(has("easyprivacy"));
+  EXPECT_TRUE(has("ublock-filters"));
 }
 
 TEST_F(AdBlockCatalogueSubscriberTest, SelectionSkipsWhatItMustSkip) {

@@ -14,6 +14,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "base/test/run_until.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
@@ -71,6 +72,22 @@ class AdBlockBrowserTest : public InProcessBrowserTest {
   std::unique_ptr<net::test_server::HttpResponse> HandleRequest(
       const net::test_server::HttpRequest& request) {
     auto response = std::make_unique<net::test_server::BasicHttpResponse>();
+    if (request.relative_url == "/player.html") {
+      // A synthetic player in the video.js ads convention: an ad-state marker
+      // and a skip control that records presses. Real enough for the player-ad
+      // treatment, with none of a real ad server's nondeterminism.
+      response->set_content_type("text/html");
+      response->set_content(
+          "<html><body>"
+          "<div class=\"vjs-ad-playing\">"
+          "  <video muted></video>"
+          "  <button class=\"vjs-skip-button\" "
+          "onclick=\"window.__skips=(window.__skips||0)+1\">Skip</button>"
+          "</div>"
+          "<script>window.__skips=0;</script>"
+          "</body></html>");
+      return response;
+    }
     if (request.relative_url == "/page.html") {
       response->set_content_type("text/html");
       response->set_content(
@@ -267,6 +284,29 @@ class AdBlockBrowserTest : public InProcessBrowserTest {
   std::atomic<int> rewritten_navigation_requests_{0};
   std::atomic<int> unsafe_original_navigation_requests_{0};
 };
+
+// The player-ad treatment rides the cosmetic pipeline into every http(s)
+// document and presses a matched player's skip control. Driven through the
+// REAL injection path - service to host to isolated world - against a
+// synthetic player, because a live ad server decides for itself when to serve
+// and a test that only sometimes has an ad only sometimes tests.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, PlayerAdTreatmentPressesSkip) {
+  const GURL url = embedded_test_server()->GetURL("ads.example", "/player.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+
+  // The treatment observes and polls at 500ms; wait for the press to land.
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    return content::EvalJs(contents, "window.__skips").ExtractInt() > 0;
+  })) << "the isolated-world treatment must press the player's skip control";
+
+  // And the page world must not see the treatment itself - the isolation is
+  // the security model, so its absence here is part of the contract.
+  EXPECT_EQ(false,
+            content::EvalJs(contents, "!!window.__seoulPlayerAdTreatment"));
+}
 
 IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
                        BlocksScriptBeforeEmbeddedServerReceivesIt) {

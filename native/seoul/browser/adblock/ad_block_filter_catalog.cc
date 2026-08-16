@@ -81,12 +81,18 @@ std::vector<AdBlockCatalogEntry> BuildCatalog() {
 
   // uBlock Origin's own filters, GPL-3.0 per uBlockOrigin/uAssets LICENSE.
   // Off by default: it overlaps EasyList heavily, so it is a user opt-in.
+  // Enabled by default because EasyList alone does not touch the ad class a
+  // user actually complains about first: YouTube's own sponsored cards and
+  // overlays, served from the site's origin where network rules cannot reach
+  // them. uBlock's filters carry the cosmetic rules that hide that class. In
+  // the default engine its rewrite rules are neutralised by the two-engine
+  // policy, which is the conservative reading of a browser-vetted list.
   catalog.push_back(MakeEntry(
       "ublock-filters", "uBlock Origin filters", "uBlock Origin",
       "https://ublockorigin.github.io/uAssetsCDN/filters/filters.txt",
       "GPL-3.0-only", "Raymond Hill and uAssets contributors",
-      AdBlockListDelivery::kRuntimeDownload, /*enabled_by_default=*/false,
-      AdBlockEngineGroup::kAdditional, 12u * kMiB, 24));
+      AdBlockListDelivery::kRuntimeDownload, /*enabled_by_default=*/true,
+      AdBlockEngineGroup::kDefault, 12u * kMiB, 24));
 
   // Brave's site-compatibility ("unbreak") rules. The brave/adblock-lists
   // repository is MPL-2.0 and states that individual lists may carry their own

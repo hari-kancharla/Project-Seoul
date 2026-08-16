@@ -78,6 +78,8 @@ source_set("adblock") {
     "ad_block_websocket_interceptor.h",
     "cosmetic_filter_host.cc",
     "cosmetic_filter_host.h",
+    "player_ad_treatment.cc",
+    "player_ad_treatment.h",
     "procedural_cosmetic_sanitizer.cc",
     "procedural_cosmetic_sanitizer.h",
   ]
@@ -131,6 +133,7 @@ test("seoul_adblock_engine_unittests") {
 test("seoul_adblock_core_unittests") {
   testonly = true
   sources = [
+    "player_ad_treatment_unittest.cc",
     "ad_block_catalogue_subscriber_unittest.cc",
     "ad_block_component_installer_unittest.cc",
     "ad_block_core_unittest.cc",

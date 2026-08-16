@@ -408,6 +408,43 @@ undelivered, for two separate reasons that both stand.
 `docs/research/native-adblock-implementation.md` says Brave parity must not be
 claimed until those paths exist. That remains true.
 
+## In-stream video ads, and the honest boundary
+
+Measured on 2026-08-21 against youtube.com, signed out, fresh profile:
+
+| Surface | Result |
+|---|---|
+| Sponsored cards and display slots (search + watch) | 4 in DOM, 0 visible |
+| Ad requests (doubleclick, adservice, and class) | blocked at the network layer |
+| In-stream (pre-roll) ads | treated by the player-ad module below |
+
+Three layers now cover three different ad classes. Network rules block ad
+requests (EasyList, EasyPrivacy, and - now enabled by default - uBlock's
+filters, which carry the cosmetic rules for same-origin ad surfaces).
+Cosmetic filtering hides ad DOM the network layer cannot reach. And a
+Seoul-authored player-ad treatment runs in the isolated world for every
+http(s) page: when a player's own markup announces an ad (YouTube's player,
+Google IMA, JW Player, video.js - a data table, not per-site code), it seeks
+the ad's media element to its end and presses the player's skip control.
+Verified end to end through the real injection pipeline against a synthetic
+player, three runs; a live YouTube pre-roll could not be forced during
+verification because the ad server decides when to serve.
+
+The boundary, stated so nobody oversells it: ads stitched server-side into
+the content stream (Netflix's and Prime Video's ad tiers, SSAI generally)
+present no ad-state DOM and no separate media element. No client-side blocker
+removes those, and Seoul does not claim to.
+
+## Boosts, now on the page they change
+
+"Boost This Site" opens a native bubble anchored to the toolbar of the window
+whose page is being boosted: site on/off, per-site dark mode, six tint
+swatches, four font choices, text-size steps, element zap, and removal - all
+writing through the existing typed SiteLayer registry and applying live. The
+Canvas side panel is no longer the Boost editor's front door. Browser-tested:
+opening the bubble and pressing a control writes the origin's layer; pressing
+it again removes the empty layer rather than leaving a do-nothing Boost.
+
 ## First run, as actually seen
 
 Launching the product with no URL gives a window with the vertical rail, the

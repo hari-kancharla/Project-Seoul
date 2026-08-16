@@ -37,6 +37,13 @@
 #include "components/sessions/core/session_id.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/webui_config_map.h"
+#include "base/containers/circular_deque.h"
+#include "ui/events/test/test_event.h"
+#include "ui/views/accessibility/view_accessibility.h"
+#include "ui/views/controls/button/button.h"
+#include "ui/views/controls/button/toggle_button.h"
+#include "ui/views/test/button_test_api.h"
+#include "ui/views/test/widget_test.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/url_loader_interceptor.h"
@@ -1774,6 +1781,86 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
       removed_site_layers->FindList("site_layers");
   ASSERT_TRUE(removed_layers);
   EXPECT_TRUE(removed_layers->empty());
+}
+
+// The native Boost bubble: opening it for the active page and pressing its
+// controls writes a real SiteLayer for that origin through the runtime - the
+// same registry, applicator and persistence the rest of Boosts already proves.
+// This is the Arc-shaped entry: the editor appears over the page being edited,
+// not in a separate surface.
+IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest, BoostBubbleWritesLayerForOrigin) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  const GURL url = embedded_test_server()->GetURL("/empty.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+
+  ASSERT_TRUE(seoul::OpenBoostEditorForWebContents(contents));
+
+  // The bubble is a real widget on screen.
+  views::Widget* bubble = nullptr;
+  for (views::Widget* widget : views::test::WidgetTest::GetAllWidgets()) {
+    if (widget->widget_delegate() &&
+        widget->widget_delegate()->GetAccessibleWindowTitle() ==
+            u"Boost this site") {
+      bubble = widget;
+      break;
+    }
+  }
+  ASSERT_TRUE(bubble) << "the Boost bubble must actually appear";
+
+  // Drive the dark toggle by its accessible name, the way assistive tech would.
+  views::View* dark = nullptr;
+  base::circular_deque<views::View*> queue;
+  queue.push_back(bubble->GetContentsView());
+  while (!queue.empty()) {
+    views::View* view = queue.front();
+    queue.pop_front();
+    // The row's Label carries the same accessible name as the toggle, so
+    // match on the class as well - clicking the Label proves nothing.
+    if (views::IsViewClass<views::ToggleButton>(view) &&
+        view->GetViewAccessibility().GetCachedName() ==
+            u"Dark mode for this site") {
+      dark = view;
+      break;
+    }
+    for (views::View* child : view->children()) {
+      queue.push_back(child);
+    }
+  }
+  ASSERT_TRUE(dark) << "the dark toggle must be reachable by its name";
+  views::test::ButtonTestApi(static_cast<views::Button*>(dark))
+      .NotifyClick(ui::test::TestEvent());
+
+  // The registry now holds a layer for this origin with the dark adjustment.
+  SeoulRuntimeService* runtime =
+      SeoulRuntimeServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(runtime);
+  const std::string origin = url::Origin::Create(url).Serialize();
+  const seoul::SiteLayer* layer = nullptr;
+  for (const seoul::SiteLayer* candidate : runtime->site_layers()->List()) {
+    if (candidate->origin_pattern == origin) {
+      layer = candidate;
+      break;
+    }
+  }
+  ASSERT_TRUE(layer) << "pressing a control must create the site's layer";
+  EXPECT_TRUE(layer->enabled);
+  ASSERT_EQ(1u, layer->adjustments.size());
+  EXPECT_EQ(seoul::SiteAdjustmentKind::kAutomaticDarkMode,
+            layer->adjustments[0].kind);
+
+  // Pressing it again clears the adjustment, which deletes the empty layer
+  // rather than leaving a do-nothing Boost in the list.
+  views::test::ButtonTestApi(static_cast<views::Button*>(dark))
+      .NotifyClick(ui::test::TestEvent());
+  bool still_exists = false;
+  for (const seoul::SiteLayer* candidate : runtime->site_layers()->List()) {
+    still_exists |= candidate->origin_pattern == origin;
+  }
+  EXPECT_FALSE(still_exists)
+      << "a Boost with nothing left in it must not linger";
 }
 
 IN_PROC_BROWSER_TEST_F(SeoulBoostDarkBrowserTest,

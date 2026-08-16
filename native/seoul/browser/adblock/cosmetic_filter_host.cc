@@ -2,6 +2,8 @@
 
 #include "seoul/browser/adblock/cosmetic_filter_host.h"
 
+#include "seoul/browser/adblock/player_ad_treatment.h"
+
 #include <algorithm>
 #include <memory>
 #include <set>
@@ -178,9 +180,23 @@ void CosmeticFilterHost::GetDynamicCosmeticSelectors(
 void CosmeticFilterHost::OnGotCosmeticResources(
     GetCosmeticResourcesCallback callback,
     AdBlockCosmeticResources resources) {
-  if (!document_.AsRenderFrameHostIfValid()) {
+  content::RenderFrameHost* frame = document_.AsRenderFrameHostIfValid();
+  if (!frame) {
     std::move(callback).Run(EmptyResources());
     return;
+  }
+  // Seoul's player-ad treatment rides with the list-derived script, under the
+  // same vetting below. Only while blocking is enabled here: turning the
+  // blocker off for a site must silence every treatment, including ours.
+  if (resources.enabled) {
+    const std::string treatment =
+        PlayerAdTreatmentScriptFor(frame->GetLastCommittedURL());
+    if (!treatment.empty()) {
+      if (!resources.default_rules.isolated_script.empty()) {
+        resources.default_rules.isolated_script.append("\n");
+      }
+      resources.default_rules.isolated_script.append(treatment);
+    }
   }
   auto result = mojom::CosmeticResources::New();
   SelectorBudget budget;
