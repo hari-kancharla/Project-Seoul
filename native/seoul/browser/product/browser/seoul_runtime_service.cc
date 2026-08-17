@@ -1,5 +1,6 @@
 // Project Seoul product runtime - the profile-scoped product owner.
 
+#include "seoul/browser/product/browser/seoul_capture.h"
 #include "seoul/browser/product/browser/seoul_runtime_service.h"
 
 #include "seoul/browser/onboarding/onboarding_state.h"
@@ -51,6 +52,7 @@
 #include "seoul/browser/scenes/scene_registry.h"
 #include "seoul/browser/shell/shell_service.h"
 #include "seoul/browser/site_layers/site_layer_registry.h"
+#include "seoul/browser/site_layers/site_layer_types.h"
 #include "seoul/browser/themes/theme_registry.h"
 #include "url/gurl.h"
 
@@ -285,6 +287,16 @@ SeoulRuntimeService::SeoulRuntimeService(
                       ? runtime->web_contents_resolver_.Run(active->tab)
                       : nullptr;
               return OpenBoostEditorForWebContents(contents);
+            },
+            base::Unretained(this)));
+    // Arc's Capture. The region is chosen in the page; the pixels are read in
+    // the browser process, written as a PNG, and filed in the Library as a
+    // kCapture artifact - the one owner of the image, which a Board then
+    // references rather than holding a second copy of the bytes.
+    organization_->shell_service()->SetBeginCaptureCallback(
+        base::BindRepeating(
+            [](SeoulRuntimeService* runtime, LiveWindowKey window) {
+              return runtime && runtime->BeginCaptureForWindow(window);
             },
             base::Unretained(this)));
     organization_->shell_service()->SetCompactModeCallbacks(
@@ -1430,6 +1442,13 @@ void SeoulRuntimeService::ContinueSceneRestore(const LiveWindowKey &window) {
 void SeoulRuntimeService::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable *registry) {
   registry->RegisterDictionaryPref(kProductRuntimePref);
+  // Arc's Settings > Advanced switch. Defaults on, because a Boost the user
+  // created should apply; turning it off silences every Boost without
+  // deleting any of them.
+  registry->RegisterBooleanPref(kSeoulBoostsEnabledPref, true);
+  // Author JavaScript defaults OFF, which is Arc's own posture after it
+  // disabled JavaScript Boosts: the user turns on the ones they want.
+  registry->RegisterBooleanPref(kSeoulBoostJavaScriptEnabledPref, false);
   // First-run state is profile-scoped and has to exist before the first window
   // asks whether to onboard, which happens before any onboarding surface is
   // constructed - so it is registered here rather than by a service of its own.
@@ -1834,6 +1853,39 @@ void SeoulRuntimeService::RefreshSiteLayers() {
       applicator->Refresh(SceneForTab(tab));
     }
   }
+}
+
+bool SeoulRuntimeService::BeginCaptureForWindow(const LiveWindowKey &window) {
+  const std::optional<LiveTabDescriptor> active = ActiveTabDescriptor(window);
+  content::WebContents *const contents =
+      active.has_value() && web_contents_resolver_
+          ? web_contents_resolver_.Run(active->tab)
+          : nullptr;
+  if (!contents || !profile_) {
+    return false;
+  }
+  // One capture at a time per profile: starting a second replaces the
+  // controller, which cancels the first and takes its overlay down.
+  capture_ = std::make_unique<SeoulCapture>(
+      contents, profile_->GetPath().AppendASCII("Seoul Captures"));
+  capture_->BeginRegion(base::BindOnce(
+      [](base::WeakPtr<SeoulRuntimeService> runtime,
+         std::optional<CaptureResult> result) {
+        if (!runtime || !result.has_value() || !runtime->library_service_) {
+          return;
+        }
+        LibraryArtifact artifact;
+        artifact.id = LibraryArtifactId::GenerateNew();
+        artifact.kind = LibraryArtifactKind::kCapture;
+        artifact.title =
+            result->title.empty() ? std::string("Capture") : result->title;
+        artifact.reference = result->file_path;
+        artifact.origin = result->origin;
+        artifact.mime_type = "image/png";
+        std::ignore = runtime->library_service_->AddArtifact(std::move(artifact));
+      },
+      weak_factory_.GetWeakPtr()));
+  return true;
 }
 
 void SeoulRuntimeService::BeginSiteLayerZap(
@@ -2796,6 +2848,7 @@ void SeoulRuntimeService::Shutdown() {
   }
   if (organization_ && organization_->shell_service()) {
     organization_->shell_service()->SetOpenBoostCallback({});
+    organization_->shell_service()->SetBeginCaptureCallback({});
     organization_->shell_service()->SetCompactModeCallbacks({}, {});
     organization_->shell_service()->SetAppearanceLayoutModeCallbacks({}, {});
     organization_->shell_service()->SetProjectCallbacks({}, {}, {}, {});

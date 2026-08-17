@@ -1,0 +1,362 @@
+diff --git a/chrome/browser/ui/omnibox/chrome_omnibox_client.cc b/chrome/browser/ui/omnibox/chrome_omnibox_client.cc
+--- a/chrome/browser/ui/omnibox/chrome_omnibox_client.cc
++++ b/chrome/browser/ui/omnibox/chrome_omnibox_client.cc
+@@ -108,7 +108,6 @@
+ #include "extensions/common/constants.h"
+ #include "net/traffic_annotation/network_traffic_annotation.h"
+ #include "seoul/browser/lifecycle/new_tab_placeholder_provenance.h"  // nogncheck
+-#include "seoul/browser/product/browser/boost_entry_points.h"  // nogncheck
+ #include "services/metrics/public/cpp/ukm_builders.h"
+ #include "services/metrics/public/cpp/ukm_recorder.h"
+ #include "services/metrics/public/cpp/ukm_source_id.h"
+@@ -909,15 +908,10 @@
+               text, "match", match, "alternative_nav_match",
+               alternative_nav_match);
+ 
+-  if (base::EqualsCaseInsensitiveASCII(
+-          base::TrimWhitespace(text, base::TRIM_ALL), u"New Boost") &&
+-      seoul::OpenBoostEditorForWebContents(location_bar_->GetWebContents())) {
+-    // This is an action for the current page, not a search/navigation. Restore
+-    // the committed URL immediately so accepting it cannot leave action text
+-    // behind in the omnibox.
+-    location_bar_->Revert();
+-    return;
+-  }
++  // Seoul actions are reached through the command surface, which knows which
++  // row the user chose. Matching the accepted text against a command name
++  // here instead would silently swallow a search for that exact phrase, and
++  // could only ever recognise the English one.
+ 
+   std::string extra_headers;
+   for (const auto& header : match.extra_headers) {
+diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/views/frame/browser_view.cc
+--- a/chrome/browser/ui/views/frame/browser_view.cc
++++ b/chrome/browser/ui/views/frame/browser_view.cc
+@@ -2044,7 +2044,7 @@
+     if (seoul_omnibox_action_mode_) {
+       HideSeoulOmniboxActions(/*restore_page_focus=*/false);
+     }
+-    SetSeoulOmniboxFloating(false);
++    SetSeoulOmniboxFloating(false, SeoulOmniboxDockPolicy::kStructural);
+   }
+ 
+   if (integrate_toolbar) {
+@@ -2089,9 +2089,19 @@
+       SetSeoulOmniboxFloating(true);
+     }
+     if (LocationBarView* current_location_bar = toolbar_->location_bar_view()) {
+-      current_location_bar->FocusLocation(
+-          /*is_user_initiated=*/false,
+-          /*clear_focus_if_failed=*/false);
++      OmniboxEditModel* const edit_model =
++          current_location_bar->GetOmniboxController()->edit_model();
++      if (edit_model && edit_model->user_input_in_progress()) {
++        // FocusLocation() select-alls a field it finds unfocused, and the
++        // reparent above is what unfocused it. Take focus back plainly so the
++        // next keystroke appends to what the user has typed instead of
++        // replacing it.
++        current_location_bar->omnibox_view()->RequestFocus();
++      } else {
++        current_location_bar->FocusLocation(
++            /*is_user_initiated=*/false,
++            /*clear_focus_if_failed=*/false);
++      }
+     }
+   }
+ 
+@@ -5560,6 +5570,25 @@
+                      weak_ptr_factory_.GetWeakPtr()));
+ }
+ 
++bool BrowserView::IsSeoulOmniboxUserEditing() const {
++  if (!seoul_omnibox_floating_ || !toolbar_) {
++    return false;
++  }
++  LocationBarView* const location_bar = toolbar_->location_bar_view();
++  if (!location_bar || !location_bar->omnibox_view() ||
++      !location_bar->omnibox_view()->HasFocus()) {
++    return false;
++  }
++  // Action mode maintains its own empty query field and is dismissed through
++  // its own paths; only a real address/search edit is protected here.
++  if (seoul_omnibox_action_mode_) {
++    return false;
++  }
++  const OmniboxEditModel* const edit_model =
++      location_bar->GetOmniboxController()->edit_model();
++  return edit_model && edit_model->user_input_in_progress();
++}
++
+ WindowOpenDisposition BrowserView::ConsumeSeoulNewTabDisposition(
+     WindowOpenDisposition disposition) {
+   if (!seoul_new_tab_entry_mode_) {
+@@ -5571,11 +5600,20 @@
+              : disposition;
+ }
+ 
+-void BrowserView::SetSeoulOmniboxFloating(bool floating) {
++void BrowserView::SetSeoulOmniboxFloating(bool floating,
++                                          SeoulOmniboxDockPolicy policy) {
+   if (!vertical_tab_strip_region_view_ || !toolbar_ ||
+       seoul_omnibox_reparenting_) {
+     return;
+   }
++  if (!floating && policy == SeoulOmniboxDockPolicy::kPreserveUserEditing &&
++      IsSeoulOmniboxUserEditing()) {
++    // A page finishing its load, a lifecycle snapshot arriving, or a tab
++    // becoming active must not take the surface away from someone typing in
++    // it. Docking reparents the location bar out of the surface, which clears
++    // focus and strands the rest of what they type.
++    return;
++  }
+   if (!floating) {
+     seoul_new_tab_entry_mode_ = false;
+     seoul_new_tab_placeholder_surface_ = false;
+@@ -5595,6 +5633,13 @@
+     return;
+   }
+ 
++  // Reparenting a focused subtree clears focus: FocusManager::ViewRemoved
++  // runs for every hierarchy removal, same-widget moves included. Record the
++  // state now so it can be restored afterwards without disturbing whatever
++  // the user has typed.
++  const bool omnibox_had_focus =
++      location_bar->omnibox_view() && location_bar->omnibox_view()->HasFocus();
++
+   seoul_omnibox_reparenting_ = true;
+   seoul_omnibox_floating_ = floating;
+   location_bar->SetSeoulFloatingMode(floating);
+@@ -5701,14 +5746,29 @@
+   if (floating) {
+     LayoutSeoulOmniboxSurface();
+     StartSeoulOmniboxEntranceAnimation();
+-    // OnChanged() may enter floating mode while processing the user's first
+-    // edit. Re-focusing an already-focused omnibox selects all of that text and
+-    // stopping autocomplete discards the first result set. Preserve both.
+-    if (!location_bar->omnibox_view()->HasFocus()) {
+-      location_bar->FocusLocation(/*is_user_initiated=*/true,
+-                                  /*clear_focus_if_failed=*/false);
++    OmniboxViewViews* const omnibox = location_bar->omnibox_view();
++    if (omnibox_had_focus && !omnibox->HasFocus()) {
++      // OnChanged() enters floating mode while processing the user's first
++      // edit, and the reparent above necessarily blurred the field. Restore
++      // focus without SetFocus()'s user-initiated ceremony: Unelide() and
++      // SelectAll() would select the in-progress text and the next keystroke
++      // would replace it, eating the leading characters. OnBlur()/OnFocus()
++      // already carry the caret across via the saved selection.
++      omnibox->RequestFocus();
++      OmniboxEditModel* const edit_model =
++          location_bar->GetOmniboxController()->edit_model();
++      if (edit_model->user_input_in_progress()) {
++        // The blur closed the popup through OmniboxPopupCloser, which stops
++        // autocomplete and clears the result set for the text already typed.
++        // Restart it so the first keystroke keeps its suggestions even if no
++        // further key arrives.
++        edit_model->UpdateInput(/*prevent_inline_autocomplete=*/false);
++      }
+     }
+-    location_bar->omnibox_view()->InstallPlaceholderText();
++    // Entry points that float an unfocused field (Cmd+L, the New Tab surface,
++    // the command launcher, pointer entry) assign focus themselves right
++    // after this call, with the selection semantics each one wants.
++    omnibox->InstallPlaceholderText();
+   }
+ }
+ 
+@@ -5925,12 +5985,24 @@
+   return std::min(kZenFloatingMaximumWidth, (window_width * 2 + 1) / 3);
+ }
+ 
+-void BrowserView::UpdateSeoulOmniboxActions(const std::u16string& query) {
++bool BrowserView::IsSeoulOmniboxShowingActions() const {
++  return IsSeoulOmniboxActionMode() &&
++         seoul_omnibox_action_view_->result_count() > 0;
++}
++
++bool BrowserView::UpdateSeoulOmniboxActions(const std::u16string& query) {
+   if (!IsSeoulOmniboxActionMode()) {
+-    return;
++    return false;
+   }
+   seoul_omnibox_action_view_->SetQuery(base::UTF16ToUTF8(query));
++  const bool showing_actions = IsSeoulOmniboxShowingActions();
++  // The "Actions" chip claims the field is a command line. Drop it the moment
++  // the query stops naming a command, because from then on Return searches.
++  if (LocationBarView* const location_bar = toolbar_->location_bar_view()) {
++    location_bar->SetSeoulActionModeLabelVisible(showing_actions);
++  }
+   LayoutSeoulOmniboxSurface();
++  return showing_actions;
+ }
+ 
+ bool BrowserView::HandleSeoulOmniboxActionKeyEvent(const ui::KeyEvent& event) {
+@@ -5938,6 +6010,13 @@
+       event.type() != ui::EventType::kKeyPressed) {
+     return false;
+   }
++  // Escape always belongs to the surface, because it is how the surface is
++  // dismissed. Every other key is only the surface's while it is actually
++  // showing commands; once the query stops naming one, navigation keys and
++  // Return belong to Chromium's omnibox, which searches or navigates.
++  if (event.key_code() != ui::VKEY_ESCAPE && !IsSeoulOmniboxShowingActions()) {
++    return false;
++  }
+ 
+   const bool control = event.IsControlDown();
+   const bool shift = event.IsShiftDown();
+diff --git a/chrome/browser/ui/views/frame/browser_view.h b/chrome/browser/ui/views/frame/browser_view.h
+--- a/chrome/browser/ui/views/frame/browser_view.h
++++ b/chrome/browser/ui/views/frame/browser_view.h
+@@ -325,7 +325,20 @@
+   }
+   WindowOpenDisposition ConsumeSeoulNewTabDisposition(
+       WindowOpenDisposition disposition);
+-  void SetSeoulOmniboxFloating(bool floating);
++  // Whether docking the floating omnibox is allowed to interrupt the user.
++  // `kPreserveUserEditing` - the default - refuses to dock a focused field
++  // with edits in progress, because docking reparents it and the reparent
++  // drops both the focus and the text. `kStructural` is for the layout-mode
++  // reparent, which has to move the location bar with its toolbar and
++  // restores focus itself immediately afterwards.
++  enum class SeoulOmniboxDockPolicy {
++    kPreserveUserEditing,
++    kStructural,
++  };
++  void SetSeoulOmniboxFloating(
++      bool floating,
++      SeoulOmniboxDockPolicy policy =
++          SeoulOmniboxDockPolicy::kPreserveUserEditing);
+   bool CanHostSeoulOmniboxPopup() const;
+   void SetSeoulOmniboxPopupView(views::View* popup_view,
+                                 int results_content_height);
+@@ -333,7 +346,13 @@
+   bool IsViewInSeoulOmniboxSurface(const views::View* view) const;
+   void ShowSeoulOmniboxActions();
+   bool IsSeoulOmniboxActionMode() const;
+-  void UpdateSeoulOmniboxActions(const std::u16string& query);
++  // True while the action list is showing at least one command for the
++  // current query. False means the query named no command, the list has
++  // stood aside, and Chromium's own omnibox owns both the results body and
++  // the Return key.
++  bool IsSeoulOmniboxShowingActions() const;
++  // Re-filters the action list and returns IsSeoulOmniboxShowingActions().
++  bool UpdateSeoulOmniboxActions(const std::u16string& query);
+   bool HandleSeoulOmniboxActionKeyEvent(const ui::KeyEvent& event);
+   static int CalculateSeoulOmniboxWidthForTesting(int window_width);
+   seoul::SeoulOmniboxActionView* seoul_omnibox_action_view_for_testing() const {
+@@ -912,6 +931,9 @@
+ 
+   class AccessibilityModeObserver;
+ 
++  // True while the floating omnibox holds keyboard focus and carries an
++  // address/search edit the user has not committed or abandoned.
++  bool IsSeoulOmniboxUserEditing() const;
+   void HideSeoulOmniboxActions(bool restore_page_focus);
+   void ExecuteSeoulOmniboxAction(seoul::CommandLauncherEntry entry);
+   void MaybeShowSeoulNewTabPlaceholderSurface(content::WebContents* contents);
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.cc b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.cc
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+@@ -760,6 +760,12 @@
+   }
+ }
+ 
++void LocationBarView::EnterSeoulFloatingBeforeEdit() {
++  if (seoul_sidebar_mode_ && !seoul_floating_mode_) {
++    delegate_->OnOmniboxFocusChanged(true);
++  }
++}
++
+ void LocationBarView::Revert() {
+   omnibox_view_->RevertAll();
+ }
+@@ -2461,6 +2467,19 @@
+   }
+ }
+ 
++void LocationBarView::SetSeoulActionModeLabelVisible(bool visible) {
++  if (!seoul_action_mode_label_) {
++    return;
++  }
++  const bool showing =
++      visible && seoul_action_mode_ && seoul_floating_mode_;
++  if (seoul_action_mode_label_->GetVisible() == showing) {
++    return;
++  }
++  seoul_action_mode_label_->SetVisible(showing);
++  InvalidateLayout();
++}
++
+ void LocationBarView::SetSeoulActionMode(bool enabled) {
+   if (seoul_action_mode_ == enabled) {
+     return;
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.h b/chrome/browser/ui/views/location_bar/location_bar_view.h
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.h
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.h
+@@ -305,6 +305,17 @@
+   bool seoul_floating_mode() const { return seoul_floating_mode_; }
+   void SetSeoulActionMode(bool enabled);
+   bool seoul_action_mode() const { return seoul_action_mode_; }
++  // Shows or hides the "Actions" chip without leaving action mode, for a
++  // query that named no command and is being handed back to the omnibox.
++  void SetSeoulActionModeLabelVisible(bool visible);
++  // Expands the docked Single Toolbar field into the floating command surface
++  // on the keystroke that begins editing, before that keystroke reaches the
++  // textfield. Zen floats on typing rather than on click, and the transition
++  // reparents the location bar, which FocusManager::ViewRemoved blurs. Doing
++  // it before the character is inserted means the reparent moves a field that
++  // holds no user text yet, so there is nothing for the restored selection to
++  // overwrite.
++  void EnterSeoulFloatingBeforeEdit();
+ 
+   // Called when omnibox view receives mouse notifications relevant to hover.
+   // |is_hovering| should be true when mouse is in omnibox; false when exited.
+diff --git a/chrome/browser/ui/views/omnibox/omnibox_view_views.cc b/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
+--- a/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
++++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
+@@ -1311,10 +1311,18 @@
+ 
+   if (BrowserView* browser_view = GetSeoulBrowserView(location_bar_view_);
+       browser_view && browser_view->IsSeoulOmniboxActionMode()) {
+-    browser_view->UpdateSeoulOmniboxActions(GetText());
+-    // Action mode owns the result body. Prevent Chromium's navigation popup
+-    // from racing it or creating a second rounded surface.
+-    controller()->StopAutocomplete(/*clear_result=*/true);
++    if (browser_view->UpdateSeoulOmniboxActions(GetText())) {
++      // While the query names a command, the action list owns the result
++      // body. Prevent Chromium's navigation popup from racing it or creating
++      // a second rounded surface.
++      controller()->StopAutocomplete(/*clear_result=*/true);
++    } else {
++      // The query named no command, so it is something the user wants
++      // searched or navigated to. Chromium's autocomplete takes the body
++      // back, with the real default search provider behind it.
++      controller()->edit_model()->UpdateInput(
++          /*prevent_inline_autocomplete=*/false);
++    }
+   }
+ 
+   return something_changed;
+@@ -2152,6 +2160,22 @@
+         !command) {
+       browser_view->ShowSeoulOmniboxActions();
+       return true;
++    }
++  }
++
++  // Seoul expands the docked field into its floating surface when the user
++  // starts typing, and that transition reparents this view, which blurs it.
++  // Run it here, before the character is inserted, so the field it moves is
++  // still showing the page URL: the blur/refocus round trip then restores a
++  // whole-URL selection this keystroke is meant to replace. Deferring the
++  // transition until the text has changed instead reparents a field holding
++  // the user's first character and re-selects it, and the second keystroke
++  // overwrites the first.
++  if (location_bar_view_ && !location_bar_view_->seoul_floating_mode() &&
++      !control && !command && !alt) {
++    const char16_t character = event.GetCharacter();
++    if (character >= 0x20 && character != 0x7F) {
++      location_bar_view_->EnterSeoulFloatingBeforeEdit();
+     }
+   }
+ 

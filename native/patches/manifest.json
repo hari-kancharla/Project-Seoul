@@ -834,6 +834,52 @@
       "applyVerify": "git apply --check",
       "reverseVerify": "git apply -R --check",
       "reviewable": true
+    },
+    {
+      "id": "seoul-omnibox-editing-invariant",
+      "description": "Keep every character the user types: never let the floating-omnibox reparent, or a presentation callback, overwrite or drop an edit in progress; and let a query that names no Seoul command reach the configured default search provider.",
+      "rationale": "Seoul expands the docked Single Toolbar field into a centred floating surface, and that expansion reparents the real LocationBarView. Views has no move-without-blur: AddChildViewAt() routes through DoRemoveChildView(), Widget::ViewHierarchyChanged() calls FocusManager::ViewRemoved() for any removal including a same-widget move, and focus is cleared. Three consequences are fixed here rather than papered over with a delay. First, the transition now runs on the keystroke that begins editing, before the character is inserted, so the field being moved still holds the page URL and the restored whole-URL selection is exactly what that keystroke should replace; entering afterwards reparented a field already holding the first character and re-selected it, so the second keystroke overwrote the first. Second, when the transition is reached with an edit already in progress (paste, IME, drop), focus is restored with RequestFocus() and the autocomplete pass restarted, instead of FocusLocation()'s user-initiated path whose Unelide()+SelectAll() would select the in-progress text. Third, docking now refuses to interrupt a focused field with an uncommitted edit, so a completed load or an arriving lifecycle snapshot cannot take the surface away mid-query; the layout-mode reparent, which must move the location bar with its toolbar, opts out explicitly and restores focus itself. Separately, the command surface no longer swallows Return for a query that names no command: fuzzy subsequence ranking is right for ordering rows and far too permissive for deciding that Return should run a command instead of searching, so intent is now a distinct question (exact, prefix, or word-boundary match), and anything else hands the body and the Return key back to Chromium's omnibox and its configured default search provider. The hardcoded English 'New Boost' text interception in ChromeOmniboxClient is removed for the same reason: it silently swallowed a search for that phrase.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 32,
+      "file": "0032-seoul-omnibox-editing-invariant.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/omnibox/chrome_omnibox_client.cc",
+        "chrome/browser/ui/views/frame/browser_view.cc",
+        "chrome/browser/ui/views/frame/browser_view.h",
+        "chrome/browser/ui/views/location_bar/location_bar_view.cc",
+        "chrome/browser/ui/views/location_bar/location_bar_view.h",
+        "chrome/browser/ui/views/omnibox/omnibox_view_views.cc"
+      ],
+      "dependencies": [
+        "seoul-native-core",
+        "seoul-arc-command-surface"
+      ],
+      "sha256": "033ffb2a9b358cd696934de5bdbec1e191b2285b7bcf1b3a08b6d41b16210e79",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-boost-site-control-affordance",
+      "description": "Put a paintbrush at the right of the address field that opens the Boost editor for the page, which is where Arc puts the same action and the only way the feature is discoverable.",
+      "rationale": "Before this the Boost editor could only be reached from the command surface, so nobody who did not already know the feature existed could find it. Arc reaches its editor from a paintbrush in the Site Control Panel at the right of the URL bar; this is the same affordance in the same place, opening the same editor through the existing OpenBoostEditorForWebContents entry point rather than a second path. It is a plain ImageButton in the location bar's trailing decorations, so it inherits the field's own layout and does not disturb Chromium's identity, permission or page-action chrome. Two visibility rules keep it honest: it is hidden while the omnibox is floating, because at that point the user is editing a query rather than looking at a page and there is no site to restyle; and it is hidden for anything that is not http(s), because a Boost is scoped to a web origin and there is nothing to scope it to otherwise.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 33,
+      "file": "0033-seoul-boost-site-control-affordance.patch",
+      "affectedPaths": [
+        "chrome/app/vector_icons/BUILD.gn",
+        "chrome/app/vector_icons/seoul_boost.icon",
+        "chrome/browser/ui/views/location_bar/location_bar_view.cc",
+        "chrome/browser/ui/views/location_bar/location_bar_view.h"
+      ],
+      "dependencies": [
+        "seoul-native-core",
+        "seoul-boost-entry-points"
+      ],
+      "sha256": "c1da392dcae40bd8b48a49372b8118815f14369326db06abfd8c921544281297",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
     }
   ]
 }

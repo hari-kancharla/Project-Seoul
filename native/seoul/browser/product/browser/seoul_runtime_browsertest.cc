@@ -35,6 +35,9 @@
 #include "components/prefs/pref_service.h"
 #include "components/sessions/content/session_tab_helper.h"
 #include "components/sessions/core/session_id.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/location_bar/location_bar_view.h"
+#include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/webui_config_map.h"
 #include "base/containers/circular_deque.h"
@@ -1788,6 +1791,94 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
 // same registry, applicator and persistence the rest of Boosts already proves.
 // This is the Arc-shaped entry: the editor appears over the page being edited,
 // not in a separate surface.
+// Arc's Settings > Advanced switch, "Enable Boosts on websites you visit."
+// Off must silence every Boost without deleting any of them, so turning it
+// back on restores the page exactly as it was.
+// Arc's Code editor runs author JavaScript, and Arc's own posture is that
+// JavaScript Boosts are off until you turn them on. This is the assertion that
+// matters most in the whole Boost feature: a script stored on a layer must not
+// execute while the switch is off, and must execute once it is on.
+IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
+                       AuthorJavaScriptRunsOnlyWhenTheSwitchIsOn) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  const GURL url = embedded_test_server()->GetURL("/empty.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+
+  SeoulRuntimeService* const runtime =
+      SeoulRuntimeServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(runtime);
+  SiteLayer layer;
+  layer.id = "boost-author-script";
+  layer.name = "Author script";
+  layer.origin_pattern = url::Origin::Create(url).Serialize();
+  layer.enabled = true;
+  layer.custom_javascript = "window.__seoulAuthorScriptRan = true;";
+  ASSERT_TRUE(runtime->UpsertSiteLayer(std::move(layer)).has_value());
+
+  PrefService* const prefs = browser()->profile()->GetPrefs();
+  ASSERT_FALSE(prefs->GetBoolean(kSeoulBoostJavaScriptEnabledPref))
+      << "author JavaScript must default off";
+
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+  EXPECT_EQ(false, content::EvalJs(
+                       contents, "window.__seoulAuthorScriptRan === true"))
+      << "a stored author script ran with the switch off";
+
+  prefs->SetBoolean(kSeoulBoostJavaScriptEnabledPref, true);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  contents = browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+  EXPECT_TRUE(base::test::RunUntil([&] {
+    return content::EvalJs(contents, "window.__seoulAuthorScriptRan === true")
+               .ExtractBool();
+  })) << "with the switch on, the author's script must actually run in the page";
+}
+
+IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest, GlobalSwitchSilencesEveryBoost) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  const GURL url = embedded_test_server()->GetURL("/empty.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  content::WebContents* const contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+
+  SeoulRuntimeService* const runtime =
+      SeoulRuntimeServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(runtime);
+  SiteLayer layer;
+  layer.id = "boost-global-switch";
+  layer.name = "Global switch";
+  layer.origin_pattern = url::Origin::Create(url).Serialize();
+  layer.enabled = true;
+  SiteAdjustment hide;
+  hide.kind = SiteAdjustmentKind::kHide;
+  hide.selectors = {"p"};
+  layer.adjustments.push_back(hide);
+  ASSERT_TRUE(runtime->UpsertSiteLayer(std::move(layer)).has_value());
+
+  PrefService* const prefs = browser()->profile()->GetPrefs();
+  ASSERT_TRUE(prefs->GetBoolean(kSeoulBoostsEnabledPref))
+      << "Boosts are on by default, as a Boost the user made should apply";
+
+  prefs->SetBoolean(kSeoulBoostsEnabledPref, false);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  EXPECT_TRUE(runtime->site_layers())
+      << "the switch silences Boosts; it does not delete them";
+  bool still_registered = false;
+  for (const SiteLayer* stored : runtime->site_layers()->List()) {
+    still_registered |= stored->id == "boost-global-switch";
+  }
+  EXPECT_TRUE(still_registered)
+      << "turning the switch back on has to restore the same Boost";
+
+  prefs->SetBoolean(kSeoulBoostsEnabledPref, true);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  EXPECT_TRUE(prefs->GetBoolean(kSeoulBoostsEnabledPref));
+}
+
 IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest, BoostBubbleWritesLayerForOrigin) {
   ASSERT_TRUE(embedded_test_server()->Start());
   const GURL url = embedded_test_server()->GetURL("/empty.html");
@@ -1809,6 +1900,35 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest, BoostBubbleWritesLayerForOrigin)
     }
   }
   ASSERT_TRUE(bubble) << "the Boost bubble must actually appear";
+
+  // Where it appears matters as much as that it appears. The panel is scoped
+  // to one site, so it hangs off the control that names that site - the
+  // address field. Anchoring to the toolbar instead put it at the top-left of
+  // the vertical rail, a full-height view pinned to the window edge, so the
+  // panel covered the sidebar and pointed at nothing.
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  LocationBarView* const location_bar =
+      browser_view->toolbar()->location_bar_view();
+  ASSERT_TRUE(location_bar);
+  const gfx::Rect bubble_bounds = bubble->GetWindowBoundsInScreen();
+  const gfx::Rect address_bounds = location_bar->GetBoundsInScreen();
+  const gfx::Rect window_bounds =
+      browser_view->GetWidget()->GetWindowBoundsInScreen();
+  SCOPED_TRACE(testing::Message()
+               << "bubble " << bubble_bounds.ToString() << ", address field "
+               << address_bounds.ToString() << ", window "
+               << window_bounds.ToString());
+  EXPECT_GE(bubble_bounds.y(), address_bounds.y())
+      << "the panel drops from the address field, never above it";
+  // The defect this pins: anchored to the rail, the panel was laid out from
+  // the window's own left edge, so it sat over the sidebar instead of under
+  // the field it belongs to.
+  EXPECT_GE(bubble_bounds.x(), address_bounds.x())
+      << "the panel starts at the address field, not at the window edge";
+  EXPECT_GT(bubble_bounds.x(), window_bounds.x())
+      << "and never hangs off the window's left edge over the sidebar";
 
   // Drive the dark toggle by its accessible name, the way assistive tech would.
   views::View* dark = nullptr;

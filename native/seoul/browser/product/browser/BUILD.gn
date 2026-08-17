@@ -26,6 +26,8 @@ source_set("product_chromium") {
     "site_layer_applicator.cc",
     "site_layer_applicator.h",
     "seoul_boost_bubble.cc",
+    "seoul_capture.cc",
+    "seoul_capture.h",
     "seoul_boost_bubble.h",
     "space_partition_resolver.cc",
     "space_partition_resolver.h",

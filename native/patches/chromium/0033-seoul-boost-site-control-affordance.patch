@@ -1,0 +1,151 @@
+diff --git a/chrome/app/vector_icons/BUILD.gn b/chrome/app/vector_icons/BUILD.gn
+--- a/chrome/app/vector_icons/BUILD.gn
++++ b/chrome/app/vector_icons/BUILD.gn
+@@ -181,6 +181,7 @@
+     "security.icon",
+     "seoul_back.icon",
+     "seoul_download.icon",
++    "seoul_boost.icon",
+     "seoul_collapse_sidebar.icon",
+   "seoul_expand_sidebar.icon",
+     "seoul_forward.icon",
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.h b/chrome/browser/ui/views/location_bar/location_bar_view.h
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.h
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.h
+@@ -308,6 +308,9 @@
+   // Shows or hides the "Actions" chip without leaving action mode, for a
+   // query that named no command and is being handed back to the omnibox.
+   void SetSeoulActionModeLabelVisible(bool visible);
++  views::ImageButton* seoul_boost_button_for_testing() {
++    return seoul_boost_button_;
++  }
+   // Expands the docked Single Toolbar field into the floating command surface
+   // on the keystroke that begins editing, before that keystroke reaches the
+   // textfield. Zen floats on typing rather than on click, and the transition
+@@ -387,6 +390,7 @@
+   void RefreshSeoulFloatingSearchIcon();
+   void RefreshSeoulFloatingFont();
+   void UpdateSeoulSidebarChromeOpacity();
++  void OnSeoulBoostButtonPressed();
+   void HideSeoulSidebarChromeAfterFade();
+ 
+   // Updates the visibility state of the Content Blocked icons to reflect what
+@@ -615,6 +619,9 @@
+   // updates cannot turn it back into Chromium's interactive identity pill.
+   raw_ptr<views::ImageView> seoul_floating_search_icon_ = nullptr;
+   raw_ptr<views::Label> seoul_action_mode_label_ = nullptr;
++  // Arc's Site Control Panel paintbrush: the discoverable entry point to the
++  // Boost editor for the page in the address field.
++  raw_ptr<views::ImageButton> seoul_boost_button_ = nullptr;
+ 
+   // Views to show inline autocompletion when an IME is active.  In this case,
+   // we shouldn't change the text or selection inside the OmniboxView itself,
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.cc b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.cc
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+@@ -191,6 +191,7 @@
+ #include "ui/views/background.h"
+ #include "ui/views/border.h"
+ #include "ui/views/button_drag_utils.h"
++#include "seoul/browser/product/browser/boost_entry_points.h"  // nogncheck
+ #include "ui/views/controls/button/image_button.h"
+ #include "ui/views/controls/button/image_button_factory.h"
+ #include "ui/views/controls/focus_ring.h"
+@@ -366,6 +367,24 @@
+   seoul_action_mode_label->SetCanProcessEventsWithinSubtree(false);
+   seoul_action_mode_label->SetVisible(false);
+   seoul_action_mode_label_ = AddChildView(std::move(seoul_action_mode_label));
++
++  // Arc reaches its Boost editor from a paintbrush in the Site Control Panel
++  // at the right of the URL bar, which is the affordance that makes the
++  // feature discoverable at all - a command-palette-only entry point is not
++  // findable by anyone who does not already know the feature exists. This is
++  // Seoul's equivalent, in the same place, and it opens the same editor the
++  // command surface does.
++  auto seoul_boost_button = std::make_unique<views::ImageButton>(
++      base::BindRepeating(&LocationBarView::OnSeoulBoostButtonPressed,
++                          base::Unretained(this)));
++  seoul_boost_button->SetImageHorizontalAlignment(
++      views::ImageButton::ALIGN_CENTER);
++  seoul_boost_button->SetImageVerticalAlignment(
++      views::ImageButton::ALIGN_MIDDLE);
++  seoul_boost_button->SetTooltipText(u"Boost this site");
++  seoul_boost_button->GetViewAccessibility().SetName(u"Boost this site");
++  seoul_boost_button->SetVisible(false);
++  seoul_boost_button_ = AddChildView(std::move(seoul_boost_button));
+ 
+   if (page_info::IsMerchantTrustFeatureEnabled() &&
+       page_info::kMerchantTrustEnableOmniboxChip.Get()) {
+@@ -1135,6 +1154,26 @@
+     }
+   };
+ 
++  // Arc's paintbrush. It belongs to the resting address field: while the field
++  // is floating the user is editing a query, not looking at a page, and there
++  // is no site to restyle. It is also hidden for anything that is not a real
++  // http(s) page, because a Boost is scoped to a web origin.
++  if (seoul_boost_button_) {
++    content::WebContents* const contents = GetWebContents();
++    const GURL page = contents ? contents->GetLastCommittedURL() : GURL();
++    const bool boostable = !seoul_floating_mode_ && page.SchemeIsHTTPOrHTTPS();
++    seoul_boost_button_->SetVisible(boostable);
++    if (boostable) {
++      seoul_boost_button_->SetImageModel(
++          views::Button::STATE_NORMAL,
++          ui::ImageModel::FromVectorIcon(
++              kSeoulBoostIcon, kColorOmniboxText,
++              GetLayoutConstant(LayoutConstant::kLocationBarTrailingIconSize)));
++      add_trailing_decoration(seoul_boost_button_, /*intra_item_padding=*/0,
++                              /*edge_padding=*/icon_left);
++    }
++  }
++
+   // When the AIM page action is shown as the right-most page action in the
+   // location bar, it should be positioned flush against the right edge of the
+   // location bar.
+@@ -2464,6 +2503,12 @@
+             .DeriveWithWeight(gfx::Font::Weight::MEDIUM));
+   } else {
+     omnibox_view_->SetFontList(default_font);
++  }
++}
++
++void LocationBarView::OnSeoulBoostButtonPressed() {
++  if (content::WebContents* const contents = GetWebContents()) {
++    seoul::OpenBoostEditorForWebContents(contents);
+   }
+ }
+ 
+diff --git a/chrome/app/vector_icons/seoul_boost.icon b/chrome/app/vector_icons/seoul_boost.icon
+new file mode 100644
+index 0000000000000000000000000000000000000000..828f45851d8a9a900e0145926e138f468aab5ed6
+--- /dev/null
++++ b/chrome/app/vector_icons/seoul_boost.icon
+@@ -0,0 +1,27 @@
++// Copyright 2026 The Project Seoul Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++// Paintbrush, for the Boost affordance in the address field. Arc uses a
++// paintbrush for the same action, so the glyph is the one users of that idiom
++// already read as "restyle this site"; the drawing is Seoul's own and matches
++// the 18-DIP, 1.5-stroke rail set.
++//
++// Three parts, so it cannot be misread as a tag: a tapering bristle wedge
++// pointing down-left, a ferrule band across it, and a handle running to the
++// upper right.
++CANVAS_DIMENSIONS, 18,
++STROKE, 1.5,
++MOVE_TO, 6.5, 8.5,
++LINE_TO, 3, 13,
++LINE_TO, 5, 15,
++LINE_TO, 9.5, 11.5,
++CLOSE,
++NEW_PATH,
++STROKE, 1.5,
++MOVE_TO, 7.5, 7.5,
++LINE_TO, 10.5, 10.5,
++NEW_PATH,
++STROKE, 1.5,
++MOVE_TO, 9, 9,
++LINE_TO, 14.5, 3.5,

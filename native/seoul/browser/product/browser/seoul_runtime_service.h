@@ -78,6 +78,8 @@ class WebContents;
 
 namespace seoul {
 
+class SeoulCapture;
+
 class SeoulOrganizationService;
 class CredentialStore;
 class HttpTransport;
@@ -191,6 +193,10 @@ public:
   void RefreshSiteLayers();
   using SiteLayerZapCallback =
       base::OnceCallback<void(bool changed, SiteLayerStatusResult result)>;
+  // Arc's Capture for the active tab of `window`. False when there is no
+  // page to capture from.
+  bool BeginCaptureForWindow(const LiveWindowKey &window);
+
   void BeginSiteLayerZap(const std::string &layer_id,
                          const LiveWindowKey &window,
                          bool remove_layer_on_cancel,
@@ -360,6 +366,7 @@ private:
   // Runtime-owned appearance catalogs that Scene resolvers reference.
   std::unique_ptr<ThemeRegistry> themes_;
   std::unique_ptr<SiteLayerRegistry> site_layers_;
+  std::unique_ptr<SeoulCapture> capture_;
   std::unique_ptr<LibraryService> library_service_;
   std::unique_ptr<LiveCollectionCoordinator> live_collection_coordinator_;
   std::unique_ptr<PersistenceScheduler> persistence_scheduler_;
