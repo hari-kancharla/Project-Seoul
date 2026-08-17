@@ -381,6 +381,32 @@ LibraryResult<BoardElementId> LibraryService::AddBoardElement(
   return id;
 }
 
+LibraryResult<BoardElementId> LibraryService::PlaceCaptureOnBoard(
+    const BoardId& board_id,
+    const LibraryArtifactId& artifact_id,
+    double x,
+    double y) {
+  const LibraryArtifact* const artifact = FindArtifact(artifact_id);
+  if (!artifact) {
+    return base::unexpected(LibraryError::kUnknownArtifact);
+  }
+  if (artifact->kind != LibraryArtifactKind::kCapture) {
+    // Only a capture goes on as a capture reference. Anything else would
+    // render as a picture the board cannot actually show.
+    return base::unexpected(LibraryError::kInvalidArtifact);
+  }
+  BoardElement element;
+  element.id = BoardElementId::GenerateNew();
+  element.kind = BoardElementKind::kCaptureReference;
+  element.title = artifact->title;
+  // The board points at the Library's artifact; it never copies the image.
+  element.reference = artifact->id.value();
+  element.origin = artifact->origin;
+  element.x = x;
+  element.y = y;
+  return AddBoardElement(board_id, std::move(element));
+}
+
 LibraryStatusResult LibraryService::UpdateBoardElement(const BoardId& board_id,
                                                        BoardElement element) {
   auto board = boards_.find(board_id);

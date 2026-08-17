@@ -900,7 +900,12 @@ for (const required of [
 for (const required of [
   'void ShowSeoulOmniboxActions()',
   'bool IsSeoulOmniboxActionMode() const',
-  'void UpdateSeoulOmniboxActions(const std::u16string& query)',
+  // Re-filtering reports whether any command is still showing, because that
+  // is what decides who owns the results body and the Return key. A query
+  // naming no command belongs to Chromium's omnibox and its configured
+  // default search provider, never to the action surface.
+  'bool IsSeoulOmniboxShowingActions() const',
+  'bool UpdateSeoulOmniboxActions(const std::u16string& query)',
   'bool HandleSeoulOmniboxActionKeyEvent(const ui::KeyEvent& event)',
   'seoul_omnibox_action_view_',
   'seoul_omnibox_surface_',
@@ -942,12 +947,19 @@ for (const required of [
   }
 }
 for (const required of [
-  'browser_view->UpdateSeoulOmniboxActions(GetText())',
+  'if (browser_view->UpdateSeoulOmniboxActions(GetText()))',
   'controller()->StopAutocomplete(/*clear_result=*/true)',
+  // The other branch: no command was named, so autocomplete is restarted and
+  // the real default search provider produces the result Return will open.
+  'controller()->edit_model()->UpdateInput(',
   'browser_view->HandleSeoulOmniboxActionKeyEvent(event)',
   'browser_view->IsSeoulOmniboxActionMode()',
   'browser_view->ShowSeoulOmniboxActions();',
   'views::FocusManager::IsTabTraversalKeyEvent(event)',
+  // Editing begins in the surface that will host it. Floating on the first
+  // keystroke, before the character is inserted, is what keeps the reparent
+  // from landing on text the user has already typed.
+  'location_bar_view_->EnterSeoulFloatingBeforeEdit()',
 ]) {
   if (!omniboxViewEvidence.text.includes(required)) {
     problems.push(

@@ -2506,6 +2506,22 @@ export class SeoulCanvasAppElement extends CrLitElement {
       </label>
       ${this.libraryError_ ? html`<div class="saui-error" role="alert">${this.libraryError_}</div>` : nothing}
       ${this.collectionMessage_ ? html`<div class="library-notice" role="status">${this.collectionMessage_}</div>` : nothing}
+      <section class="library-section">
+        <div class="library-section-heading"><div><h3>Boosts</h3>
+          <p>Sites you have restyled. Deleting one here removes it everywhere.</p></div>
+          <button type="button" @click="${() => void this.selectView_('boosts')}"
+              aria-label="Open the Boosts area">Open Boosts</button></div>
+        ${(this.boosts_.layers ?? []).length ? html`<ul class="library-boost-list">
+          ${(this.boosts_.layers ?? []).map(layer => html`<li class="library-boost">
+            <span class="library-boost-name">${layer.name || layer.origin_pattern}</span>
+            <span class="library-boost-origin">${layer.origin_pattern}</span>
+            ${layer.enabled ? nothing : html`<span class="saui-badge">Off</span>`}
+            <button type="button" class="danger"
+                aria-label="Delete the Boost for ${layer.origin_pattern}"
+                @click="${() => void this.deleteBoost_(layer)}">Delete</button>
+          </li>`)}</ul>` : html`<div class="empty-shelf"><h4>No Boosts yet</h4>
+            <p>Restyle a site with the paintbrush in the address field and it appears here.</p></div>`}
+      </section>
       <section class="library-section"><h3>Saved artifacts</h3>
         ${artifacts.length ? html`<div class="artifact-grid">${artifacts.map(artifact => html`
           <article class="artifact-card"><span class="artifact-kind">${artifact.kind.replace(/_/g, ' ')}</span>

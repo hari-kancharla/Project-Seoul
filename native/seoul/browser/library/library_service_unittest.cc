@@ -331,5 +331,63 @@ TEST_F(LibraryServiceTest, ArtifactStoresMetadataNotBytes) {
   EXPECT_EQ(stored->reference, "capture-handle-1");
 }
 
+// Arc's Capture loop ends by putting the picture on an Easel. The board holds
+// a reference to the Library's artifact, never a second copy of the image, so
+// there is exactly one owner of the bytes.
+TEST_F(LibraryServiceTest, PlacesACaptureOnABoardByReference) {
+  LibraryService& service = service_;
+  const BoardId board = service.CreateBoard("Ideas").value();
+
+  LibraryArtifact capture;
+  capture.id = LibraryArtifactId::GenerateNew();
+  capture.kind = LibraryArtifactKind::kCapture;
+  capture.title = "Pricing table";
+  capture.reference = "/tmp/capture-1.png";
+  capture.origin = "https://example.test/";
+  capture.mime_type = "image/png";
+  const LibraryArtifactId artifact_id = capture.id;
+  ASSERT_TRUE(service.AddArtifact(std::move(capture)).has_value());
+
+  const auto placed = service.PlaceCaptureOnBoard(board, artifact_id, 40, 60);
+  ASSERT_TRUE(placed.has_value());
+
+  const BoardRecord* const record = service.FindBoard(board);
+  ASSERT_TRUE(record);
+  ASSERT_EQ(record->elements.size(), 1u);
+  const BoardElement& element = record->elements.front();
+  EXPECT_EQ(element.kind, BoardElementKind::kCaptureReference);
+  EXPECT_EQ(element.title, "Pricing table");
+  EXPECT_EQ(element.origin, "https://example.test/");
+  EXPECT_EQ(element.reference, artifact_id.value())
+      << "the board points at the artifact, not at the file";
+  EXPECT_EQ(element.x, 40);
+  EXPECT_EQ(element.y, 60);
+}
+
+// Only a capture goes on as a capture reference, and only one that exists.
+TEST_F(LibraryServiceTest, RefusesToPlaceAnythingThatIsNotACapture) {
+  LibraryService& service = service_;
+  const BoardId board = service.CreateBoard("Ideas").value();
+
+  EXPECT_EQ(
+      service.PlaceCaptureOnBoard(board, LibraryArtifactId::GenerateNew(), 0, 0)
+          .error(),
+      LibraryError::kUnknownArtifact);
+
+  LibraryArtifact download;
+  download.id = LibraryArtifactId::GenerateNew();
+  download.kind = LibraryArtifactKind::kDownloadReference;
+  download.title = "Report";
+  download.reference = "/tmp/report.pdf";
+  const LibraryArtifactId download_id = download.id;
+  ASSERT_TRUE(service.AddArtifact(std::move(download)).has_value());
+
+  EXPECT_EQ(service.PlaceCaptureOnBoard(board, download_id, 0, 0).error(),
+            LibraryError::kInvalidArtifact);
+  const BoardRecord* const record = service.FindBoard(board);
+  ASSERT_TRUE(record);
+  EXPECT_TRUE(record->elements.empty()) << "a refused placement adds nothing";
+}
+
 }  // namespace
 }  // namespace seoul

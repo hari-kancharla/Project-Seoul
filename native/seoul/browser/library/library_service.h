@@ -39,6 +39,17 @@ class LibraryService {
   LibraryStatusResult DeleteBoard(const BoardId& id);
   LibraryResult<BoardElementId> AddBoardElement(const BoardId& board_id,
                                                 BoardElement element);
+
+  // Arc's Capture loop: take a picture of part of a page, then put it on an
+  // Easel. Places an existing capture artifact on a board as a reference, so
+  // the Library stays the single owner of the image and the board holds a
+  // pointer to it rather than a second copy of the bytes. Refuses an artifact
+  // that is not a capture, and one that does not exist.
+  LibraryResult<BoardElementId> PlaceCaptureOnBoard(
+      const BoardId& board_id,
+      const LibraryArtifactId& artifact_id,
+      double x,
+      double y);
   LibraryStatusResult UpdateBoardElement(const BoardId& board_id,
                                          BoardElement element);
   LibraryStatusResult RemoveBoardElement(const BoardId& board_id,

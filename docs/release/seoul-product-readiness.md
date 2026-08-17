@@ -1,6 +1,6 @@
 # Seoul product readiness
 
-Last verified: 2026-08-09 on macOS arm64.
+Last verified: 2026-08-15 on macOS arm64.
 
 This report is the source of truth for the current product build. It separates
 working product behavior from public-distribution work. A passing development
@@ -15,7 +15,7 @@ reversible integration patches apply, Chromium and every Seoul native test
 target compile, the local browser launches, and the shipping
 `chrome://seoul-canvas` WebUI runs.
 
-Every gate is green: 30 of 30 native unit binaries, 129 of 129 focused browser
+Every gate is green: 32 of 32 native unit binaries, 145 of 145 focused browser
 cases, 89 of 89 repository test cases, 21 of 21 Swift cases, 13 of 13 static
 gates, and the product smoke.
 
@@ -33,7 +33,7 @@ notarization, an installer, or production update infrastructure.
 | Output | `out/SeoulBaseline/Seoul.app` |
 | Build mode | release component build, `symbol_level=0` |
 | Seoul overlay | `native/seoul/` materialized to `src/seoul/` |
-| Integration | 25 ordered, hash-verified patches |
+| Integration | 33 ordered, hash-verified patches |
 | First-party Canvas | `chrome://seoul-canvas` |
 
 The build host passed the RAM, storage, Xcode, SDK, architecture, and checkout
@@ -48,9 +48,9 @@ earlier run.
 
 | Suite | Result |
 |---|---|
-| Native unit executables | 30 of 30 passed |
+| Native unit executables | 32 of 32 passed |
 | Native unit tests | 722 passed, 0 failed |
-| Focused Chromium browser tests | 129 passed, 0 failed |
+| Focused Chromium browser tests | 145 passed, 0 failed |
 | Product smoke (`native/scripts/smoke.mjs`) | passed |
 | Product churn exercise (`native/scripts/stress.mjs`) | passed |
 | Repeated cold launches of the built app | 5 of 5 reached a live browser |
@@ -118,7 +118,7 @@ where the product actually puts it.
 
 ### Focused browser coverage
 
-The 129 in-process browser cases run with explicit headless flags. Each fixture
+The 145 in-process browser cases run with explicit headless flags. Each fixture
 releases the macOS key window before exercising native layout, so the suite does
 not intercept input from an interactive desktop session. The runner disables
 Chromium's unrelated experimental `InitialWebUI` toolbar in the explicit
@@ -594,6 +594,281 @@ push to `main` and each one is green. The most recent run, `31758161612`, took
 | `swift` | 21 tests, 0 failures, on macOS |
 
 The last red run predates this work (2026-08-05).
+
+## The omnibox dropped the first thing you typed
+
+Two defects, reported from using the product, both in the address field. Both
+are fixed, and the fix for the first is proven by reverting it.
+
+**Typing right after clicking the field lost the leading character.** Seoul
+expands the docked Single Toolbar field into its centred floating surface when
+editing begins, and that expansion reparents the real `LocationBarView`. Views
+has no move-without-blur: `AddChildViewAt()` routes through
+`DoRemoveChildView()`, `Widget::ViewHierarchyChanged()` calls
+`FocusManager::ViewRemoved()` for *any* removal including a same-widget move,
+and focus is cleared. The transition then restored focus through
+`FocusLocation(is_user_initiated=true)`, whose `SetFocus()` contract ends in
+`SelectAll()` — correct for a fresh Cmd+L, wrong here, because by that point
+the field already held the user's first character. The character was selected,
+and the next keystroke replaced it.
+
+The fix is ordering, not delay. The transition now runs from
+`OmniboxViewViews::HandleKeyEvent` on the keystroke that begins editing,
+*before* the character is inserted, so the field being moved still shows the
+page URL and the restored whole-URL selection is exactly what that keystroke
+should replace. Where the transition is still reached mid-edit — paste, IME,
+drop — focus is restored with a plain `RequestFocus()` and the autocomplete
+pass is restarted, instead of the select-all path.
+
+Measured, not asserted. With the previous code the new regression test types
+`seoul immediate typing regression` with real mouse and key events and the
+field holds `eoul immediate typing regression`; with the fix it holds the
+whole string. The same string was then typed into the running browser by
+posting real `CGEvent` mouse and key input, with no pause between the click
+and the first key: the floating surface expanded and every character arrived.
+
+**A presentation callback could take the surface away mid-query.** Docking is
+also a reparent, so a completed load or an arriving lifecycle snapshot could
+clear focus and strand the rest of what was being typed. `SetSeoulOmniboxFloating`
+now refuses to dock a focused field with an uncommitted edit. The layout-mode
+reparent, which genuinely must move the location bar with its toolbar, opts out
+explicitly and restores focus itself.
+
+**A search could be swallowed by the command surface.** In action mode every
+keystroke ran `StopAutocomplete(clear_result=true)`, and Return executed
+whichever command the fuzzy ranker had put first. That ranking is a
+subsequence match — deliberately generous, so a few letters can reach a
+command — and it is far too permissive to decide that Return should run a
+command instead of performing the search the user typed. Intent is now a
+separate question: exact, prefix, or word-boundary match. A query that names no
+command hands the results body and the Return key back to Chromium's omnibox,
+whose configured default provider produces the match. Nothing about the engine
+is hardcoded; the tests bind their own provider so the assertion is about
+Chromium's `TemplateURLService`, not about Google.
+
+The hardcoded English `"New Boost"` text interception in `ChromeOmniboxClient`
+is removed for the same reason: it silently swallowed a search for that exact
+phrase, and could only ever have recognised the English one.
+
+Verified in the running browser as well as in the suite: Return on
+`seoul immediate typing regression` navigated to the default provider's
+`search?q=seoul+immediate+typing+regression`.
+
+| Check | Result |
+|---|---|
+| New browser cases (real mouse/key events) | 6 of 6 passed |
+| Same suite with the fix reverted | fails with `eoul immediate typing regression` |
+| `SeoulShellBrowserTest` | 61 of 61 passed |
+| Command-intent unit case | passed |
+| Manual: click then type with no pause, real input | full string arrived |
+| Manual: Return on a plain query | default-provider search navigated |
+
+## Tab names and folders exist in the model, not yet in the sidebar
+
+Organization gained two durable fields the Arc/Zen hierarchy needs: a per-tab
+custom title and per-workspace folders. Both are Seoul organization metadata
+only — `document.title`, the navigation entry, history and `WebContents` are
+untouched, and dissolving a folder moves its tabs out rather than closing any
+of them, because Chromium owns tab lifetime and Seoul owns the grouping.
+
+The schema moved from 1 to 2. The store previously rejected every version but
+its own, so the bump needed a real forward migration: a version 1 document
+reads with the new fields unset — which is exactly what their absence meant —
+and is stamped forward so the next save writes version 2. A document claiming
+version 1 while carrying folders is refused rather than partly believed, and an
+unknown higher version is still rejected.
+
+| Check | Result |
+|---|---|
+| `seoul_organization_unittests` | 78 of 78 passed |
+| — pre-folders profile migrates forward | passed |
+| — version 1 carrying folders refused | passed |
+| — future version still rejected | passed |
+| — dissolving a folder keeps every tab | passed |
+| — cross-workspace folder reference refused | passed |
+
+This is the model and its persistence. **The sidebar does not yet render
+folders, and there is no rename gesture in the UI.** Nothing in the product
+surfaces either field yet; the work above is the foundation those surfaces
+need, and is reported as such rather than as a shipped feature.
+
+## Ad iframes were never filtered at all
+
+The largest gap in the blocker, and the reason it did not stop ads on most
+sites: **no subframe document load was ever checked.** Two independent gates
+closed the only paths to it. `ToAdBlockFactoryType` returns nothing for
+`kNavigation`, so navigation loads are never proxied; and the navigation
+throttle declined anything that was not the primary main frame. Between them,
+no request of type `sub_frame` could reach the engine, so the entire
+`$subdocument` class of EasyList and uBlock Origin - third-party ad iframes,
+the most visible ad format there is - loaded untouched.
+
+The throttle now accepts any navigation with a parent frame, builds a
+`sub_frame` request for it, and blocks with `BLOCK_REQUEST_AND_COLLAPSE`, which
+removes the frame owner element from layout so a blocked ad leaves no reserved
+gap rather than a hole where the ad was.
+
+Three decisions worth recording, because each one is a way this could have been
+subtly wrong:
+
+- **The first party is the outermost main frame, not the immediate parent.**
+  Brave uses the initiator; Seoul uses the top page, which is what every other
+  Seoul request already uses - subresources inside a frame, the WebSocket path,
+  and the CSP throttle all resolve the outermost frame. Using the parent for
+  the frame's own document alone would have classified it differently from
+  everything inside it, and would have let a network embedding its own ad frame
+  escape every `$third-party` rule. The two choices agree for a depth-one
+  iframe, which is the actual ad case.
+- **A `$removeparam` match on a subframe is not applied.** The rewrite path
+  restarts the navigation through `WebContents::OpenURL`, which navigates the
+  *tab*; on an embedded frame that would have yanked the user's whole page to
+  the frame's target. Not supporting it is a small miss; the alternative was a
+  catastrophic one.
+- **A blocked subframe carrying a `$redirect` resource must still block.**
+  Replacement resources are only servable by the subresource interceptor, and
+  the test for that keyed off `navigation_url`, which a subframe does not set -
+  so the decision would have become `kRedirect` and the throttle, which only
+  blocked on `kBlock`, would have let the ad through. It now keys off the
+  factory type, and the throttle treats both as blocking.
+
+Proven by reverting: with the old main-frame-only gate the test records the ad
+iframe making its request and occupying 150 px of layout; with the fix it
+records zero requests and zero height.
+
+| Check | Result |
+|---|---|
+| Third-party ad iframe blocked and collapsed | passed |
+| Same rule leaves a top-level navigation alone | passed |
+| Blocking off for the embedder frees its subframes | passed |
+| Same suite with the gate restored | fails, ad frame loads at 150 px |
+| `AdBlockBrowserTest` + `CosmeticFilterAgentTest` | 32 of 32 passed |
+
+## The Boost editor, rebuilt against Arc's actual specification
+
+The previous panel was not built from the reference. It offered six fixed tint
+swatches, which Arc does not have, and was missing most of what Arc does. It
+was rebuilt from Arc's own documentation ("Boosts: Customize Any Website"),
+in Arc's documented control order.
+
+| Arc control | State |
+|---|---|
+| Color wheel (drag the coloured dots) | built - two dots, page background and page text, on one HSV disc |
+| Invert lightness | already present |
+| Advanced colour controls: Contrast, Brightness, Original Saturation | built |
+| Reset to original colors | built |
+| Font selector | already present |
+| Size, 90%–150% | corrected from 85%–130% |
+| Case | built |
+| Zap | already present; restore now reachable from the editor |
+| Code (CSS and JavaScript) | built; JavaScript defaults off, per Arc's own posture |
+
+Two things outside the editor came with it. The Boost's own name now titles the
+panel and carries Arc's caret menu - "Rename this Boost..." and "Reset all
+Edits", the latter returning the page to how the site wrote it while keeping
+the Boost, its name and its place in the list. And Arc's Settings > Advanced
+switch, "Enable Boosts on websites you visit", is a profile pref checked at
+`SiteLayerApplicator::Refresh` - the one point every Boost reaches a page - so
+off silences all of them at once and deletes none, which a browser test pins by
+turning it off and back on.
+
+Four new typed adjustment kinds carry the new controls, each with range
+validation, CSS emission and a persistence round trip. One of them is not
+obvious: CSS `filter` does not accumulate across rules, so three sliders
+emitted as three declarations would silently apply only the last one touched.
+They compile into a single `filter: contrast() brightness() saturate()`, and a
+test asserts exactly one `filter:` appears in the output.
+
+Arc also reaches the editor from a paintbrush in the Site Control Panel at the
+right of the URL bar. Seoul had no such affordance, so the feature was
+reachable only from the command surface - which means it was not discoverable
+by anyone who did not already know it existed. There is now a paintbrush in the
+same place, hidden while the omnibox is floating and on non-http(s) pages.
+
+Arc's Code editor writes raw CSS and raw JavaScript. The CSS is appended after
+the compiled typed adjustments so it wins on equal specificity, which is the
+reason to drop to code at all, and it is deliberately not put through the
+selector validator: that validator exists so a *filter list* or a control
+cannot emit something unintended, and its safe-subset premise is that nobody
+typed it. A stylesheet the user wrote for their own browser is a different
+trust relationship, and CSS cannot reach outside the document it styles. Length
+is bounded either way.
+
+JavaScript is a different kind of power, so it has its own profile switch and
+that switch defaults OFF - which is Arc's current posture, having disabled
+JavaScript Boosts and left the user to re-enable the ones they want. The CSS
+switch fails open when there is no pref service, because a Boost the user made
+should keep working; the JavaScript switch fails closed, because absent a
+record that the user turned it on it must not run. A browser test stores a
+script on a layer, asserts it does not execute with the switch off, turns the
+switch on, and asserts it then runs in the page. Author scripts run in the
+page's world, since a Boost script is written against the page's own globals
+and would be useless without them - which is exactly why it is gated - and each
+one is wrapped so a throw in one cannot stop the next.
+
+Arc restores a zapped area from a control on the page - "clicking the Slash
+(\\) icon near the bottom of the webpage afterward will restore any zapped
+area". Seoul does the same thing from the editor instead: "Undo Zap" removes
+the most recent hide and the element returns on the next apply. Same behaviour,
+different placement, and that difference is stated rather than glossed.
+
+Not built, and not claimed: delete from Library > Boosts, and Easels.
+
+## Capture, and what Easels already are
+
+Arc's Easels are "super powered whiteboards... for collecting your ideas as you
+browse", filled by taking a Capture: drag a rectangle over the page and keep
+that region. Seoul's **Boards are that surface already** - the same authored
+spatial document, with text, image references, capture references, links,
+persistence, bounded undo and archive - so this is a set of gaps to close on
+something real rather than a feature to write from scratch. `New Easel`,
+`easel`, `board` and `boards` now reach it as command tokens, each with a test
+that they name the command rather than falling through to a web search.
+
+`SeoulCapture` implements the Capture itself. The decision that matters: **the
+page chooses the rectangle, the browser process reads the pixels.** The overlay
+runs in Chrome's isolated world and reports four numbers; the image comes from
+`CopyFromSurface` on the compositor. A page can never hand Seoul fabricated
+image data claiming to be a picture of something it does not show.
+
+Four failure modes are handled rather than left to chance: Escape cancels, and
+so does navigating away, because a capture belongs to the page it was started
+on and must not silently photograph a different document; a drag under 8 px is
+a stray click rather than a region, and is answered with nothing instead of a
+one-pixel picture; the surface copy times out at five seconds so a capture
+cannot hang; and a generation counter drops replies from selections the user
+has already abandoned. PNG encoding and the disk write run off the UI thread.
+
+End to end: the `Capture` command runs the region picker, and the finished PNG
+is filed in the Library as a `kCapture` artifact carrying its origin, title and
+path. The Library is the single owner of the image; a Board references it
+rather than holding a second copy of the bytes. Arc's "Capture Full Page" is
+the same path with an empty source rect.
+
+`PlaceCaptureOnBoard` closes the loop. A board element of kind
+`kCaptureReference` points at the Library artifact by id - not at the file, and
+not at a copy of the image - so the Library remains the single owner of the
+bytes and deleting the artifact cannot leave a board showing a picture that no
+longer exists. It refuses an artifact that does not exist, and one that is not
+a capture: anything else would render as a picture the board cannot show. A
+refused placement adds nothing.
+
+Still open on Easels: freehand ink, new Easels opening as a Pinned Tab in the
+current Space, a Library > Easels section, `Ctrl+Shift+E`, and PNG export.
+
+## The Boost panel was anchored to the wrong thing
+
+`ShowBoostBubbleForWebContents` anchored the panel to `browser_view->toolbar()`
+with `BubbleBorder::TOP_LEFT`. In Single Toolbar the toolbar *is* the vertical
+rail — a full-height view pinned to the window's left edge — so the panel was
+laid out from that corner, covering the sidebar and pointing at nothing. It now
+anchors to the address field, which is the control that names the site the
+panel acts on. A browser case pins that it starts at the address field and
+never hangs off the window's left edge.
+
+The contents were also a flat stack of independently sized rows. The panel now
+has a fixed measure, a header that says what it is and which site it acts on
+before offering the switch that turns it off, and one shared label-left
+control-right row so the rows cannot drift apart.
 
 ## Known open issues
 
