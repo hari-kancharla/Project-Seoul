@@ -47,3 +47,11 @@ apps/voice-lab/recordings/
 .build/
 *.xcodeproj
 *.xcworkspace
+
+# Signed component artifacts and key material never belong in the repo.
+*.crx
+*.pem
+*.der
+
+# Ad-hoc UI verification screenshots belong in the scratchpad, not the repo.
+seoul-ui-verify-*.png
