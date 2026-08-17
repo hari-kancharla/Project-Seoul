@@ -226,5 +226,148 @@ TEST(SiteLayerCompilerTest, ImportRejectsMaliciousLayer) {
             SiteLayerError::kUnsafeSelector);
 }
 
+// Arc's three "Advanced color controls" are independent controls but one CSS
+// declaration. `filter` does not accumulate across rules - a second
+// declaration replaces the first - so emitting them separately would silently
+// apply only the last slider the user touched.
+TEST(SiteLayerCompilerTest, ColorSlidersCompileIntoOneFilterDeclaration) {
+  SiteLayer layer;
+  layer.id = "boost-filters";
+  layer.name = "Filters";
+  layer.origin_pattern = "https://example.test";
+  layer.enabled = true;
+  const std::pair<SiteAdjustmentKind, double> sliders[] = {
+      {SiteAdjustmentKind::kContrastLevel, 1.2},
+      {SiteAdjustmentKind::kBrightnessLevel, 0.9},
+      {SiteAdjustmentKind::kSaturationLevel, 1.4}};
+  for (const auto &[kind, value] : sliders) {
+    SiteAdjustment adjustment;
+    adjustment.kind = kind;
+    adjustment.numeric_value = value;
+    layer.adjustments.push_back(adjustment);
+  }
+
+  const auto css = CompileSiteLayer(layer);
+  ASSERT_TRUE(css.has_value());
+  EXPECT_EQ(css->find("filter:"), css->rfind("filter:"))
+      << "exactly one filter declaration, or only the last slider applies";
+  EXPECT_NE(css->find("contrast(1.2)"), std::string::npos);
+  EXPECT_NE(css->find("brightness(0.9)"), std::string::npos);
+  EXPECT_NE(css->find("saturate(1.4)"), std::string::npos);
+}
+
+// A slider the user never touched stays at 1.0: the page exactly as authored.
+TEST(SiteLayerCompilerTest, UntouchedColorSlidersStayNeutral) {
+  SiteLayer layer;
+  layer.id = "boost-one-slider";
+  layer.name = "One slider";
+  layer.origin_pattern = "https://example.test";
+  layer.enabled = true;
+  SiteAdjustment brightness;
+  brightness.kind = SiteAdjustmentKind::kBrightnessLevel;
+  brightness.numeric_value = 0.8;
+  layer.adjustments.push_back(brightness);
+
+  const auto css = CompileSiteLayer(layer);
+  ASSERT_TRUE(css.has_value());
+  EXPECT_NE(css->find("contrast(1)"), std::string::npos);
+  EXPECT_NE(css->find("brightness(0.8)"), std::string::npos);
+  EXPECT_NE(css->find("saturate(1)"), std::string::npos);
+}
+
+// Arc's "Case" applies to all text on the page, and survives persistence.
+TEST(SiteLayerCompilerTest, TextCaseCompilesAndRoundTrips) {
+  SiteLayer layer;
+  layer.id = "boost-case";
+  layer.name = "Case";
+  layer.origin_pattern = "https://example.test";
+  layer.enabled = true;
+  SiteAdjustment adjustment;
+  adjustment.kind = SiteAdjustmentKind::kTextCase;
+  adjustment.text_case = TextCase::kUpper;
+  layer.adjustments.push_back(adjustment);
+
+  const auto css = CompileSiteLayer(layer);
+  ASSERT_TRUE(css.has_value());
+  EXPECT_NE(css->find("text-transform: uppercase"), std::string::npos);
+
+  const auto restored = SiteLayerFromValue(base::Value(SiteLayerToValue(layer)));
+  ASSERT_TRUE(restored.has_value());
+  ASSERT_EQ(restored->adjustments.size(), 1u);
+  EXPECT_EQ(restored->adjustments.front().text_case, TextCase::kUpper);
+}
+
+// A slider outside the accepted band is refused rather than clamped, so a
+// stored layer can never render a page unreadable.
+TEST(SiteLayerCompilerTest, OutOfRangeColorSliderIsRejected) {
+  SiteLayer layer;
+  layer.id = "boost-bad";
+  layer.name = "Bad";
+  layer.origin_pattern = "https://example.test";
+  layer.enabled = true;
+  SiteAdjustment adjustment;
+  adjustment.kind = SiteAdjustmentKind::kContrastLevel;
+  adjustment.numeric_value = 9.0;
+  layer.adjustments.push_back(adjustment);
+
+  EXPECT_FALSE(CompileSiteLayer(layer).has_value());
+}
+
+// Arc's Code editor. Author CSS is appended after the compiled controls so it
+// wins on equal specificity - overriding what the controls produced is the
+// reason to drop to code at all.
+TEST(SiteLayerCompilerTest, AuthorCssIsAppendedAfterTheTypedAdjustments) {
+  SiteLayer layer;
+  layer.id = "boost-code";
+  layer.name = "Code";
+  layer.origin_pattern = "https://example.test";
+  layer.enabled = true;
+  SiteAdjustment scale;
+  scale.kind = SiteAdjustmentKind::kFontSizeScale;
+  scale.selectors = {"p"};
+  scale.numeric_value = 1.2;
+  layer.adjustments.push_back(scale);
+  layer.custom_css = ".sidebar { display: none; }";
+
+  const auto css = CompileSiteLayer(layer);
+  ASSERT_TRUE(css.has_value());
+  const size_t typed = css->find("font-size");
+  const size_t author = css->find(".sidebar");
+  ASSERT_NE(typed, std::string::npos);
+  ASSERT_NE(author, std::string::npos);
+  EXPECT_LT(typed, author) << "author CSS must come last to win on ties";
+}
+
+// A Boost that is nothing but Code-editor content is a real Boost, not an
+// empty layer.
+TEST(SiteLayerCompilerTest, CodeOnlyLayerRoundTrips) {
+  SiteLayer layer;
+  layer.id = "boost-code-only";
+  layer.name = "Code only";
+  layer.origin_pattern = "https://example.test";
+  layer.enabled = true;
+  layer.custom_css = "body { color: red; }";
+  layer.custom_javascript = "console.log('hi');";
+
+  const auto restored = SiteLayerFromValue(base::Value(SiteLayerToValue(layer)));
+  ASSERT_TRUE(restored.has_value())
+      << "a layer carrying only code must survive persistence";
+  EXPECT_EQ(restored->custom_css, layer.custom_css);
+  EXPECT_EQ(restored->custom_javascript, layer.custom_javascript);
+}
+
+// The Code editor is bounded, so a layer cannot become an unbounded blob in
+// the profile.
+TEST(SiteLayerCompilerTest, OversizeAuthorCodeIsRejected) {
+  SiteLayer layer;
+  layer.id = "boost-huge";
+  layer.name = "Huge";
+  layer.origin_pattern = "https://example.test";
+  layer.enabled = true;
+  layer.custom_css = std::string(kMaxCustomCssLength + 1, 'x');
+  EXPECT_EQ(CompileSiteLayer(layer).error(),
+            SiteLayerError::kCustomCodeTooLong);
+}
+
 } // namespace
 } // namespace seoul

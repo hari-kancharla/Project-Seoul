@@ -163,6 +163,29 @@ SiteLayerRegistry::CompileForOrigin(const std::string &origin,
   return css;
 }
 
+std::string SiteLayerRegistry::CustomJavaScriptForOrigin(
+    const std::string &origin, const std::string &scene_id) const {
+  if (!ParseOriginPattern(origin, /*allow_wildcard=*/false).has_value()) {
+    return std::string();
+  }
+  std::string script;
+  for (const auto &[id, layer] : layers_) {
+    if (!layer.enabled || layer.custom_javascript.empty() ||
+        !SiteLayerMatchesOrigin(layer, origin)) {
+      continue;
+    }
+    if (!layer.scene_scope.empty() && layer.scene_scope != scene_id) {
+      continue;
+    }
+    // Each author's script is wrapped on its own so one that throws cannot
+    // stop the next Boost's from running.
+    script += "try { (function(){\n";
+    script += layer.custom_javascript;
+    script += "\n})(); } catch (e) {}\n";
+  }
+  return script;
+}
+
 bool SiteLayerRegistry::HasEnabledAdjustmentForOrigin(
     const std::string &origin, const std::string &scene_id,
     SiteAdjustmentKind kind) const {

@@ -80,6 +80,7 @@ private:
   raw_ptr<SiteLayerRegistry> registry_;
   std::string scene_id_;
   std::string compiled_css_;
+  std::string custom_javascript_;
   bool tint_enabled_ = false;
   bool automatic_dark_mode_enabled_ = false;
   uint64_t zap_generation_ = 0;

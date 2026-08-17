@@ -17,6 +17,9 @@
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
+#include "chrome/browser/profiles/profile.h"
+#include "components/prefs/pref_service.h"
+#include "seoul/browser/site_layers/site_layer_types.h"
 #include "seoul/browser/product/browser/boost_web_preferences.h"
 #include "seoul/browser/site_layers/site_layer_compiler.h"
 #include "seoul/browser/site_layers/site_layer_registry.h"
@@ -205,6 +208,30 @@ std::u16string BuildReadZapResultScript() {
 
 } // namespace
 
+namespace {
+
+// Reads Arc's Settings > Advanced switch for the profile owning this page.
+// Absent profile or pref service fails open, because a Boost the user already
+// created should keep working rather than silently stop.
+bool BoostJavaScriptEnabledForWebContents(content::WebContents *contents) {
+  Profile *const profile =
+      Profile::FromBrowserContext(contents->GetBrowserContext());
+  PrefService *const prefs = profile ? profile->GetPrefs() : nullptr;
+  // Fails CLOSED, unlike the CSS switch: absent a pref service there is no
+  // record that the user turned author JavaScript on, and it must not run on
+  // an assumption.
+  return prefs && prefs->GetBoolean(kSeoulBoostJavaScriptEnabledPref);
+}
+
+bool BoostsEnabledForWebContents(content::WebContents *contents) {
+  Profile *const profile =
+      Profile::FromBrowserContext(contents->GetBrowserContext());
+  PrefService *const prefs = profile ? profile->GetPrefs() : nullptr;
+  return !prefs || prefs->GetBoolean(kSeoulBoostsEnabledPref);
+}
+
+}  // namespace
+
 SiteLayerApplicator::SiteLayerApplicator(content::WebContents *web_contents,
                                          SiteLayerRegistry *registry)
     : content::WebContentsObserver(web_contents), registry_(registry) {}
@@ -217,10 +244,14 @@ SiteLayerApplicator::~SiteLayerApplicator() {
 void SiteLayerApplicator::Refresh(const std::string &scene_id) {
   scene_id_ = scene_id;
   compiled_css_.clear();
+  custom_javascript_.clear();
   tint_enabled_ = false;
   bool automatic_dark_mode = false;
   content::WebContents *contents = web_contents();
-  if (registry_ && contents &&
+  // Arc's global switch, checked here because Refresh() is the one place every
+  // Boost reaches the page. Off means no Boost applies anywhere, and none is
+  // deleted: flipping it back restores every one of them.
+  if (registry_ && contents && BoostsEnabledForWebContents(contents) &&
       IsCustomizableUrl(contents->GetLastCommittedURL())) {
     const url::Origin origin =
         url::Origin::Create(contents->GetLastCommittedURL());
@@ -229,6 +260,13 @@ void SiteLayerApplicator::Refresh(const std::string &scene_id) {
           registry_->CompileForOrigin(origin.Serialize(), scene_id_);
       if (compiled.has_value()) {
         compiled_css_ = std::move(compiled.value());
+      }
+      // Arc's Code editor JavaScript, behind its own switch. Off by default,
+      // so an author script never runs until the user turns JavaScript Boosts
+      // on for this profile.
+      if (BoostJavaScriptEnabledForWebContents(contents)) {
+        custom_javascript_ =
+            registry_->CustomJavaScriptForOrigin(origin.Serialize(), scene_id_);
       }
       automatic_dark_mode = registry_->HasEnabledAdjustmentForOrigin(
           origin.Serialize(), scene_id_,
@@ -362,6 +400,27 @@ void SiteLayerApplicator::OnZapPoll(uint64_t generation, base::Value result) {
   std::move(zap_callback_).Run(std::move(selector));
 }
 
+namespace {
+
+// Hands the author's script to the page's own world through a script element,
+// the way a userscript engine does, and takes the element straight back out so
+// it leaves no trace in the DOM. JSON-encoding the body is what keeps the
+// author's quotes and newlines from breaking out of the literal.
+std::u16string BuildAuthorScript(const std::string &author_javascript) {
+  std::string encoded;
+  base::JSONWriter::Write(base::Value(author_javascript), &encoded);
+  return base::UTF8ToUTF16(
+      "(() => { try {"
+      "  const body = " + encoded + ";"
+      "  const element = document.createElement('script');"
+      "  element.textContent = body;"
+      "  (document.head || document.documentElement).appendChild(element);"
+      "  element.remove();"
+      "} catch (e) {} return true; })()");
+}
+
+}  // namespace
+
 void SiteLayerApplicator::ApplyToPrimaryMainFrame() {
   content::WebContents *contents = web_contents();
   if (!contents) {
@@ -374,6 +433,17 @@ void SiteLayerApplicator::ApplyToPrimaryMainFrame() {
   frame->ExecuteJavaScriptInIsolatedWorld(
       BuildApplyScript(compiled_css_, tint_enabled_), base::DoNothing(),
       ISOLATED_WORLD_ID_CHROME_INTERNAL);
+
+  // The author's own script, after the styling it may depend on. It runs in
+  // the page's world rather than the isolated one, because a Boost script is
+  // written against the page's own globals and would be useless without them
+  // - which is also precisely why it is behind a switch that defaults off.
+  // Wrapped so a throw in the author's code cannot abort the rest of the page.
+  if (!custom_javascript_.empty()) {
+    frame->ExecuteJavaScriptInIsolatedWorld(
+        BuildAuthorScript(custom_javascript_), base::DoNothing(),
+        ISOLATED_WORLD_ID_CHROME_INTERNAL);
+  }
 }
 
 } // namespace seoul

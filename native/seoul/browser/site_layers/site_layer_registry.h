@@ -36,6 +36,12 @@ public:
   // Compiles all enabled layers matching `origin` and either no Scene scope or
   // exactly `scene_id`. `origin` is the page origin, e.g.
   // "https://example.com".
+  // The author JavaScript from every enabled layer that resolves for this
+  // origin and Scene, concatenated in registry order. Each is wrapped so a
+  // throw in one author's script cannot stop the next from running.
+  std::string CustomJavaScriptForOrigin(const std::string &origin,
+                                        const std::string &scene_id) const;
+
   SiteLayerResult<std::string>
   CompileForOrigin(const std::string &origin,
                    const std::string &scene_id) const;

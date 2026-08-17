@@ -93,6 +93,10 @@ bool SelectorsForbidden(SiteAdjustmentKind kind) {
   case SiteAdjustmentKind::kDensity:
   case SiteAdjustmentKind::kTintColor:
   case SiteAdjustmentKind::kAutomaticDarkMode:
+  case SiteAdjustmentKind::kContrastLevel:
+  case SiteAdjustmentKind::kBrightnessLevel:
+  case SiteAdjustmentKind::kSaturationLevel:
+  case SiteAdjustmentKind::kTextCase:
     return true;
   default:
     return false;
@@ -158,6 +162,15 @@ SiteLayerStatusResult ValidateAdjustment(const SiteAdjustment &adjustment) {
       return base::unexpected(SiteLayerError::kInvalidNumericValue);
     }
     break;
+  case SiteAdjustmentKind::kContrastLevel:
+  case SiteAdjustmentKind::kBrightnessLevel:
+  case SiteAdjustmentKind::kSaturationLevel:
+    // 1.0 is the page as authored. Zero is allowed (fully flat/black/grey);
+    // the upper bound keeps a slider from rendering a page unreadable.
+    if (!in_range(adjustment.numeric_value, 0.0, 2.0)) {
+      return base::unexpected(SiteLayerError::kInvalidNumericValue);
+    }
+    break;
   default:
     break;
   }
@@ -213,6 +226,23 @@ std::string CompileAdjustment(const SiteAdjustment &adjustment) {
     return selector +
            " { font-size: " + FormatNumber(adjustment.numeric_value) +
            "em !important; }\n";
+  case SiteAdjustmentKind::kContrastLevel:
+  case SiteAdjustmentKind::kBrightnessLevel:
+  case SiteAdjustmentKind::kSaturationLevel:
+    // Emitted together by CompileSiteLayer, because a second `filter`
+    // declaration replaces the first rather than composing with it.
+    return std::string();
+  case SiteAdjustmentKind::kTextCase: {
+    const char *transform =
+        adjustment.text_case == TextCase::kUpper     ? "uppercase"
+        : adjustment.text_case == TextCase::kLower   ? "lowercase"
+        : adjustment.text_case == TextCase::kTitle   ? "capitalize"
+                                                     : "none";
+    return std::string(
+               "html, body, body *, input, button, textarea, select { "
+               "text-transform: ") +
+           transform + " !important; }\n";
+  }
   case SiteAdjustmentKind::kContentWidth:
     return "html body { max-width: " + FormatNumber(adjustment.numeric_value) +
            "px !important; margin-left: auto !important; "
@@ -286,6 +316,14 @@ const char *AdjustmentKindName(SiteAdjustmentKind kind) {
     return "reduce_motion";
   case SiteAdjustmentKind::kAutomaticDarkMode:
     return "automatic_dark_mode";
+  case SiteAdjustmentKind::kContrastLevel:
+    return "contrast_level";
+  case SiteAdjustmentKind::kBrightnessLevel:
+    return "brightness_level";
+  case SiteAdjustmentKind::kSaturationLevel:
+    return "saturation_level";
+  case SiteAdjustmentKind::kTextCase:
+    return "text_case";
   }
   return "reading_mode";
 }
@@ -308,6 +346,10 @@ bool AdjustmentKindFromName(const std::string &name, SiteAdjustmentKind *out) {
       {"increase_contrast", SiteAdjustmentKind::kIncreaseContrast},
       {"reduce_motion", SiteAdjustmentKind::kReduceMotion},
       {"automatic_dark_mode", SiteAdjustmentKind::kAutomaticDarkMode},
+      {"contrast_level", SiteAdjustmentKind::kContrastLevel},
+      {"brightness_level", SiteAdjustmentKind::kBrightnessLevel},
+      {"saturation_level", SiteAdjustmentKind::kSaturationLevel},
+      {"text_case", SiteAdjustmentKind::kTextCase},
   };
   for (const auto &[kind_name, kind] : kKinds) {
     if (name == kind_name) {
@@ -328,6 +370,35 @@ const char *DensityName(DensityLevel level) {
     return "spacious";
   }
   return "comfortable";
+}
+
+const char *TextCaseName(TextCase value) {
+  switch (value) {
+  case TextCase::kOriginal:
+    return "original";
+  case TextCase::kUpper:
+    return "upper";
+  case TextCase::kLower:
+    return "lower";
+  case TextCase::kTitle:
+    return "title";
+  }
+  return "original";
+}
+
+bool TextCaseFromName(const std::string &name, TextCase *out) {
+  if (name == "original") {
+    *out = TextCase::kOriginal;
+  } else if (name == "upper") {
+    *out = TextCase::kUpper;
+  } else if (name == "lower") {
+    *out = TextCase::kLower;
+  } else if (name == "title") {
+    *out = TextCase::kTitle;
+  } else {
+    return false;
+  }
+  return true;
 }
 
 bool DensityFromName(const std::string &name, DensityLevel *out) {
@@ -506,6 +577,10 @@ SiteLayerStatusResult ValidateSiteLayer(const SiteLayer &layer) {
   if (layer.adjustments.size() > kMaxLayerRules) {
     return base::unexpected(SiteLayerError::kTooManyRules);
   }
+  if (layer.custom_css.size() > kMaxCustomCssLength ||
+      layer.custom_javascript.size() > kMaxCustomJavaScriptLength) {
+    return base::unexpected(SiteLayerError::kCustomCodeTooLong);
+  }
   for (const SiteAdjustment &adjustment : layer.adjustments) {
     if (auto result = ValidateAdjustment(adjustment); !result.has_value()) {
       return result;
@@ -519,8 +594,52 @@ SiteLayerResult<std::string> CompileSiteLayer(const SiteLayer &layer) {
     return base::unexpected(valid.error());
   }
   std::string css;
+  // Arc's three colour sliders are independent controls but one CSS
+  // declaration: `filter` does not accumulate across rules, so emitting them
+  // separately would leave only the last one applied. Absent sliders stay at
+  // 1.0, which is the page exactly as the site authored it.
+  double contrast = 1.0;
+  double brightness = 1.0;
+  double saturation = 1.0;
+  bool has_filter = false;
   for (const SiteAdjustment &adjustment : layer.adjustments) {
+    switch (adjustment.kind) {
+    case SiteAdjustmentKind::kContrastLevel:
+      contrast = adjustment.numeric_value;
+      has_filter = true;
+      break;
+    case SiteAdjustmentKind::kBrightnessLevel:
+      brightness = adjustment.numeric_value;
+      has_filter = true;
+      break;
+    case SiteAdjustmentKind::kSaturationLevel:
+      saturation = adjustment.numeric_value;
+      has_filter = true;
+      break;
+    default:
+      break;
+    }
     css += CompileAdjustment(adjustment);
+  }
+  if (has_filter) {
+    css += "html { filter: contrast(" + FormatNumber(contrast) +
+           ") brightness(" + FormatNumber(brightness) + ") saturate(" +
+           FormatNumber(saturation) + ") !important; }\n";
+  }
+  // Arc's Code editor CSS, last so it wins on equal specificity against the
+  // typed adjustments above - the point of dropping to code is to override
+  // what the controls produced.
+  //
+  // This is author CSS and is deliberately not put through the selector
+  // validator: that validator exists to stop a *filter list* or a control from
+  // emitting something unintended, and its whole safe-subset premise is that
+  // nobody typed it. A stylesheet the user wrote for their own browser is a
+  // different trust relationship, and CSS cannot reach outside the document it
+  // styles. The one thing enforced is length, above.
+  if (!layer.custom_css.empty()) {
+    css += "\n/* Boost: author CSS */\n";
+    css += layer.custom_css;
+    css += "\n";
   }
   return css;
 }
@@ -558,9 +677,18 @@ base::DictValue SiteLayerToValue(const SiteLayer &layer) {
     if (adjustment.kind == SiteAdjustmentKind::kDensity) {
       adjustment_dict.Set("density", DensityName(adjustment.density));
     }
+    if (adjustment.kind == SiteAdjustmentKind::kTextCase) {
+      adjustment_dict.Set("text_case", TextCaseName(adjustment.text_case));
+    }
     adjustments.Append(std::move(adjustment_dict));
   }
   dict.Set("adjustments", std::move(adjustments));
+  if (!layer.custom_css.empty()) {
+    dict.Set("custom_css", layer.custom_css);
+  }
+  if (!layer.custom_javascript.empty()) {
+    dict.Set("custom_javascript", layer.custom_javascript);
+  }
   return dict;
 }
 
@@ -587,9 +715,21 @@ SiteLayerResult<SiteLayer> SiteLayerFromValue(const base::Value &value) {
     layer.scene_scope = *scene;
   }
   layer.enabled = dict->FindBool("enabled").value_or(true);
+  if (const std::string *css = dict->FindString("custom_css")) {
+    layer.custom_css = *css;
+  }
+  if (const std::string *script = dict->FindString("custom_javascript")) {
+    layer.custom_javascript = *script;
+  }
   const base::ListValue *adjustments = dict->FindList("adjustments");
-  if (!adjustments) {
+  if (!adjustments && layer.custom_css.empty() &&
+      layer.custom_javascript.empty()) {
+    // A layer with neither adjustments nor code is empty. One that is nothing
+    // but Code-editor content is not.
     return base::unexpected(SiteLayerError::kEmptyLayer);
+  }
+  if (!adjustments) {
+    return layer;
   }
   for (const base::Value &adjustment_value : *adjustments) {
     const base::DictValue *adjustment_dict = adjustment_value.GetIfDict();
@@ -618,6 +758,12 @@ SiteLayerResult<SiteLayer> SiteLayerFromValue(const base::Value &value) {
     }
     adjustment.numeric_value =
         adjustment_dict->FindDouble("numeric_value").value_or(0.0);
+    if (const std::string *text_case =
+            adjustment_dict->FindString("text_case")) {
+      if (!TextCaseFromName(*text_case, &adjustment.text_case)) {
+        return base::unexpected(SiteLayerError::kInvalidSelector);
+      }
+    }
     if (const std::string *density = adjustment_dict->FindString("density")) {
       if (!DensityFromName(*density, &adjustment.density)) {
         return base::unexpected(SiteLayerError::kInvalidSelector);
@@ -641,6 +787,8 @@ const char *SiteLayerErrorToString(SiteLayerError error) {
     return "invalid_origin";
   case SiteLayerError::kEmptyLayer:
     return "empty_layer";
+  case SiteLayerError::kCustomCodeTooLong:
+    return "custom_code_too_long";
   case SiteLayerError::kTooManyRules:
     return "too_many_rules";
   case SiteLayerError::kInvalidSelector:
