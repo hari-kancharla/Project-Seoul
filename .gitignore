@@ -28,8 +28,14 @@ secrets/
 # local probe scripts
 _probe_*.mjs
 
-# Native baseline audit evidence (screenshots, raw logs) - never committed
+# Verification evidence (screenshots, raw logs) - never committed.
+#
+# The root-level rule is here because 19 MB of seoul-ui-verify-*.png got swept
+# into a commit about Package.swift and sat in the tree unreferenced. The
+# verifiers write these to /tmp by design; nothing in the repo reads one.
 native/evidence/
+seoul-ui-verify*.png
+seoul-verify-*.png
 
 # Safety: never track an in-repo Chromium checkout or build output
 seoul-chromium/
@@ -40,10 +46,7 @@ apps/voice-lab/models/
 apps/voice-lab/out/
 apps/voice-lab/recordings/
 
-.build/
-*.xcodeproj
-*.xcworkspace
-
+# Swift package build output
 .build/
 *.xcodeproj
 *.xcworkspace
