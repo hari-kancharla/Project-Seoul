@@ -20,12 +20,13 @@ diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
 diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
 --- a/chrome/browser/chrome_content_browser_client.cc
 +++ b/chrome/browser/chrome_content_browser_client.cc
-@@ -586,8 +586,12 @@
+@@ -586,8 +586,13 @@
  #include "components/password_manager/core/common/password_manager_features.h"
  #include "components/soda/soda_util.h"
  #include "components/webapps/isolated_web_apps/url_loading/url_loader_factory.h"
 -#include "services/network/public/mojom/permissions_policy/permissions_policy_feature.mojom.h"
 +#include "net/http/http_request_headers.h"
++#include "seoul/browser/adblock/ad_block_csp_throttle.h"
 +#include "seoul/browser/adblock/ad_block_navigation_throttle.h"
 +#include "seoul/browser/adblock/ad_block_request_interceptor.h"
 +#include "seoul/browser/adblock/ad_block_websocket_interceptor.h"
@@ -34,7 +35,7 @@ diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/ch
  #include "third_party/blink/public/mojom/installedapp/related_application.mojom.h"
  #endif  // !BUILDFLAG(IS_ANDROID)
  
-@@ -5631,6 +5635,7 @@
+@@ -5631,6 +5636,7 @@ void ChromeContentBrowserClient::RemovePresentationObserver(
  
  void ChromeContentBrowserClient::CreateThrottlesForNavigation(
      content::NavigationThrottleRegistry& registry) {
@@ -42,7 +43,25 @@ diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/ch
    CreateAndAddChromeThrottlesForNavigation(registry);
  }
  
-@@ -6663,6 +6668,9 @@
+@@ -6037,6 +6043,17 @@ ChromeContentBrowserClient::CreateURLLoaderThrottles(
+   ChromeNavigationUIData* chrome_navigation_ui_data =
+       static_cast<ChromeNavigationUIData*>(navigation_ui_data);
+ 
++#if !BUILDFLAG(IS_ANDROID)
++  // Seoul `$csp` filtering. Navigations are browser-created loaders, so unlike
++  // renderer subresources they reach this hook; the throttle declines anything
++  // that is not an eligible frame navigation.
++  if (auto seoul_csp_throttle = seoul::adblock::AdBlockCspThrottle::MaybeCreate(
++          request, browser_context, wc_getter);
++      seoul_csp_throttle) {
++    result.push_back(std::move(seoul_csp_throttle));
++  }
++#endif  // !BUILDFLAG(IS_ANDROID)
++
+ #if BUILDFLAG(SAFE_BROWSING_AVAILABLE)
+   if (auto safe_browsing_throttle = MaybeCreateSafeBrowsingURLLoaderThrottle(
+           request, browser_context, wc_getter, frame_tree_node_id,
+@@ -6663,6 +6680,9 @@ void ChromeContentBrowserClient::WillCreateURLLoaderFactory(
      bool* disable_secure_dns,
      network::mojom::URLLoaderFactoryOverridePtr* factory_override,
      scoped_refptr<base::SequencedTaskRunner> navigation_response_task_runner) {
@@ -52,7 +71,7 @@ diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/ch
  #if BUILDFLAG(ENABLE_EXTENSIONS_CORE)
    auto* web_request_api =
        extensions::BrowserContextKeyedAPIFactory<extensions::WebRequestAPI>::Get(
-@@ -6779,6 +6787,10 @@
+@@ -6779,6 +6799,10 @@ ChromeContentBrowserClient::
  
  bool ChromeContentBrowserClient::WillInterceptWebSocket(
      content::RenderFrameHost* frame) {
@@ -63,23 +82,10 @@ diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/ch
  #if BUILDFLAG(ENABLE_EXTENSIONS_CORE)
    if (!frame) {
      return false;
-@@ -6807,20 +6819,44 @@
+@@ -6807,20 +6831,44 @@ void ChromeContentBrowserClient::CreateWebSocket(
      const std::optional<std::string>& user_agent,
      mojo::PendingRemote<network::mojom::WebSocketHandshakeClient>
          handshake_client) {
--#if BUILDFLAG(ENABLE_EXTENSIONS_CORE)
--  // TODO(crbug.com/40195467): Request w/o a frame also should be proxied.
--  if (!frame) {
--    return;
--  }
--  auto* web_request_api =
--      extensions::BrowserContextKeyedAPIFactory<extensions::WebRequestAPI>::Get(
--          frame->GetBrowserContext());
--
--  DCHECK(web_request_api);
--  web_request_api->ProxyWebSocket(frame, std::move(factory), url,
--                                  site_for_cookies, user_agent,
--                                  std::move(handshake_client));
 +  CHECK(frame);
 +  seoul::adblock::AdBlockWebSocketInterceptor::MaybeIntercept(
 +      frame, url, std::move(handshake_client),
@@ -92,7 +98,19 @@ diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/ch
 +                 handshake_client) {
 +            content::RenderFrameHost* frame =
 +                content::RenderFrameHost::FromFrameToken(frame_token);
-+#if BUILDFLAG(ENABLE_EXTENSIONS_CORE)
+ #if BUILDFLAG(ENABLE_EXTENSIONS_CORE)
+-  // TODO(crbug.com/40195467): Request w/o a frame also should be proxied.
+-  if (!frame) {
+-    return;
+-  }
+-  auto* web_request_api =
+-      extensions::BrowserContextKeyedAPIFactory<extensions::WebRequestAPI>::Get(
+-          frame->GetBrowserContext());
+-
+-  DCHECK(web_request_api);
+-  web_request_api->ProxyWebSocket(frame, std::move(factory), url,
+-                                  site_for_cookies, user_agent,
+-                                  std::move(handshake_client));
 +            if (frame) {
 +              auto* web_request_api = extensions::BrowserContextKeyedAPIFactory<
 +                  extensions::WebRequestAPI>::Get(frame->GetBrowserContext());

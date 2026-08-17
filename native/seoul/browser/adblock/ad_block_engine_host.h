@@ -88,6 +88,9 @@ class AdBlockEngineWorker {
   AdBlockEngineWorker& operator=(const AdBlockEngineWorker&) = delete;
 
   AdBlockEngineEvaluationResult Evaluate(AdBlockRequest request);
+  // Combined `$csp` directives from both engines for a document/subdocument
+  // navigation. Empty when the mode is Off or nothing matches.
+  std::string GetCspDirectives(AdBlockRequest request, AdBlockMode mode);
   AdBlockCosmeticResources GetCosmeticResources(std::string url,
                                                 AdBlockMode mode);
   AdBlockDynamicCosmeticSelectors GetDynamicCosmeticSelectors(
@@ -113,6 +116,7 @@ class AdBlockEngineHost {
  public:
   using MatchCallback = base::OnceCallback<void(AdBlockEngineEvaluationResult)>;
   using ReplaceCallback = base::OnceCallback<void(AdBlockEngineReplaceResult)>;
+  using CspDirectivesCallback = base::OnceCallback<void(std::string)>;
   using CosmeticResourcesCallback =
       base::OnceCallback<void(AdBlockCosmeticResources)>;
   using DynamicCosmeticSelectorsCallback =
@@ -127,6 +131,9 @@ class AdBlockEngineHost {
   AdBlockEngineHost& operator=(const AdBlockEngineHost&) = delete;
 
   void Evaluate(AdBlockRequest request, MatchCallback callback);
+  void GetCspDirectives(AdBlockRequest request,
+                        AdBlockMode mode,
+                        CspDirectivesCallback callback);
   void GetCosmeticResources(std::string url,
                             AdBlockMode mode,
                             CosmeticResourcesCallback callback);

@@ -88,6 +88,21 @@ else
     elif ! GIT_INDEX_FILE="$index_file" git -C "$CHROMIUM_SRC" apply --cached "$delta_file"; then
       series_matches=0
     else
+      # `git diff HEAD` describes tracked files only, so files the series *adds*
+      # are absent from the delta and reversing the patch that creates them
+      # fails with "does not exist in index". Stage exactly those paths - taken
+      # from the patches' own `new file mode` hunks, never a wildcard - so the
+      # reverse proof sees the same tree the series produced. Materialized
+      # Seoul-owned sources stay unstaged and therefore stay out of the proof.
+      while IFS= read -r added_path; do
+        [ -n "$added_path" ] || continue
+        [ -f "$CHROMIUM_SRC/$added_path" ] || continue
+        GIT_INDEX_FILE="$index_file" git -C "$CHROMIUM_SRC" \
+          add -f -- "$added_path" 2>/dev/null || series_matches=0
+      done < <(awk '/^new file mode/{nf=1}
+                    /^\+\+\+ b\//{if(nf){print substr($0,7); nf=0}}' \
+                   "${patches[@]}" | sort -u)
+
       for ((i=${#patches[@]}-1; i>=0; i--)); do
         if ! GIT_INDEX_FILE="$index_file" git -C "$CHROMIUM_SRC" \
             apply --cached --reverse "${patches[$i]}" 2>/dev/null; then

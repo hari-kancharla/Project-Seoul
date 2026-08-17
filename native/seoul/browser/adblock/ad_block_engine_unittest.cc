@@ -281,5 +281,90 @@ TEST(AdBlockEngineTest, GenerichideDisablesGenericDiscoveryForSite) {
   EXPECT_TRUE(resources.generichide);
 }
 
+
+// $csp support. The engine resolves exceptions and merges multiple matching
+// directives itself; Seoul only ever appends the result as an extra policy.
+AdBlockRequest DocumentRequest(std::string url,
+                               std::string hostname,
+                               std::string source_hostname,
+                               bool is_third_party) {
+  return AdBlockRequest(std::move(url), std::move(hostname),
+                        std::move(source_hostname), "document",
+                        is_third_party);
+}
+
+TEST(AdBlockEngineTest, ReturnsCspDirectiveForMatchingDocument) {
+  auto engine = Build("||news.example^$csp=script-src 'self'\n");
+  ASSERT_TRUE(engine);
+
+  EXPECT_EQ(engine->GetCspDirectives(DocumentRequest(
+                "https://news.example/index.html", "news.example",
+                "news.example", false)),
+            "script-src 'self'");
+}
+
+TEST(AdBlockEngineTest, CspExceptionSuppressesInjection) {
+  auto engine = Build(
+      "||news.example^$csp=script-src 'self'\n"
+      "@@||news.example^$csp\n");
+  ASSERT_TRUE(engine);
+
+  EXPECT_EQ(engine->GetCspDirectives(DocumentRequest(
+                "https://news.example/index.html", "news.example",
+                "news.example", false)),
+            "");
+}
+
+TEST(AdBlockEngineTest, CombinesMultipleMatchingCspDirectives) {
+  auto engine = Build(
+      "||news.example^$csp=script-src 'self'\n"
+      "||news.example^$csp=frame-src 'none'\n");
+  ASSERT_TRUE(engine);
+
+  const std::string directives = engine->GetCspDirectives(DocumentRequest(
+      "https://news.example/index.html", "news.example", "news.example",
+      false));
+  EXPECT_NE(directives.find("script-src 'self'"), std::string::npos);
+  EXPECT_NE(directives.find("frame-src 'none'"), std::string::npos);
+}
+
+TEST(AdBlockEngineTest, NoCspDirectiveForNonMatchingOrSubresourceRequests) {
+  auto engine = Build("||news.example^$csp=script-src 'self'\n");
+  ASSERT_TRUE(engine);
+
+  // Non-matching document.
+  EXPECT_EQ(engine->GetCspDirectives(DocumentRequest(
+                "https://other.example/index.html", "other.example",
+                "other.example", false)),
+            "");
+  // Matching host, but a subresource request type never carries $csp.
+  EXPECT_EQ(engine->GetCspDirectives(ScriptRequest("https://news.example/a.js",
+                                                   "news.example",
+                                                   "news.example", false)),
+            "");
+}
+
+TEST(AdBlockEngineTest, AppliesCspToSubdocumentRequests) {
+  auto engine = Build("||frames.example^$csp=script-src 'none'\n");
+  ASSERT_TRUE(engine);
+
+  AdBlockRequest subdocument = DocumentRequest("https://frames.example/f.html",
+                                               "frames.example",
+                                               "top.example", true);
+  subdocument.request_type = "subdocument";
+  EXPECT_EQ(engine->GetCspDirectives(subdocument), "script-src 'none'");
+}
+
+TEST(AdBlockEngineTest, MalformedCspRuleDoesNotYieldDirectives) {
+  // A `$csp` option with no value on a blocking rule is not a usable policy.
+  auto engine = Build("||news.example^$csp\n");
+  ASSERT_TRUE(engine);
+
+  EXPECT_EQ(engine->GetCspDirectives(DocumentRequest(
+                "https://news.example/index.html", "news.example",
+                "news.example", false)),
+            "");
+}
+
 }  // namespace
 }  // namespace seoul::adblock

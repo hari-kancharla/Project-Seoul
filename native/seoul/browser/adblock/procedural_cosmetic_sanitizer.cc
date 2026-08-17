@@ -13,6 +13,18 @@
 #include "base/values.h"
 
 namespace seoul::adblock {
+
+SanitizedProceduralActionSets::SanitizedProceduralActionSets() = default;
+SanitizedProceduralActionSets::SanitizedProceduralActionSets(
+    const SanitizedProceduralActionSets&) = default;
+SanitizedProceduralActionSets& SanitizedProceduralActionSets::operator=(
+    const SanitizedProceduralActionSets&) = default;
+SanitizedProceduralActionSets::SanitizedProceduralActionSets(
+    SanitizedProceduralActionSets&&) = default;
+SanitizedProceduralActionSets& SanitizedProceduralActionSets::operator=(
+    SanitizedProceduralActionSets&&) = default;
+SanitizedProceduralActionSets::~SanitizedProceduralActionSets() = default;
+
 namespace {
 
 constexpr size_t kMaxProceduralActions = 64;

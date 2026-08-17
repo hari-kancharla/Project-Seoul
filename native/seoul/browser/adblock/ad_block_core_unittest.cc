@@ -892,6 +892,52 @@ TEST_F(AdBlockAsyncTest, CosmeticResourcesRespectModeAndEngineGroup) {
   EXPECT_EQ(1u, aggressive.additional_rules.procedural_actions.size());
 }
 
+TEST_F(AdBlockAsyncTest, CspDirectivesCombineEnginesAndRespectOffMode) {
+  AdBlockEngineHost host;
+  base::test::TestFuture<AdBlockEngineReplaceResult> default_replace;
+  host.ReplaceRules(AdBlockEngineGroup::kDefault,
+                    RuleBytes("||news.example^$csp=script-src 'self'\n"),
+                    default_replace.GetCallback());
+  ASSERT_TRUE(default_replace.Get().success);
+
+  base::test::TestFuture<AdBlockEngineReplaceResult> additional_replace;
+  host.ReplaceRules(AdBlockEngineGroup::kAdditional,
+                    RuleBytes("||news.example^$csp=frame-src 'none'\n"),
+                    additional_replace.GetCallback());
+  ASSERT_TRUE(additional_replace.Get().success);
+
+  AdBlockRequest request("https://news.example/index.html", "news.example",
+                         "news.example", "main_frame", false);
+
+  // Both engines contribute; appending policies can only further restrict.
+  base::test::TestFuture<std::string> standard;
+  host.GetCspDirectives(request, AdBlockMode::kStandard,
+                        standard.GetCallback());
+  const std::string combined = standard.Take();
+  EXPECT_NE(combined.find("script-src 'self'"), std::string::npos);
+  EXPECT_NE(combined.find("frame-src 'none'"), std::string::npos);
+
+  // Off must never inject a policy.
+  base::test::TestFuture<std::string> off;
+  host.GetCspDirectives(request, AdBlockMode::kOff, off.GetCallback());
+  EXPECT_EQ(off.Take(), "");
+}
+
+TEST_F(AdBlockAsyncTest, CspDirectivesEmptyForNonMatchingNavigation) {
+  AdBlockEngineHost host;
+  base::test::TestFuture<AdBlockEngineReplaceResult> replace;
+  host.ReplaceRuleSets(RuleBytes("||news.example^$csp=script-src 'self'\n"),
+                       RuleBytes(""), replace.GetCallback());
+  ASSERT_TRUE(replace.Get().success);
+
+  base::test::TestFuture<std::string> future;
+  host.GetCspDirectives(
+      AdBlockRequest("https://other.example/index.html", "other.example",
+                     "other.example", "main_frame", false),
+      AdBlockMode::kStandard, future.GetCallback());
+  EXPECT_EQ(future.Take(), "");
+}
+
 TEST_F(AdBlockAsyncTest, DynamicCosmeticsMergeExceptionsAcrossEngineGroups) {
   AdBlockEngineHost host;
   base::test::TestFuture<AdBlockEngineReplaceResult> default_replace;

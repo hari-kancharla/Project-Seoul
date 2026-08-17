@@ -47,10 +47,14 @@ source_set("adblock") {
   sources = [
     "ad_block_component_installer.cc",
     "ad_block_component_installer.h",
+    "ad_block_csp_throttle.cc",
+    "ad_block_csp_throttle.h",
     "ad_block_decision.cc",
     "ad_block_decision.h",
     "ad_block_engine_host.cc",
     "ad_block_engine_host.h",
+    "ad_block_filter_catalog.cc",
+    "ad_block_filter_catalog.h",
     "ad_block_filter_list_manager.cc",
     "ad_block_filter_list_manager.h",
     "ad_block_navigation_throttle.cc",
@@ -71,6 +75,8 @@ source_set("adblock") {
     "ad_block_websocket_interceptor.h",
     "cosmetic_filter_host.cc",
     "cosmetic_filter_host.h",
+    "procedural_cosmetic_sanitizer.cc",
+    "procedural_cosmetic_sanitizer.h",
   ]
 
   public_deps = [
@@ -96,6 +102,7 @@ source_set("adblock") {
     "//net",
     "//services/network/public/cpp",
     "//services/network/public/mojom",
+    "//third_party/blink/public:blink_headers",
   ]
 
   defines = [
@@ -123,7 +130,9 @@ test("seoul_adblock_core_unittests") {
   sources = [
     "ad_block_component_installer_unittest.cc",
     "ad_block_core_unittest.cc",
+    "ad_block_filter_catalog_unittest.cc",
     "ad_block_settings_unittest.cc",
+    "procedural_cosmetic_sanitizer_unittest.cc",
   ]
   deps = [
     ":adblock",
@@ -148,6 +157,7 @@ test("seoul_adblock_core_unittests") {
 test("seoul_adblock_interceptor_unittests") {
   testonly = true
   sources = [
+    "ad_block_csp_throttle_unittest.cc",
     "ad_block_navigation_throttle_unittest.cc",
     "ad_block_request_interceptor_unittest.cc",
     "ad_block_subscription_downloader_unittest.cc",

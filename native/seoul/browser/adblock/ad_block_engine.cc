@@ -124,6 +124,14 @@ AdBlockMatchResult AdBlockEngine::Evaluate(
                             ToOptionalString(result.rewritten_url));
 }
 
+std::string AdBlockEngine::GetCspDirectives(
+    const AdBlockRequest& request) const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return ToString(impl_->engine_->csp_directives(
+      request.url, request.hostname, request.source_hostname,
+      request.request_type, request.is_third_party));
+}
+
 AdBlockCosmeticEngineResources AdBlockEngine::GetUrlCosmeticResources(
     const std::string& url) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);

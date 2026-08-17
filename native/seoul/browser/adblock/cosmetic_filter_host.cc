@@ -4,21 +4,18 @@
 
 #include <algorithm>
 #include <memory>
-#include <optional>
 #include <set>
 #include <string_view>
 #include <utility>
 
 #include "base/functional/bind.h"
-#include "base/json/json_reader.h"
-#include "base/json/json_writer.h"
-#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/render_frame_host.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "seoul/browser/adblock/ad_block_service.h"
 #include "seoul/browser/adblock/ad_block_service_factory.h"
+#include "seoul/browser/adblock/procedural_cosmetic_sanitizer.h"
 
 namespace seoul::adblock {
 namespace {
@@ -31,19 +28,8 @@ constexpr size_t kMaxSelectorLength = 2048;
 constexpr size_t kMaxSelectorBytes = 512 * 1024;
 constexpr size_t kMaxIsolatedScriptBytes = 64 * 1024;
 constexpr size_t kMaxCombinedIsolatedScriptBytes = 96 * 1024;
-constexpr size_t kMaxProceduralActions = 64;
-constexpr size_t kMaxProceduralActionBytes = 4096;
-constexpr size_t kMaxCombinedProceduralActionBytes = 128 * 1024;
-constexpr size_t kMaxProceduralOperators = 8;
-constexpr size_t kMaxProceduralTextBytes = 256;
 
 struct SelectorBudget {
-  size_t count = 0;
-  size_t bytes = 0;
-  std::set<std::string> seen;
-};
-
-struct ProceduralBudget {
   size_t count = 0;
   size_t bytes = 0;
   std::set<std::string> seen;
@@ -55,157 +41,6 @@ bool IsSafeSelector(std::string_view selector) {
          selector.find('\0') == std::string_view::npos &&
          selector.find('{') == std::string_view::npos &&
          selector.find('}') == std::string_view::npos;
-}
-
-bool IsSafeIdentifier(std::string_view identifier, bool allow_colon_and_dot) {
-  if (identifier.empty() || identifier.size() > 128) {
-    return false;
-  }
-  for (const char character : identifier) {
-    if (base::IsAsciiAlphaNumeric(character) || character == '-' ||
-        character == '_' ||
-        (allow_colon_and_dot && (character == ':' || character == '.'))) {
-      continue;
-    }
-    return false;
-  }
-  return true;
-}
-
-std::optional<base::DictValue> SanitizeProceduralOperator(
-    const base::Value& value) {
-  const base::DictValue* source = value.GetIfDict();
-  if (!source || source->size() != 2u) {
-    return std::nullopt;
-  }
-  const std::string* type = source->FindString("type");
-  const std::string* argument = source->FindString("arg");
-  if (!type || !argument || argument->find('\0') != std::string::npos) {
-    return std::nullopt;
-  }
-
-  bool valid = false;
-  if (*type == "css-selector") {
-    valid = IsSafeSelector(*argument);
-  } else if (*type == "has-text") {
-    // Regex input is deliberately deferred: accepting only literal text avoids
-    // list-controlled catastrophic backtracking in the renderer.
-    valid = !argument->empty() && argument->size() <= kMaxProceduralTextBytes &&
-            argument->front() != '/';
-  } else if (*type == "min-text-length") {
-    int minimum_length = 0;
-    valid = base::StringToInt(*argument, &minimum_length) &&
-            minimum_length >= 0 && minimum_length <= 100000;
-  } else if (*type == "upward") {
-    int levels = 0;
-    valid =
-        base::StringToInt(*argument, &levels) && levels >= 1 && levels <= 16;
-  }
-  if (!valid) {
-    return std::nullopt;
-  }
-
-  base::DictValue sanitized;
-  sanitized.Set("type", *type);
-  sanitized.Set("arg", *argument);
-  return sanitized;
-}
-
-std::optional<base::DictValue> SanitizeProceduralActionObject(
-    const base::DictValue& source) {
-  const std::string* type = source.FindString("type");
-  if (!type) {
-    return std::nullopt;
-  }
-  base::DictValue sanitized;
-  if (*type == "remove" && source.size() == 1u) {
-    sanitized.Set("type", *type);
-    return sanitized;
-  }
-  if (source.size() != 2u) {
-    return std::nullopt;
-  }
-  const std::string* argument = source.FindString("arg");
-  if (!argument) {
-    return std::nullopt;
-  }
-  if (*type == "remove-attr" &&
-      IsSafeIdentifier(*argument, /*allow_colon_and_dot=*/true)) {
-    sanitized.Set("type", *type);
-    sanitized.Set("arg", *argument);
-    return sanitized;
-  }
-  if (*type == "remove-class" &&
-      IsSafeIdentifier(*argument, /*allow_colon_and_dot=*/false)) {
-    sanitized.Set("type", *type);
-    sanitized.Set("arg", *argument);
-    return sanitized;
-  }
-  return std::nullopt;
-}
-
-std::optional<std::string> SanitizeProceduralAction(
-    std::string_view serialized) {
-  if (serialized.empty() || serialized.size() > kMaxProceduralActionBytes ||
-      serialized.find('\0') != std::string_view::npos ||
-      !base::IsStringUTF8(serialized)) {
-    return std::nullopt;
-  }
-  std::optional<base::Value> parsed =
-      base::JSONReader::Read(serialized, /*options=*/0, /*max_depth=*/16);
-  if (!parsed || !parsed->is_dict()) {
-    return std::nullopt;
-  }
-  const base::DictValue& source = parsed->GetDict();
-  const base::ListValue* operators = source.FindList("selector");
-  const base::DictValue* action = source.FindDict("action");
-  if (!operators || operators->empty() ||
-      operators->size() > kMaxProceduralOperators ||
-      source.size() != (action ? 2u : 1u)) {
-    return std::nullopt;
-  }
-
-  base::ListValue sanitized_operators;
-  for (const base::Value& value : *operators) {
-    std::optional<base::DictValue> sanitized =
-        SanitizeProceduralOperator(value);
-    if (!sanitized) {
-      return std::nullopt;
-    }
-    sanitized_operators.Append(std::move(*sanitized));
-  }
-  base::DictValue sanitized;
-  sanitized.Set("selector", std::move(sanitized_operators));
-  if (action) {
-    std::optional<base::DictValue> sanitized_action =
-        SanitizeProceduralActionObject(*action);
-    if (!sanitized_action) {
-      return std::nullopt;
-    }
-    sanitized.Set("action", std::move(*sanitized_action));
-  }
-  return base::WriteJson(sanitized);
-}
-
-std::vector<std::string> SanitizeProceduralActions(
-    const std::vector<std::string>& input,
-    ProceduralBudget* budget) {
-  std::vector<std::string> output;
-  for (const std::string& serialized : input) {
-    if (budget->count == kMaxProceduralActions) {
-      break;
-    }
-    std::optional<std::string> sanitized = SanitizeProceduralAction(serialized);
-    if (!sanitized ||
-        budget->bytes + sanitized->size() > kMaxCombinedProceduralActionBytes ||
-        !budget->seen.insert(*sanitized).second) {
-      continue;
-    }
-    ++budget->count;
-    budget->bytes += sanitized->size();
-    output.push_back(std::move(*sanitized));
-  }
-  return output;
 }
 
 std::vector<std::string> SanitizeIdentifiers(
@@ -245,10 +80,12 @@ std::vector<std::string> SanitizeSelectors(
   return output;
 }
 
+// Procedural actions are sanitized separately by SanitizeProceduralActionSets:
+// their budget is shared across both rule groups, so it cannot be applied one
+// group at a time here.
 mojom::CosmeticSelectorSetPtr ToMojom(AdBlockCosmeticSelectorSet source,
                                       SelectorBudget* selector_budget,
-                                      size_t* script_bytes,
-                                      ProceduralBudget* procedural_budget) {
+                                      size_t* script_bytes) {
   auto result = mojom::CosmeticSelectorSet::New();
   result->selectors = SanitizeSelectors(source.selectors, selector_budget);
   if (!source.isolated_script.empty() &&
@@ -260,8 +97,6 @@ mojom::CosmeticSelectorSetPtr ToMojom(AdBlockCosmeticSelectorSet source,
     *script_bytes += source.isolated_script.size();
     result->isolated_script = std::move(source.isolated_script);
   }
-  result->procedural_actions =
-      SanitizeProceduralActions(source.procedural_actions, procedural_budget);
   result->query_generics = source.query_generics;
   return result;
 }
@@ -350,13 +185,21 @@ void CosmeticFilterHost::OnGotCosmeticResources(
   auto result = mojom::CosmeticResources::New();
   SelectorBudget budget;
   size_t script_bytes = 0;
-  ProceduralBudget procedural_budget;
+  // Sanitize procedural actions before the sources are moved from. The default
+  // group is presented first so it claims the shared budget ahead of the
+  // additional group, matching the evaluation order everywhere else.
+  SanitizedProceduralActionSets procedural = SanitizeProceduralActionSets(
+      resources.default_rules.procedural_actions,
+      resources.additional_rules.procedural_actions);
   result->enabled = resources.enabled;
-  result->default_rules = ToMojom(std::move(resources.default_rules), &budget,
-                                  &script_bytes, &procedural_budget);
+  result->default_rules =
+      ToMojom(std::move(resources.default_rules), &budget, &script_bytes);
   result->additional_rules =
-      ToMojom(std::move(resources.additional_rules), &budget, &script_bytes,
-              &procedural_budget);
+      ToMojom(std::move(resources.additional_rules), &budget, &script_bytes);
+  result->default_rules->procedural_actions =
+      std::move(procedural.default_actions);
+  result->additional_rules->procedural_actions =
+      std::move(procedural.additional_actions);
   std::move(callback).Run(std::move(result));
 }
 
