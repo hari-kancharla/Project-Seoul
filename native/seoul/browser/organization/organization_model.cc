@@ -114,6 +114,28 @@ size_t OrganizationModel::MembershipsInWorkspace(
   return n;
 }
 
+size_t OrganizationModel::FoldersInWorkspace(
+    const WorkspaceId& workspace_id) const {
+  size_t n = 0;
+  for (const auto& [id, f] : folders_) {
+    if (f.workspace_id == workspace_id) {
+      ++n;
+    }
+  }
+  return n;
+}
+
+int OrganizationModel::NextFolderOrderInWorkspace(
+    const WorkspaceId& workspace_id) const {
+  int max_order = -1;
+  for (const auto& [id, f] : folders_) {
+    if (f.workspace_id == workspace_id) {
+      max_order = std::max(max_order, f.order);
+    }
+  }
+  return max_order + 1;
+}
+
 size_t OrganizationModel::SplitsInWorkspace(
     const WorkspaceId& workspace_id) const {
   size_t n = 0;
@@ -147,6 +169,11 @@ const EssentialRecord* OrganizationModel::FindEssential(
     const EssentialId& id) const {
   auto it = essentials_.find(id);
   return it == essentials_.end() ? nullptr : &it->second;
+}
+
+const FolderRecord* OrganizationModel::FindFolder(const FolderId& id) const {
+  auto it = folders_.find(id);
+  return it == folders_.end() ? nullptr : &it->second;
 }
 
 const SplitGroupRecord* OrganizationModel::FindSplit(
@@ -415,6 +442,11 @@ MutationStatus OrganizationModel::DeleteWorkspace(const WorkspaceId& id) {
   for (auto s = splits_.begin(); s != splits_.end();) {
     s = (s->second.workspace_id == id) ? splits_.erase(s) : std::next(s);
   }
+  // The workspace's folders go with it. Its tabs were already removed above,
+  // so no membership is left pointing at a folder that no longer exists.
+  for (auto f = folders_.begin(); f != folders_.end();) {
+    f = (f->second.workspace_id == id) ? folders_.erase(f) : std::next(f);
+  }
   for (auto r = routing_rules_.begin(); r != routing_rules_.end();) {
     const bool references_source = r->second.predicate.source_workspace == id;
     const bool references_target = r->second.result.disposition ==
@@ -582,6 +614,9 @@ MutationStatus OrganizationModel::MoveTabToWorkspace(
     }
   }
   it->second.workspace_id = target_workspace;
+  // A folder belongs to one workspace, so a tab leaving that workspace leaves
+  // the folder too rather than holding a reference across the boundary.
+  it->second.folder_id = FolderId();
   it->second.order = NextOrderInWorkspace(target_workspace);
   Notify({OrganizationChangeType::kMembershipMoved, target_workspace, id});
   return Ok();
@@ -735,6 +770,193 @@ MutationStatus OrganizationModel::ReorderTabMembership(
   it->second.order = order;
   Notify({OrganizationChangeType::kMembershipReordered, it->second.workspace_id,
           id});
+  return Ok();
+}
+
+MutationStatus OrganizationModel::SetTabCustomTitle(
+    const TabMembershipId& id,
+    std::string_view custom_title) {
+  if (notifying_) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  // An empty name is not a rename; ClearTabCustomTitle() says that plainly and
+  // is what the "Reset Name" action calls.
+  if (custom_title.empty()) {
+    return Err(OrganizationError::kInvalidName);
+  }
+  if (!ValidName(custom_title)) {
+    return Err(OrganizationError::kInvalidName);
+  }
+  auto it = memberships_.find(id);
+  if (it == memberships_.end()) {
+    return Err(OrganizationError::kTabMembershipNotFound);
+  }
+  if (it->second.custom_title == custom_title) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  it->second.custom_title = std::string(custom_title);
+  Notify({OrganizationChangeType::kMembershipTitleChanged,
+          it->second.workspace_id, id});
+  return Ok();
+}
+
+MutationStatus OrganizationModel::ClearTabCustomTitle(
+    const TabMembershipId& id) {
+  if (notifying_) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  auto it = memberships_.find(id);
+  if (it == memberships_.end()) {
+    return Err(OrganizationError::kTabMembershipNotFound);
+  }
+  if (it->second.custom_title.empty()) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  it->second.custom_title.clear();
+  Notify({OrganizationChangeType::kMembershipTitleChanged,
+          it->second.workspace_id, id});
+  return Ok();
+}
+
+// --- Folders ---
+
+MutationResult<FolderId> OrganizationModel::CreateFolder(
+    const WorkspaceId& workspace_id,
+    std::string_view name) {
+  if (notifying_) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  if (!ValidName(name)) {
+    return Err(OrganizationError::kInvalidName);
+  }
+  const WorkspaceRecord* const workspace = FindWorkspace(workspace_id);
+  if (!workspace) {
+    return Err(OrganizationError::kWorkspaceNotFound);
+  }
+  if (FoldersInWorkspace(workspace_id) >= kMaxFoldersPerWorkspace ||
+      folders_.size() >= kMaxTotalFolders) {
+    return Err(OrganizationError::kLimitExceeded);
+  }
+  FolderRecord folder;
+  folder.id = FolderId::GenerateNew();
+  folder.workspace_id = workspace_id;
+  folder.name = std::string(name);
+  folder.order = NextFolderOrderInWorkspace(workspace_id);
+  folder.created_at = Now();
+  const FolderId id = folder.id;
+  folders_[id] = std::move(folder);
+  Notify({OrganizationChangeType::kFolderCreated, workspace_id,
+          TabMembershipId(), id});
+  return id;
+}
+
+MutationStatus OrganizationModel::RenameFolder(const FolderId& id,
+                                               std::string_view name) {
+  if (notifying_) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  if (!ValidName(name)) {
+    return Err(OrganizationError::kInvalidName);
+  }
+  auto it = folders_.find(id);
+  if (it == folders_.end()) {
+    return Err(OrganizationError::kFolderNotFound);
+  }
+  if (it->second.name == name) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  it->second.name = std::string(name);
+  Notify({OrganizationChangeType::kFolderRenamed, it->second.workspace_id,
+          TabMembershipId(), id});
+  return Ok();
+}
+
+MutationStatus OrganizationModel::ReorderFolder(const FolderId& id, int order) {
+  if (notifying_) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  if (order < 0) {
+    return Err(OrganizationError::kInvalidOrder);
+  }
+  auto it = folders_.find(id);
+  if (it == folders_.end()) {
+    return Err(OrganizationError::kFolderNotFound);
+  }
+  if (it->second.order == order) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  it->second.order = order;
+  Notify({OrganizationChangeType::kFolderReordered, it->second.workspace_id,
+          TabMembershipId(), id});
+  return Ok();
+}
+
+MutationStatus OrganizationModel::SetFolderCollapsed(const FolderId& id,
+                                                     bool collapsed) {
+  if (notifying_) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  auto it = folders_.find(id);
+  if (it == folders_.end()) {
+    return Err(OrganizationError::kFolderNotFound);
+  }
+  if (it->second.collapsed == collapsed) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  it->second.collapsed = collapsed;
+  Notify({OrganizationChangeType::kFolderCollapseChanged,
+          it->second.workspace_id, TabMembershipId(), id});
+  return Ok();
+}
+
+MutationStatus OrganizationModel::DissolveFolder(const FolderId& id) {
+  if (notifying_) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  auto it = folders_.find(id);
+  if (it == folders_.end()) {
+    return Err(OrganizationError::kFolderNotFound);
+  }
+  const WorkspaceId workspace_id = it->second.workspace_id;
+  // The tabs outlive the folder. Seoul owns the grouping; Chromium owns the
+  // WebContents, and dissolving a grouping is not a reason to close pages the
+  // user did not ask to close.
+  for (auto& [membership_id, membership] : memberships_) {
+    if (membership.folder_id == id) {
+      membership.folder_id = FolderId();
+    }
+  }
+  folders_.erase(it);
+  Notify({OrganizationChangeType::kFolderDissolved, workspace_id,
+          TabMembershipId(), id});
+  return Ok();
+}
+
+MutationStatus OrganizationModel::MoveTabToFolder(const TabMembershipId& id,
+                                                  const FolderId& folder_id) {
+  if (notifying_) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  auto it = memberships_.find(id);
+  if (it == memberships_.end()) {
+    return Err(OrganizationError::kTabMembershipNotFound);
+  }
+  if (folder_id.is_valid()) {
+    const FolderRecord* const folder = FindFolder(folder_id);
+    if (!folder) {
+      return Err(OrganizationError::kFolderNotFound);
+    }
+    if (folder->workspace_id != it->second.workspace_id) {
+      return Err(OrganizationError::kCrossWorkspaceFolder);
+    }
+  }
+  if (it->second.folder_id == folder_id) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  it->second.folder_id = folder_id;
+  it->second.order = NextOrderInWorkspace(it->second.workspace_id);
+  Notify({OrganizationChangeType::kMembershipFolderChanged,
+          it->second.workspace_id, id, folder_id});
   return Ok();
 }
 
@@ -1358,6 +1580,16 @@ OrganizationSnapshot OrganizationModel::ToSnapshot() const {
             [](const EssentialRecord& a, const EssentialRecord& b) {
               return a.order != b.order ? a.order < b.order : a.id < b.id;
             });
+  for (const auto& [id, f] : folders_) {
+    snap.folders.push_back(f);
+  }
+  std::sort(snap.folders.begin(), snap.folders.end(),
+            [](const FolderRecord& a, const FolderRecord& b) {
+              if (!(a.workspace_id == b.workspace_id)) {
+                return a.workspace_id < b.workspace_id;
+              }
+              return a.order != b.order ? a.order < b.order : a.id < b.id;
+            });
   for (const auto& [id, m] : memberships_) {
     snap.memberships.push_back(m);
   }
@@ -1411,6 +1643,7 @@ MutationStatus OrganizationModel::LoadSnapshot(
   if (snapshot.workspaces.size() > kMaxWorkspaces ||
       snapshot.essentials.size() > kMaxEssentials ||
       snapshot.memberships.size() > kMaxTotalMemberships ||
+      snapshot.folders.size() > kMaxTotalFolders ||
       snapshot.splits.size() > kMaxTotalSplits ||
       snapshot.window_states.size() > kMaxWindowStates ||
       snapshot.routing_rules.size() > kMaxRoutingRules ||
@@ -1466,6 +1699,26 @@ MutationStatus OrganizationModel::LoadSnapshot(
     }
   }
 
+  std::map<FolderId, FolderRecord> folders;
+  std::map<WorkspaceId, size_t> folders_per_workspace;
+  for (const FolderRecord& f : snapshot.folders) {
+    if (!f.id.is_valid() || !ValidName(f.name)) {
+      return Err(OrganizationError::kCorruptState);
+    }
+    if (f.order < 0) {
+      return Err(OrganizationError::kInvalidOrder);
+    }
+    if (workspaces.find(f.workspace_id) == workspaces.end()) {
+      return Err(OrganizationError::kCorruptState);  // dangling workspace ref
+    }
+    if (!folders.emplace(f.id, f).second) {
+      return Err(OrganizationError::kCorruptState);  // duplicate id
+    }
+    if (++folders_per_workspace[f.workspace_id] > kMaxFoldersPerWorkspace) {
+      return Err(OrganizationError::kLimitExceeded);
+    }
+  }
+
   std::map<TabMembershipId, TabMembershipRecord> memberships;
   std::map<std::string, TabMembershipId> tab_index;
   std::map<WorkspaceId, size_t> per_workspace;
@@ -1482,6 +1735,19 @@ MutationStatus OrganizationModel::LoadSnapshot(
     }
     if (!tab_index.emplace(m.tab_key, m.id).second) {
       return Err(OrganizationError::kCorruptState);  // tab in two workspaces
+    }
+    if (m.custom_title.size() > kMaxNameLength) {
+      return Err(OrganizationError::kLimitExceeded);
+    }
+    if (m.folder_id.is_valid()) {
+      const auto folder = folders.find(m.folder_id);
+      if (folder == folders.end()) {
+        return Err(OrganizationError::kCorruptState);  // dangling folder ref
+      }
+      if (!(folder->second.workspace_id == m.workspace_id)) {
+        // A tab cannot be in one workspace and another workspace's folder.
+        return Err(OrganizationError::kCrossWorkspaceFolder);
+      }
     }
     if (!memberships.emplace(m.id, m).second) {
       return Err(OrganizationError::kCorruptState);
@@ -1600,6 +1866,7 @@ MutationStatus OrganizationModel::LoadSnapshot(
   // Commit (atomic swap).
   workspaces_ = std::move(workspaces);
   essentials_ = std::move(essentials);
+  folders_ = std::move(folders);
   memberships_ = std::move(memberships);
   tab_index_ = std::move(tab_index);
   splits_ = std::move(splits);

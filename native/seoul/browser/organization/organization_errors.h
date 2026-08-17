@@ -19,6 +19,8 @@ enum class OrganizationError {
   kWorkspaceNotFound,
   kEssentialNotFound,
   kTabMembershipNotFound,
+  kFolderNotFound,
+  kCrossWorkspaceFolder,
   kSplitGroupNotFound,
   kRoutingRuleNotFound,
   kDefaultWorkspaceProtected,

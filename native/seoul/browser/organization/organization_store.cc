@@ -64,6 +64,21 @@ base::DictValue MembershipToDict(const TabMembershipRecord& m) {
   d.Set("order", m.order);
   d.Set("created_at", base::TimeToValue(m.created_at));
   d.Set("last_active_at", base::TimeToValue(m.last_active_at));
+  // Schema 2. Both are written unconditionally so a round trip is stable;
+  // both are optional on read so a schema 1 profile loads unchanged.
+  d.Set("custom_title", m.custom_title);
+  d.Set("folder_id", m.folder_id.value());
+  return d;
+}
+
+base::DictValue FolderToDict(const FolderRecord& f) {
+  base::DictValue d;
+  d.Set("id", f.id.value());
+  d.Set("workspace_id", f.workspace_id.value());
+  d.Set("name", f.name);
+  d.Set("order", f.order);
+  d.Set("collapsed", f.collapsed);
+  d.Set("created_at", base::TimeToValue(f.created_at));
   return d;
 }
 
@@ -143,6 +158,12 @@ base::DictValue SerializeSnapshot(const OrganizationSnapshot& snapshot) {
   }
   root.Set("essentials", std::move(essentials));
 
+  base::ListValue folders;
+  for (const FolderRecord& f : snapshot.folders) {
+    folders.Append(FolderToDict(f));
+  }
+  root.Set("folders", std::move(folders));
+
   base::ListValue memberships;
   for (const TabMembershipRecord& m : snapshot.memberships) {
     memberships.Append(MembershipToDict(m));
@@ -185,13 +206,24 @@ MutationResult<OrganizationSnapshot> DeserializeSnapshot(
   if (!version) {
     return Err(OrganizationError::kCorruptState);
   }
-  // Reject unknown/future versions; do not downgrade or guess.
-  if (*version != kOrganizationSchemaVersion) {
+  // Older versions are migrated forward; unknown/future ones are rejected
+  // rather than downgraded or guessed at.
+  //
+  // Schema 1 -> 2 adds per-tab custom titles and per-workspace folders. Both
+  // are additive and absent-means-unset, so the migration is the read itself:
+  // every schema 1 field is read identically, the new fields default to empty,
+  // and the snapshot is stamped as schema 2. The next save writes version 2.
+  // Nothing is dropped, so a profile that has been through this cannot lose
+  // organization state.
+  if (*version != kOrganizationSchemaVersion &&
+      *version != kOrganizationSchemaVersionWithoutFolders) {
     return Err(OrganizationError::kUnsupportedSchema);
   }
+  const bool migrating_from_pre_folders =
+      *version == kOrganizationSchemaVersionWithoutFolders;
 
   OrganizationSnapshot snap;
-  snap.schema_version = *version;
+  snap.schema_version = kOrganizationSchemaVersion;
   const std::string* def = dict.FindString("default_workspace");
   snap.default_workspace_id =
       def ? WorkspaceId::FromString(*def) : WorkspaceId();
@@ -260,6 +292,42 @@ MutationResult<OrganizationSnapshot> DeserializeSnapshot(
     }
   }
 
+  // Folders are read before memberships so a membership's folder reference is
+  // resolvable against a set that is already known.
+  const base::ListValue* folders = dict.FindList("folders");
+  if (folders && folders->size() > kMaxTotalFolders) {
+    return Err(OrganizationError::kLimitExceeded);
+  }
+  if (folders && migrating_from_pre_folders && !folders->empty()) {
+    // A schema 1 document has no folders. One carrying them is not a version
+    // this code wrote, so it is refused rather than partly believed.
+    return Err(OrganizationError::kCorruptState);
+  }
+  if (folders) {
+    for (const base::Value& v : *folders) {
+      const base::DictValue* d = v.GetIfDict();
+      if (!d) {
+        return Err(OrganizationError::kCorruptState);
+      }
+      FolderRecord f;
+      std::string id, ws, name;
+      if (!ReadString(*d, "id", &id) || !ReadString(*d, "workspace_id", &ws) ||
+          !ReadString(*d, "name", &name)) {
+        return Err(OrganizationError::kCorruptState);
+      }
+      if (name.size() > kMaxNameLength) {
+        return Err(OrganizationError::kLimitExceeded);
+      }
+      f.id = FolderId::FromString(id);
+      f.workspace_id = WorkspaceId::FromString(ws);
+      f.name = name;
+      f.order = d->FindInt("order").value_or(0);
+      f.collapsed = d->FindBool("collapsed").value_or(false);
+      f.created_at = ReadTime(*d, "created_at");
+      snap.folders.push_back(std::move(f));
+    }
+  }
+
   const base::ListValue* memberships = dict.FindList("memberships");
   if (memberships && memberships->size() > kMaxTotalMemberships) {
     return Err(OrganizationError::kLimitExceeded);
@@ -288,6 +356,17 @@ MutationResult<OrganizationSnapshot> DeserializeSnapshot(
       m.order = d->FindInt("order").value_or(0);
       m.created_at = ReadTime(*d, "created_at");
       m.last_active_at = ReadTime(*d, "last_active_at");
+      // Schema 2 fields. Absent in a schema 1 document, which is exactly the
+      // migrated meaning: no custom name, not in any folder.
+      if (const std::string* s = d->FindString("custom_title")) {
+        if (s->size() > kMaxNameLength) {
+          return Err(OrganizationError::kLimitExceeded);
+        }
+        m.custom_title = *s;
+      }
+      if (const std::string* s = d->FindString("folder_id")) {
+        m.folder_id = FolderId::FromString(*s);
+      }
       snap.memberships.push_back(std::move(m));
     }
   }

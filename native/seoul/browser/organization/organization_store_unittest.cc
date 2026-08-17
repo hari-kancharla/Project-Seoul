@@ -160,5 +160,100 @@ TEST(OrganizationStoreTest, SizeLimitHelper) {
 // an off-the-record profile. That boundary is covered by browser-level tests on
 // a capable host, not by these pure-model unit tests.
 
+// The migration that matters: a profile written by the previous schema must
+// still load. Before folders and custom titles existed the store rejected any
+// version but its own, so bumping the version without this path would have
+// made every existing profile read as unsupported and lose its organization.
+TEST(OrganizationStoreTest, PreFoldersSchemaMigratesForward) {
+  OrganizationSnapshot snap = BuildPopulatedSnapshot();
+  base::DictValue dict = SerializeSnapshot(snap);
+
+  // Rewrite the document as the previous schema actually wrote it: version 1,
+  // no folder list, and no per-membership folder or custom-title fields.
+  dict.Set("schema_version", kOrganizationSchemaVersionWithoutFolders);
+  dict.Remove("folders");
+  base::ListValue* const memberships = dict.FindList("memberships");
+  ASSERT_TRUE(memberships);
+  ASSERT_FALSE(memberships->empty());
+  for (base::Value& value : *memberships) {
+    base::DictValue* const membership = value.GetIfDict();
+    ASSERT_TRUE(membership);
+    membership->Remove("folder_id");
+    membership->Remove("custom_title");
+  }
+
+  MutationResult<OrganizationSnapshot> parsed = DeserializeSnapshot(dict);
+  ASSERT_TRUE(parsed.has_value())
+      << "a profile from the previous schema must still load";
+  EXPECT_EQ(parsed->schema_version, kOrganizationSchemaVersion)
+      << "and is stamped forward so the next save writes the new schema";
+
+  // Everything the old schema carried is still there.
+  EXPECT_EQ(parsed->workspaces.size(), snap.workspaces.size());
+  EXPECT_EQ(parsed->memberships.size(), snap.memberships.size());
+  EXPECT_EQ(parsed->essentials.size(), snap.essentials.size());
+  EXPECT_EQ(parsed->splits.size(), snap.splits.size());
+  // The new fields read as unset, which is what their absence meant.
+  EXPECT_TRUE(parsed->folders.empty());
+  for (const TabMembershipRecord& m : parsed->memberships) {
+    EXPECT_TRUE(m.custom_title.empty());
+    EXPECT_FALSE(m.folder_id.is_valid());
+  }
+
+  // And the migrated snapshot is loadable, not merely parseable.
+  OrganizationModel restored;
+  EXPECT_TRUE(restored.LoadSnapshot(parsed.value()).has_value());
+}
+
+// Migrating forward is not the same as believing anything. A document that
+// claims the old version while carrying new-schema folders was not written by
+// any version of this code.
+TEST(OrganizationStoreTest, PreFoldersSchemaCarryingFoldersIsRefused) {
+  OrganizationModel model;
+  CHECK(model.EnsureDefaultWorkspace().has_value());
+  CHECK(model.CreateFolder(model.default_workspace(), "Reading").has_value());
+  base::DictValue dict = SerializeSnapshot(model.ToSnapshot());
+  dict.Set("schema_version", kOrganizationSchemaVersionWithoutFolders);
+
+  EXPECT_EQ(DeserializeSnapshot(dict).error(),
+            OrganizationError::kCorruptState);
+}
+
+TEST(OrganizationStoreTest, UnknownFutureSchemaIsStillRejected) {
+  base::DictValue dict = SerializeSnapshot(BuildPopulatedSnapshot());
+  dict.Set("schema_version", kOrganizationSchemaVersion + 1);
+  EXPECT_EQ(DeserializeSnapshot(dict).error(),
+            OrganizationError::kUnsupportedSchema);
+}
+
+// Folders and custom names survive the on-disk round trip, not just the
+// in-memory one.
+TEST(OrganizationStoreTest, FoldersAndCustomTitlesRoundTrip) {
+  OrganizationModel model;
+  CHECK(model.EnsureDefaultWorkspace().has_value());
+  const WorkspaceId def = model.default_workspace();
+  const FolderId folder = model.CreateFolder(def, "Reading").value();
+  CHECK(model.SetFolderCollapsed(folder, true).has_value());
+  const TabMembershipId tab =
+      model.AddTabMembership(def, "tab-a", TabRole::kPinned).value();
+  CHECK(model.MoveTabToFolder(tab, folder).has_value());
+  CHECK(model.SetTabCustomTitle(tab, "Quarterly numbers").has_value());
+
+  MutationResult<OrganizationSnapshot> parsed =
+      DeserializeSnapshot(SerializeSnapshot(model.ToSnapshot()));
+  ASSERT_TRUE(parsed.has_value());
+
+  OrganizationModel restored;
+  ASSERT_TRUE(restored.LoadSnapshot(parsed.value()).has_value());
+  const FolderRecord* const restored_folder = restored.FindFolder(folder);
+  ASSERT_TRUE(restored_folder);
+  EXPECT_EQ(restored_folder->name, "Reading");
+  EXPECT_TRUE(restored_folder->collapsed);
+  const TabMembershipRecord* const restored_tab = restored.FindMembership(tab);
+  ASSERT_TRUE(restored_tab);
+  EXPECT_EQ(restored_tab->custom_title, "Quarterly numbers");
+  EXPECT_TRUE(restored_tab->folder_id == folder);
+}
+
 }  // namespace
 }  // namespace seoul

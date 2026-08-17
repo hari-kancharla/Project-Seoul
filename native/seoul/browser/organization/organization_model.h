@@ -103,6 +103,29 @@ class OrganizationModel {
   MutationStatus TouchTabActivated(const TabMembershipId& id);
   // Update a membership's deterministic ordering metadata (intra-window move).
   MutationStatus ReorderTabMembership(const TabMembershipId& id, int order);
+  // The name the user gave this tab. Organization metadata only: Chromium's
+  // page title, navigation entry, and history are untouched, and an empty
+  // title clears the custom name so the live page title shows again.
+  MutationStatus SetTabCustomTitle(const TabMembershipId& id,
+                                   std::string_view custom_title);
+  MutationStatus ClearTabCustomTitle(const TabMembershipId& id);
+
+  // --- Folders (per-workspace tab grouping; presentation metadata only) ---
+  MutationResult<FolderId> CreateFolder(const WorkspaceId& workspace_id,
+                                        std::string_view name);
+  MutationStatus RenameFolder(const FolderId& id, std::string_view name);
+  MutationStatus ReorderFolder(const FolderId& id, int order);
+  MutationStatus SetFolderCollapsed(const FolderId& id, bool collapsed);
+  // Removes the folder and moves every tab in it back to the workspace root.
+  // It never closes a tab: Chromium owns tab lifetime, and a folder is only a
+  // grouping over tabs it does not own.
+  MutationStatus DissolveFolder(const FolderId& id);
+  // Moves a tab into a folder in its own workspace, or out of any folder when
+  // `folder_id` is invalid. Refuses a folder belonging to another workspace,
+  // because a tab cannot be in one workspace and a different workspace's
+  // folder at once.
+  MutationStatus MoveTabToFolder(const TabMembershipId& id,
+                                 const FolderId& folder_id);
 
   // --- Essentials (profile-global; single identity, never duplicated) ---
   // When id is invalid, creates a new Essential; otherwise updates the existing
@@ -183,6 +206,7 @@ class OrganizationModel {
   // --- Read accessors (const) ---
   size_t workspace_count() const { return workspaces_.size(); }
   size_t membership_count() const { return memberships_.size(); }
+  size_t folder_count() const { return folders_.size(); }
   size_t essential_count() const { return essentials_.size(); }
   size_t split_count() const { return splits_.size(); }
   size_t routing_rule_count() const { return routing_rules_.size(); }
@@ -194,6 +218,7 @@ class OrganizationModel {
   // belongs to at most one workspace). Returns an invalid id when the tab is
   // untracked.
   TabMembershipId FindMembershipIdByTabKey(std::string_view tab_key) const;
+  const FolderRecord* FindFolder(const FolderId& id) const;
   const EssentialRecord* FindEssential(const EssentialId& id) const;
   const SplitGroupRecord* FindSplit(const SplitGroupId& id) const;
   // Resolve an opaque upstream split token (the serialized
@@ -215,6 +240,8 @@ class OrganizationModel {
   // lowest-order non-archived workspace, default first, then by order, then id.
   WorkspaceId PickFallbackWorkspace(const WorkspaceId& excluded) const;
   size_t MembershipsInWorkspace(const WorkspaceId& workspace_id) const;
+  size_t FoldersInWorkspace(const WorkspaceId& workspace_id) const;
+  int NextFolderOrderInWorkspace(const WorkspaceId& workspace_id) const;
   size_t SplitsInWorkspace(const WorkspaceId& workspace_id) const;
   void Notify(const OrganizationChange& change);
   bool ValidName(std::string_view name) const;
@@ -229,6 +256,7 @@ class OrganizationModel {
   std::map<WorkspaceId, WorkspaceRecord> workspaces_;
   std::map<EssentialId, EssentialRecord> essentials_;
   std::map<TabMembershipId, TabMembershipRecord> memberships_;
+  std::map<FolderId, FolderRecord> folders_;
   std::map<SplitGroupId, SplitGroupRecord> splits_;
   std::map<RoutingRuleId, RoutingRule> routing_rules_;
   std::map<std::string, WorkspaceId> window_active_;

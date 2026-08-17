@@ -505,5 +505,195 @@ TEST_F(OrganizationModelTest, SnapshotRoundTripThroughModel) {
   (void)work;
 }
 
+// A custom tab name is Seoul organization metadata. The model stores it, an
+// empty name is rejected as a rename (that is what ClearTabCustomTitle is
+// for), and clearing returns the tab to showing whatever Chromium says the
+// page title is.
+TEST_F(OrganizationModelTest, CustomTabTitleIsSetClearedAndBounded) {
+  const WorkspaceId def = InitDefault();
+  const TabMembershipId tab =
+      model_.AddTabMembership(def, "tab-a", TabRole::kRetained).value();
+
+  EXPECT_EQ(model_.FindMembership(tab)->custom_title, "");
+  ASSERT_TRUE(model_.SetTabCustomTitle(tab, "Quarterly numbers").has_value());
+  EXPECT_EQ(model_.FindMembership(tab)->custom_title, "Quarterly numbers");
+
+  // Setting the same name again changes nothing and is refused rather than
+  // emitting a second change for no reason.
+  EXPECT_FALSE(model_.SetTabCustomTitle(tab, "Quarterly numbers").has_value());
+
+  // An empty rename is not how a name is removed.
+  EXPECT_EQ(model_.SetTabCustomTitle(tab, "").error(),
+            OrganizationError::kInvalidName);
+  EXPECT_EQ(model_.FindMembership(tab)->custom_title, "Quarterly numbers");
+
+  EXPECT_EQ(model_.SetTabCustomTitle(tab, std::string(kMaxNameLength + 1, 'x'))
+                .error(),
+            OrganizationError::kInvalidName);
+
+  ASSERT_TRUE(model_.ClearTabCustomTitle(tab).has_value());
+  EXPECT_EQ(model_.FindMembership(tab)->custom_title, "");
+  EXPECT_FALSE(model_.ClearTabCustomTitle(tab).has_value());
+}
+
+// Renaming a tab is independent of everything else about it: pinning,
+// reordering and moving between workspaces all leave the name alone.
+TEST_F(OrganizationModelTest, CustomTabTitleSurvivesRoleAndOrderChanges) {
+  const WorkspaceId def = InitDefault();
+  const WorkspaceId other = model_.CreateWorkspace("Other").value();
+  const TabMembershipId tab =
+      model_.AddTabMembership(def, "tab-a", TabRole::kTemporary).value();
+  ASSERT_TRUE(model_.SetTabCustomTitle(tab, "Named").has_value());
+
+  ASSERT_TRUE(model_.PinTab(tab, "https://example.test/").has_value());
+  EXPECT_EQ(model_.FindMembership(tab)->custom_title, "Named");
+  ASSERT_TRUE(model_.UnpinTab(tab).has_value());
+  EXPECT_EQ(model_.FindMembership(tab)->custom_title, "Named");
+  ASSERT_TRUE(model_.ReorderTabMembership(tab, 5).has_value());
+  EXPECT_EQ(model_.FindMembership(tab)->custom_title, "Named");
+  ASSERT_TRUE(model_.MoveTabToWorkspace(tab, other).has_value());
+  EXPECT_EQ(model_.FindMembership(tab)->custom_title, "Named");
+  ASSERT_TRUE(model_.RebindTabMembership(tab, "tab-a-restored").has_value());
+  EXPECT_EQ(model_.FindMembership(tab)->custom_title, "Named");
+}
+
+// Dissolving a folder must never be a way to lose tabs. Seoul owns the
+// grouping; Chromium owns the WebContents.
+TEST_F(OrganizationModelTest, DissolvingAFolderKeepsEveryTab) {
+  const WorkspaceId def = InitDefault();
+  const FolderId folder = model_.CreateFolder(def, "Reading").value();
+  const TabMembershipId first =
+      model_.AddTabMembership(def, "tab-a", TabRole::kRetained).value();
+  const TabMembershipId second =
+      model_.AddTabMembership(def, "tab-b", TabRole::kPinned).value();
+  ASSERT_TRUE(model_.MoveTabToFolder(first, folder).has_value());
+  ASSERT_TRUE(model_.MoveTabToFolder(second, folder).has_value());
+  ASSERT_EQ(model_.membership_count(), 2u);
+
+  ASSERT_TRUE(model_.DissolveFolder(folder).has_value());
+
+  EXPECT_EQ(model_.folder_count(), 0u);
+  EXPECT_EQ(model_.membership_count(), 2u)
+      << "dissolving a folder must not close the tabs inside it";
+  EXPECT_FALSE(model_.FindMembership(first)->folder_id.is_valid());
+  EXPECT_FALSE(model_.FindMembership(second)->folder_id.is_valid());
+  EXPECT_EQ(model_.FindMembership(second)->role, TabRole::kPinned)
+      << "and must not change what those tabs are";
+}
+
+// A folder belongs to exactly one workspace, and a tab cannot straddle that
+// boundary in either direction.
+TEST_F(OrganizationModelTest, FoldersDoNotCrossWorkspaces) {
+  const WorkspaceId def = InitDefault();
+  const WorkspaceId other = model_.CreateWorkspace("Other").value();
+  const FolderId here = model_.CreateFolder(def, "Here").value();
+  const TabMembershipId tab =
+      model_.AddTabMembership(other, "tab-a", TabRole::kRetained).value();
+
+  EXPECT_EQ(model_.MoveTabToFolder(tab, here).error(),
+            OrganizationError::kCrossWorkspaceFolder);
+
+  // Moving a tab out of the workspace takes it out of that workspace's folder
+  // rather than leaving a reference across the boundary.
+  const TabMembershipId local =
+      model_.AddTabMembership(def, "tab-b", TabRole::kRetained).value();
+  ASSERT_TRUE(model_.MoveTabToFolder(local, here).has_value());
+  ASSERT_TRUE(model_.MoveTabToWorkspace(local, other).has_value());
+  EXPECT_FALSE(model_.FindMembership(local)->folder_id.is_valid());
+
+  // And deleting a workspace takes its folders with it. The default workspace
+  // is protected from deletion, so this uses a third one.
+  const WorkspaceId disposable = model_.CreateWorkspace("Disposable").value();
+  ASSERT_TRUE(model_.CreateFolder(disposable, "Doomed").has_value());
+  EXPECT_EQ(model_.folder_count(), 2u);
+  ASSERT_TRUE(model_.DeleteWorkspace(disposable).has_value());
+  EXPECT_EQ(model_.folder_count(), 1u)
+      << "only the deleted workspace's folders go away";
+  EXPECT_TRUE(model_.FindFolder(here));
+}
+
+TEST_F(OrganizationModelTest, FolderRenameCollapseAndReorder) {
+  const WorkspaceId def = InitDefault();
+  const FolderId folder = model_.CreateFolder(def, "First").value();
+  EXPECT_EQ(model_.FindFolder(folder)->name, "First");
+  EXPECT_FALSE(model_.FindFolder(folder)->collapsed);
+
+  ASSERT_TRUE(model_.RenameFolder(folder, "Renamed").has_value());
+  EXPECT_EQ(model_.FindFolder(folder)->name, "Renamed");
+  EXPECT_FALSE(model_.RenameFolder(folder, "Renamed").has_value());
+  EXPECT_EQ(model_.RenameFolder(folder, "").error(),
+            OrganizationError::kInvalidName);
+
+  ASSERT_TRUE(model_.SetFolderCollapsed(folder, true).has_value());
+  EXPECT_TRUE(model_.FindFolder(folder)->collapsed);
+  EXPECT_FALSE(model_.SetFolderCollapsed(folder, true).has_value());
+
+  const FolderId second = model_.CreateFolder(def, "Second").value();
+  EXPECT_EQ(model_.FindFolder(second)->order, 1);
+  ASSERT_TRUE(model_.ReorderFolder(second, 0).has_value());
+  EXPECT_EQ(model_.FindFolder(second)->order, 0);
+  EXPECT_EQ(model_.ReorderFolder(second, -1).error(),
+            OrganizationError::kInvalidOrder);
+
+  EXPECT_EQ(model_.RenameFolder(FolderId::GenerateNew(), "x").error(),
+            OrganizationError::kFolderNotFound);
+}
+
+// Folders and custom names are organization state, so they have to come back
+// exactly through the snapshot the session restore path uses.
+TEST_F(OrganizationModelTest, FoldersAndNamesSurviveASnapshotRoundTrip) {
+  const WorkspaceId def = InitDefault();
+  const FolderId folder = model_.CreateFolder(def, "Reading").value();
+  ASSERT_TRUE(model_.SetFolderCollapsed(folder, true).has_value());
+  const TabMembershipId tab =
+      model_.AddTabMembership(def, "tab-a", TabRole::kPinned).value();
+  ASSERT_TRUE(model_.MoveTabToFolder(tab, folder).has_value());
+  ASSERT_TRUE(model_.SetTabCustomTitle(tab, "Named").has_value());
+
+  OrganizationModel restored;
+  ASSERT_TRUE(restored.LoadSnapshot(model_.ToSnapshot()).has_value());
+
+  EXPECT_EQ(restored.folder_count(), 1u);
+  const FolderRecord* const restored_folder = restored.FindFolder(folder);
+  ASSERT_TRUE(restored_folder);
+  EXPECT_EQ(restored_folder->name, "Reading");
+  EXPECT_TRUE(restored_folder->collapsed);
+  const TabMembershipRecord* const restored_tab = restored.FindMembership(tab);
+  ASSERT_TRUE(restored_tab);
+  EXPECT_EQ(restored_tab->custom_title, "Named");
+  EXPECT_TRUE(restored_tab->folder_id == folder);
+}
+
+// A snapshot whose tab points at a folder in another workspace is refused
+// whole, rather than loaded with the reference quietly dropped.
+TEST_F(OrganizationModelTest, LoadRejectsCrossWorkspaceFolderReference) {
+  const WorkspaceId def = InitDefault();
+  const WorkspaceId other = model_.CreateWorkspace("Other").value();
+  const FolderId folder = model_.CreateFolder(def, "Here").value();
+  const TabMembershipId tab =
+      model_.AddTabMembership(other, "tab-a", TabRole::kRetained).value();
+
+  OrganizationSnapshot snap = model_.ToSnapshot();
+  for (TabMembershipRecord& m : snap.memberships) {
+    if (m.id == tab) {
+      m.folder_id = folder;
+    }
+  }
+
+  OrganizationModel target;
+  EXPECT_EQ(target.LoadSnapshot(snap).error(),
+            OrganizationError::kCrossWorkspaceFolder);
+  EXPECT_EQ(target.workspace_count(), 0u) << "a refused load changes nothing";
+
+  // A reference to a folder that does not exist at all is equally refused.
+  OrganizationSnapshot dangling = model_.ToSnapshot();
+  dangling.folders.clear();
+  for (TabMembershipRecord& m : dangling.memberships) {
+    m.folder_id = folder;
+  }
+  EXPECT_EQ(target.LoadSnapshot(dangling).error(),
+            OrganizationError::kCorruptState);
+}
+
 }  // namespace
 }  // namespace seoul

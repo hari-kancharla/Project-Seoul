@@ -22,6 +22,10 @@ const char* OrganizationErrorToString(OrganizationError error) {
       return "essential_not_found";
     case OrganizationError::kTabMembershipNotFound:
       return "tab_membership_not_found";
+    case OrganizationError::kFolderNotFound:
+      return "folder_not_found";
+    case OrganizationError::kCrossWorkspaceFolder:
+      return "cross_workspace_folder";
     case OrganizationError::kSplitGroupNotFound:
       return "split_group_not_found";
     case OrganizationError::kRoutingRuleNotFound:

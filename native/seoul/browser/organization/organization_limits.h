@@ -12,7 +12,13 @@ namespace seoul {
 
 // Bump only with an explicit migration. Unknown higher versions are rejected,
 // not downgraded (see OrganizationStore).
-inline constexpr int kOrganizationSchemaVersion = 1;
+//
+// 1: workspaces, essentials, memberships, splits, routing, archive.
+// 2: adds per-tab custom titles and per-workspace tab folders. A version 1
+//    profile reads as a version 2 snapshot with no folders and no custom
+//    titles, which is exactly what it meant.
+inline constexpr int kOrganizationSchemaVersion = 2;
+inline constexpr int kOrganizationSchemaVersionWithoutFolders = 1;
 
 inline constexpr size_t kMaxWorkspaces = 100;
 // New user mutations follow Zen's visible 12-item Essentials deck. The larger
@@ -20,12 +26,14 @@ inline constexpr size_t kMaxWorkspaces = 100;
 inline constexpr size_t kMaxUserEssentials = 12;
 inline constexpr size_t kMaxEssentials = 100;
 inline constexpr size_t kMaxMembershipsPerWorkspace = 2000;
+inline constexpr size_t kMaxFoldersPerWorkspace = 200;
 inline constexpr size_t kMaxSplitGroupsPerWorkspace = 500;
 inline constexpr size_t kMaxRoutingRules = 200;
 inline constexpr size_t kMaxArchivedTabs = 1000;
 
 // Aggregate caps enforced before walking untrusted stored lists.
 inline constexpr size_t kMaxTotalMemberships = 10000;
+inline constexpr size_t kMaxTotalFolders = 2000;
 inline constexpr size_t kMaxTotalSplits = 2000;
 inline constexpr size_t kMaxWindowStates = 256;
 inline constexpr size_t kMaxUpstreamSplitTokenLength = 256;

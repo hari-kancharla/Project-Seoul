@@ -52,6 +52,7 @@ namespace seoul {
 SEOUL_DEFINE_UUID_ID(WorkspaceId);
 SEOUL_DEFINE_UUID_ID(EssentialId);
 SEOUL_DEFINE_UUID_ID(TabMembershipId);
+SEOUL_DEFINE_UUID_ID(FolderId);
 SEOUL_DEFINE_UUID_ID(SplitGroupId);
 SEOUL_DEFINE_UUID_ID(RoutingRuleId);
 

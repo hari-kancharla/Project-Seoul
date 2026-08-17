@@ -2,6 +2,8 @@
 
 #include "seoul/browser/organization/organization_types.h"
 
+#include <utility>
+
 namespace seoul {
 
 WorkspaceRecord::WorkspaceRecord() = default;
@@ -24,6 +26,30 @@ TabMembershipRecord::TabMembershipRecord(TabMembershipRecord&&) = default;
 TabMembershipRecord& TabMembershipRecord::operator=(const TabMembershipRecord&) = default;
 TabMembershipRecord& TabMembershipRecord::operator=(TabMembershipRecord&&) = default;
 TabMembershipRecord::~TabMembershipRecord() = default;
+
+OrganizationChange::OrganizationChange() = default;
+OrganizationChange::OrganizationChange(OrganizationChangeType type,
+                                       WorkspaceId workspace_id,
+                                       TabMembershipId membership_id,
+                                       FolderId folder_id)
+    : type(type),
+      workspace_id(std::move(workspace_id)),
+      membership_id(std::move(membership_id)),
+      folder_id(std::move(folder_id)) {}
+OrganizationChange::OrganizationChange(const OrganizationChange&) = default;
+OrganizationChange::OrganizationChange(OrganizationChange&&) = default;
+OrganizationChange& OrganizationChange::operator=(const OrganizationChange&) =
+    default;
+OrganizationChange& OrganizationChange::operator=(OrganizationChange&&) =
+    default;
+OrganizationChange::~OrganizationChange() = default;
+
+FolderRecord::FolderRecord() = default;
+FolderRecord::FolderRecord(const FolderRecord&) = default;
+FolderRecord::FolderRecord(FolderRecord&&) = default;
+FolderRecord& FolderRecord::operator=(const FolderRecord&) = default;
+FolderRecord& FolderRecord::operator=(FolderRecord&&) = default;
+FolderRecord::~FolderRecord() = default;
 
 SplitGroupRecord::SplitGroupRecord() = default;
 SplitGroupRecord::SplitGroupRecord(const SplitGroupRecord&) = default;

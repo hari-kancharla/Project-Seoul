@@ -103,9 +103,36 @@ struct TabMembershipRecord {
   std::string tab_key;
   TabRole role = TabRole::kTemporary;
   std::string saved_root_url;  // pinned reset target; empty for non-pinned
+  // The name the user gave this tab, and nothing else. Seoul renders it in
+  // place of the live page title; it is never written back into
+  // document.title, the navigation entry, history, or WebContents, all of
+  // which stay exactly what the page says they are. Empty means the tab has
+  // no custom name and shows Chromium's title.
+  std::string custom_title;
+  // The folder this tab sits in, within its own workspace. Invalid means the
+  // tab is directly in the workspace rather than in any folder.
+  FolderId folder_id;
   int order = 0;
   base::Time created_at;
   base::Time last_active_at;
+};
+
+// Durable organization metadata only: a folder groups tabs for presentation
+// and persistence. It owns no WebContents and no tab lifetime - dissolving
+// one moves its tabs out, and never closes them.
+struct FolderRecord {
+  FolderRecord();
+  FolderRecord(const FolderRecord&);
+  FolderRecord(FolderRecord&&);
+  FolderRecord& operator=(const FolderRecord&);
+  FolderRecord& operator=(FolderRecord&&);
+  ~FolderRecord();
+  FolderId id;
+  WorkspaceId workspace_id;
+  std::string name;
+  int order = 0;
+  bool collapsed = false;
+  base::Time created_at;
 };
 
 struct SplitGroupRecord {
@@ -233,6 +260,7 @@ struct OrganizationSnapshot {
   WorkspaceId default_workspace_id;
   std::vector<WorkspaceRecord> workspaces;
   std::vector<EssentialRecord> essentials;
+  std::vector<FolderRecord> folders;
   std::vector<TabMembershipRecord> memberships;
   std::vector<SplitGroupRecord> splits;
   std::vector<WindowWorkspaceState> window_states;
@@ -260,6 +288,13 @@ enum class OrganizationChangeType {
   kMembershipRebound,
   kMembershipRoleChanged,
   kMembershipReordered,
+  kMembershipTitleChanged,
+  kMembershipFolderChanged,
+  kFolderCreated,
+  kFolderRenamed,
+  kFolderReordered,
+  kFolderCollapseChanged,
+  kFolderDissolved,
   kTabActivated,
   kEssentialChanged,
   kEssentialRemoved,
@@ -274,9 +309,20 @@ enum class OrganizationChangeType {
 };
 
 struct OrganizationChange {
-  OrganizationChangeType type;
+  OrganizationChange();
+  OrganizationChange(OrganizationChangeType type,
+                     WorkspaceId workspace_id,
+                     TabMembershipId membership_id,
+                     FolderId folder_id = FolderId());
+  OrganizationChange(const OrganizationChange&);
+  OrganizationChange(OrganizationChange&&);
+  OrganizationChange& operator=(const OrganizationChange&);
+  OrganizationChange& operator=(OrganizationChange&&);
+  ~OrganizationChange();
+  OrganizationChangeType type = OrganizationChangeType::kInitialized;
   WorkspaceId workspace_id;       // set when relevant
   TabMembershipId membership_id;  // set when relevant
+  FolderId folder_id;             // set when relevant
 };
 
 }  // namespace seoul
