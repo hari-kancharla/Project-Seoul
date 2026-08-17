@@ -41,7 +41,7 @@ let package = Package(
         ),
         .testTarget(
             name: "SeoulTests",
-            dependencies: ["Seoul"],
+            dependencies: ["Seoul", "SeoulBridge"],
             path: "SeoulTests"
         )
     ]

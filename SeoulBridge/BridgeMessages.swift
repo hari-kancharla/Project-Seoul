@@ -7,7 +7,17 @@ import Foundation
 /// to think with stays in the page, where it was measured.
 public enum Bridge {
 
-    public static let socketPath = "/tmp/seoul.sock"
+    /// Where the two halves meet.
+    ///
+    /// Overridable so an integration test can run a host and a listener on a
+    /// private socket without fighting a SeoulApp the user has open for real —
+    /// the tests here start and kill listeners repeatedly, and doing that to
+    /// the live socket would take the user's overlay down with it.
+    ///
+    /// Keep any override SHORT. sun_path is 104 bytes on Darwin and the
+    /// precondition in UnixSocket.swift is a hard stop, not a truncation.
+    public static let socketPath =
+        ProcessInfo.processInfo.environment["SEOUL_SOCKET_PATH"] ?? "/tmp/seoul.sock"
 
     /// SeoulApp -> SeoulHost -> extension.
     public struct FindRequest: Codable {
