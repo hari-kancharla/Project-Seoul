@@ -80,7 +80,6 @@ std::vector<AdBlockCatalogEntry> BuildCatalog() {
       AdBlockEngineGroup::kDefault, 12u * kMiB, 24));
 
   // uBlock Origin's own filters, GPL-3.0 per uBlockOrigin/uAssets LICENSE.
-  // Off by default: it overlaps EasyList heavily, so it is a user opt-in.
   // Enabled by default because EasyList alone does not touch the ad class a
   // user actually complains about first: YouTube's own sponsored cards and
   // overlays, served from the site's origin where network rules cannot reach

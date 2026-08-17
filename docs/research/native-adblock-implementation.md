@@ -915,8 +915,45 @@ is not full Brave compatibility. Specifically absent:
   `docs/release/seoul-product-readiness.md`;
 - frame-less worker WebSocket interception;
 - multiple optional/custom subscription catalog management;
-- scriptlets, procedural filtering, CSP, and CNAME;
+- CSP response-header injection at the navigation loader (see below);
+- CNAME uncloaking;
 - full Brave compatibility coverage.
+
+Vetted scriptlets and bounded procedural cosmetic filtering are implemented and
+covered (`AdBlockBrowserTest.RunsOnlyVettedScriptletsInIsolatedWorld`,
+`AdBlockBrowserTest.AppliesOnlyBoundedProceduralCosmeticOperations`,
+`CosmeticFilterAgentTest.AppliesBoundedProceduralRule`, and
+`ProceduralCosmeticSanitizerTest.*`); an earlier revision of this list predated
+them. Procedural validation lives in one place,
+`procedural_cosmetic_sanitizer.{h,cc}`, which `CosmeticFilterHost` calls; the
+shared bounded budget is applied across both rule groups in a single pass.
+
+### `$csp` status
+
+The pinned crate 0.12.0 exposes `Engine::get_csp_directives`, which itself
+restricts matching to Document/Subdocument, resolves `$csp` exception rules
+(including the bare `@@...$csp` form that disables all injection for a page),
+and merges multiple matching directives. Seoul now surfaces that through the
+full browser stack: `Engine::csp_directives` (cxx FFI) →
+`AdBlockEngine::GetCspDirectives` → `AdBlockEngineWorker/Host::GetCspDirectives`
+(sequenced worker, both engine groups) → `AdBlockService::GetCspDirectives`
+(Off-mode and non-HTTP(S) guards). Seoul's existing `main_frame`/`sub_frame`
+request-type strings already parse to Document/Subdocument in the crate, so no
+mapping change was needed.
+
+Results are only ever appended as an **additional** `Content-Security-Policy`
+policy, never merged into or replacing the site's own. The user agent enforces
+every delivered policy, so an appended directive can restrict but never relax a
+page's existing CSP.
+
+What is **not** yet wired: the response-header injection itself. The correct
+M149 seam is a `blink::URLLoaderThrottle` returned from
+`ChromeContentBrowserClient::CreateURLLoaderThrottles()`, whose
+`WillProcessResponse()` defers, queries the service, and appends the header —
+navigations are browser-created loaders, so unlike renderer subresources they do
+flow through that hook. Until that throttle exists and is registered by a
+patch, no page receives an injected policy; the layers below it are complete and
+tested.
 
 Brave parity must not be claimed until all of those paths and their compatibility
 tests are complete.

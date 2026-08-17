@@ -537,7 +537,7 @@
         "seoul-native-material-and-state-colors",
         "seoul-platform-content-and-tab-radii"
       ],
-      "sha256": "01e5b62d6e726debe36b93546876698ad8dc65ccd46cf35ae0229d0ed0d9ecbf",
+      "sha256": "e8cb6d67fcf330d0bbe39d896beb1400aa575559f813589467f1a86cf03bfac4",
       "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0017-seoul-zen-interaction-and-visual-fidelity.patch after applying patches 0001 through 0016",
       "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0017-seoul-zen-interaction-and-visual-fidelity.patch",
       "reviewable": true
@@ -606,7 +606,7 @@
       "dependencies": [
         "seoul-native-core"
       ],
-      "sha256": "c01101423af4e9009026eeab687f7606900500c68ec7b8cc5171badbc8371ef2",
+      "sha256": "c5630010cf9e495d92447510aeea14d5b6bdbd5a6a30a873f742a61bad9adefc",
       "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0020-seoul-native-adblock-network-hook.patch after applying patches 0001 through 0019",
       "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0020-seoul-native-adblock-network-hook.patch",
       "reviewable": true

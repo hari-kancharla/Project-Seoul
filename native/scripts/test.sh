@@ -135,6 +135,9 @@ run_browser_tests() {
   filter="${filter}:VerticalPresentationBrowserTest.*"
   filter="${filter}:SeoulShellBrowserTest.*"
   filter="${filter}:SeoulOrganizationServiceBrowserTest.*"
+  # Native blocker: end-to-end network/navigation blocking and the renderer-side
+  # cosmetic agent. Both are linked into seoul_browser_tests by
+  # //seoul/browser/product/browser:seoul_browser_tests.
   filter="${filter}:AdBlockBrowserTest.*"
   filter="${filter}:CosmeticFilterAgentTest.*"
 

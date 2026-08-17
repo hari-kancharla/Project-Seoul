@@ -4,8 +4,12 @@ import puppeteer from 'puppeteer-core';
 import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { productBinary } from './native/scripts/checkout-root.mjs';
 
-const BIN = '/Users/hk/Documents/Projects/seoul-chromium.noindex/src/out/SeoulBaseline/Seoul.app/Contents/MacOS/Seoul';
+// Resolved, never spelled out: a hardcoded path is right on exactly one machine
+// and silently wrong everywhere else, which check-checkout-resolution.mjs exists
+// to prevent.
+const BIN = productBinary();
 const AD_HOSTS = /doubleclick|googlesyndication|googletagservices|googletagmanager|google-analytics|adservice|adnxs|criteo|taboola|outbrain|scorecardresearch|amazon-adsystem|pubmatic|rubiconproject|openx|casalemedia|33across|sharethrough|adsafeprotected|moatads|quantserve|bluekai|demdex|krxd|segment\.io|hotjar|fullstory|mouseflow/i;
 const sites = process.argv.slice(2);
 
