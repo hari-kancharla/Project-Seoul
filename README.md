@@ -94,7 +94,19 @@ npm run ci      # both, as CI runs them
 # On a capable macOS host with the materialized/patched checkout:
 npm run test:native          # build + run all 24 Seoul unit binaries
 npm run test:native:browser  # build + run the exact Seoul browser-test filter
+
+# The Swift overlay/bridge (SeoulApp, SeoulHost):
+swift test                            # transforms, display selection, queues, socket
+swift build && \
+  python3 scripts/test-host-reconnect.py   # bridge resilience, with real processes
 ```
+
+`test-host-reconnect.py` starts and kills real SeoulHost and SeoulApp processes
+to check that the bridge survives the two halves coming and going in any order.
+It runs on `SEOUL_SOCKET_PATH`, not `/tmp/seoul.sock`, so a SeoulApp you have
+open for real is left alone. Two of its cases run the actual SeoulApp binary for
+a few seconds, which puts a menu bar item up and claims `cmd+shift+space` while
+they do.
 
 ## Canvas Design Lab
 
