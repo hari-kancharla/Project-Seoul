@@ -3,6 +3,7 @@
 #include "seoul/browser/shell/command_launcher_catalog.h"
 
 #include <algorithm>
+#include <ranges>
 
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -41,6 +42,7 @@ TEST(CommandLauncherCatalogTest, EveryEntryIsExecutableAndSearchable) {
            ShellUtilityAction::kCreateSplit,
            ShellUtilityAction::kOpenCanvas,
            ShellUtilityAction::kOpenBoost,
+           ShellUtilityAction::kCapture,
            ShellUtilityAction::kOpenTaskDeck,
            ShellUtilityAction::kSetAppearanceSingle,
            ShellUtilityAction::kSetAppearanceMultiple,
@@ -55,7 +57,7 @@ TEST(CommandLauncherCatalogTest, EveryEntryIsExecutableAndSearchable) {
   }
   const auto entries = CommandLauncherCatalog::BuildEntries(
       snapshot, OrganizationSnapshot(), {});
-  ASSERT_EQ(entries.size(), 10u);
+  ASSERT_EQ(entries.size(), 11u);
   for (const CommandLauncherEntry& entry : entries) {
     EXPECT_EQ(entry.kind, CommandLauncherEntryKind::kUtility);
     EXPECT_NE(entry.action, ShellUtilityAction::kCommandLauncher);
@@ -116,7 +118,7 @@ TEST(CommandLauncherCatalogTest,
 
   const auto entries = CommandLauncherCatalog::BuildEntries(
       shell, organization, {current_window, other_window});
-  EXPECT_EQ(entries.size(), 16u);
+  EXPECT_EQ(entries.size(), 17u);
 
   const auto* current_entry =
       FindEntry(entries, "workspace:" + current.id.value());
@@ -223,7 +225,7 @@ TEST(CommandLauncherCatalogTest, SkipsIneligibleAndInvalidLiveTargets) {
 
   const auto entries = CommandLauncherCatalog::BuildEntries(
       shell, organization, {ineligible, invalid});
-  EXPECT_EQ(entries.size(), 10u);
+  EXPECT_EQ(entries.size(), 11u);
 }
 
 TEST(CommandLauncherCatalogTest, SkipsNewTabPlaceholderLiveTarget) {
@@ -326,6 +328,125 @@ TEST(CommandLauncherCatalogTest, CompactEntryReflectsLiveModeAndAvailability) {
   const auto matches = CommandLauncherCatalog::Filter(entries, "zen");
   ASSERT_FALSE(matches.empty());
   EXPECT_EQ(matches.front().id, "toggle_compact");
+}
+
+// Ranking and intent answer different questions. Filter() is deliberately
+// generous so a few letters can reach a command; HasCommandIntent() decides
+// whether Return runs one instead of searching, and must not be.
+TEST(CommandLauncherCatalogTest, CommandIntentSeparatesNamingFromSearching) {
+  ShellSnapshot shell;
+  ShellActionEnablement new_tab;
+  new_tab.action = ShellUtilityAction::kNewTemporaryTab;
+  new_tab.enabled = true;
+  shell.actions.push_back(new_tab);
+
+  const auto entries =
+      CommandLauncherCatalog::BuildEntries(shell, OrganizationSnapshot(), {});
+  const CommandLauncherEntry* const entry = FindEntry(entries, "new_tab");
+  ASSERT_TRUE(entry);
+  ASSERT_EQ(entry->label, "Open New Tab");
+
+  // Naming the command: the whole label, a prefix of it, a word inside it,
+  // and a synonym token. The empty palette lists everything it can do.
+  for (const char* query :
+       {"Open New Tab", "open new", "tab", "temporary", ""}) {
+    EXPECT_TRUE(CommandLauncherCatalog::HasCommandIntent(*entry, query))
+        << "'" << query << "' names this command";
+  }
+
+  // Searching. Each of these reaches the entry through Filter()'s
+  // subsequence ranking, and none of them is the user naming a command.
+  for (const char* query :
+       {"best mechanical keyboards", "pnt", "pen ew ab", "example.com"}) {
+    EXPECT_FALSE(CommandLauncherCatalog::HasCommandIntent(*entry, query))
+        << "'" << query << "' must be searched, not run as a command";
+  }
+
+  // The ranking path still admits it - the point of the assertions above is
+  // that being reachable by the ranker is not the same as being named, which
+  // is exactly why intent has to be a separate question rather than a
+  // threshold on the same score.
+  const auto ranked =
+      CommandLauncherCatalog::Filter(entries, "pnt", /*max_results=*/entries.size());
+  EXPECT_TRUE(std::ranges::any_of(ranked, [](const CommandLauncherEntry& e) {
+    return e.id == "new_tab";
+  })) << "the fuzzy ranker still reaches this entry for a query that does "
+         "not name it";
+}
+
+// Arc reaches the Boost editor by typing "New Boost" into the command bar
+// (resources.arc.net, "Boosts: Customize Any Website"). Seoul labels the row
+// for the page it acts on, so the phrase has to be reachable as a token or
+// Arc's own gesture would fall through to a web search.
+TEST(CommandLauncherCatalogTest, ArcNewBoostPhraseReachesTheBoostCommand) {
+  ShellSnapshot shell;
+  ShellActionEnablement boost;
+  boost.action = ShellUtilityAction::kOpenBoost;
+  boost.enabled = true;
+  shell.actions.push_back(boost);
+
+  const auto entries =
+      CommandLauncherCatalog::BuildEntries(shell, OrganizationSnapshot(), {});
+  const CommandLauncherEntry* const entry = FindEntry(entries, "open_boost");
+  ASSERT_TRUE(entry);
+
+  for (const char* query : {"New Boost", "new boost", "boost"}) {
+    EXPECT_TRUE(CommandLauncherCatalog::HasCommandIntent(*entry, query))
+        << "'" << query << "' must reach the Boost editor, not a web search";
+  }
+  const auto matches = CommandLauncherCatalog::Filter(entries, "new boost");
+  ASSERT_FALSE(matches.empty());
+  EXPECT_EQ(matches.front().id, "open_boost");
+}
+
+// Arc creates an Easel by typing "New Easel" into the command bar. Seoul's
+// authored spatial surface is Boards, on the Canvas, so the phrase has to
+// reach it rather than falling through to a web search.
+TEST(CommandLauncherCatalogTest, ArcEaselPhraseReachesTheAuthoredSurface) {
+  ShellSnapshot shell;
+  ShellActionEnablement canvas;
+  canvas.action = ShellUtilityAction::kOpenCanvas;
+  canvas.enabled = true;
+  shell.actions.push_back(canvas);
+
+  const auto entries =
+      CommandLauncherCatalog::BuildEntries(shell, OrganizationSnapshot(), {});
+  const CommandLauncherEntry* const entry = FindEntry(entries, "open_canvas");
+  ASSERT_TRUE(entry);
+
+  for (const char* query : {"New Easel", "easel", "board", "boards"}) {
+    EXPECT_TRUE(CommandLauncherCatalog::HasCommandIntent(*entry, query))
+        << "'" << query << "' must reach the authored surface, not a search";
+  }
+  const auto matches = CommandLauncherCatalog::Filter(entries, "new easel");
+  ASSERT_FALSE(matches.empty());
+  EXPECT_EQ(matches.front().id, "open_canvas");
+}
+
+// Arc takes a Capture by typing "Capture" into the command bar and dragging a
+// rectangle over the page. The phrase has to name the command, and the command
+// has to carry the action that starts a capture.
+TEST(CommandLauncherCatalogTest, ArcCapturePhraseReachesTheCaptureAction) {
+  ShellSnapshot shell;
+  ShellActionEnablement capture;
+  capture.action = ShellUtilityAction::kCapture;
+  capture.enabled = true;
+  shell.actions.push_back(capture);
+
+  const auto entries =
+      CommandLauncherCatalog::BuildEntries(shell, OrganizationSnapshot(), {});
+  const CommandLauncherEntry* const entry = FindEntry(entries, "capture");
+  ASSERT_TRUE(entry);
+  EXPECT_EQ(entry->action, ShellUtilityAction::kCapture);
+  EXPECT_TRUE(entry->enabled);
+
+  for (const char* query : {"Capture", "capture", "screenshot", "region"}) {
+    EXPECT_TRUE(CommandLauncherCatalog::HasCommandIntent(*entry, query))
+        << "'" << query << "' must start a capture, not run a web search";
+  }
+  const auto matches = CommandLauncherCatalog::Filter(entries, "capture");
+  ASSERT_FALSE(matches.empty());
+  EXPECT_EQ(matches.front().id, "capture");
 }
 
 }  // namespace

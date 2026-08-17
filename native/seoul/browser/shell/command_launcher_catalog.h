@@ -57,6 +57,18 @@ public:
   static std::vector<CommandLauncherEntry>
   Filter(const std::vector<CommandLauncherEntry> &entries,
          std::string_view query, size_t max_results = kMaxVisibleResults);
+
+  // Whether `query` reads as the user naming this command rather than as text
+  // they want searched. Ranking and intent are separate questions: the loose
+  // subsequence match that usefully ranks "ocv" above other rows is far too
+  // permissive to decide that Return should run a command instead of
+  // performing the search the user typed. Only an exact match, a prefix, or a
+  // match starting at a word boundary counts as naming a command.
+  //
+  // An empty query is command intent: the palette was opened deliberately and
+  // is listing everything it can do.
+  static bool HasCommandIntent(const CommandLauncherEntry &entry,
+                               std::string_view query);
 };
 
 } // namespace seoul

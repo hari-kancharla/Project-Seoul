@@ -275,6 +275,12 @@ void SeoulOmniboxActionView::RebuildRows() {
   std::erase_if(available, [](const CommandLauncherEntry &entry) {
     return !entry.enabled;
   });
+  // Ranked by the fuzzy score, but admitted only when the query actually names
+  // the command. Anything else is text the user wants searched, and this
+  // surface stands aside so Chromium's omnibox handles it.
+  std::erase_if(available, [this](const CommandLauncherEntry &entry) {
+    return !CommandLauncherCatalog::HasCommandIntent(entry, query_);
+  });
 
   visible_entries_ =
       CommandLauncherCatalog::Filter(available, query_, available.size());

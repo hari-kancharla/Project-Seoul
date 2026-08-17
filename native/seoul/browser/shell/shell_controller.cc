@@ -481,6 +481,8 @@ ShellStatusResult ShellController::RunUtilityAction(ShellUtilityAction action) {
       return OpenCanvas();
     case ShellUtilityAction::kOpenBoost:
       return OpenBoost();
+    case ShellUtilityAction::kCapture:
+      return BeginCapture();
     case ShellUtilityAction::kCreateSplit:
       return CreateSplitFromActive();
     case ShellUtilityAction::kToggleCompactMode:
@@ -609,6 +611,17 @@ void ShellController::SetOpenCanvasCallback(
 void ShellController::SetOpenBoostCallback(
     base::RepeatingCallback<bool()> callback) {
   open_boost_callback_ = std::move(callback);
+}
+
+ShellStatusResult ShellController::BeginCapture() {
+  return begin_capture_callback_ && begin_capture_callback_.Run()
+             ? ShellOk()
+             : ShellErr(ShellError::kCommandRejected);
+}
+
+void ShellController::SetBeginCaptureCallback(
+    base::RepeatingCallback<bool()> callback) {
+  begin_capture_callback_ = std::move(callback);
 }
 
 void ShellController::SetCompactModeCallbacks(

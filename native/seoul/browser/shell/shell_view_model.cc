@@ -142,6 +142,8 @@ ShellSnapshot ShellViewModel::Build(const OrganizationModel& model,
     AddAction(&snapshot, ShellUtilityAction::kCommandLauncher, true, "");
     AddAction(&snapshot, ShellUtilityAction::kOpenCanvas, true, "");
     AddAction(&snapshot, ShellUtilityAction::kOpenBoost, true, "");
+  AddAction(&snapshot, ShellUtilityAction::kCapture, true, "");
+    AddAction(&snapshot, ShellUtilityAction::kCapture, true, "");
     AddAction(&snapshot, ShellUtilityAction::kOpenTaskDeck, true, "");
     AddAction(&snapshot, ShellUtilityAction::kOpenSettings, true, "");
     AddAction(&snapshot, ShellUtilityAction::kOpenDownloads, true, "");

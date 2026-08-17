@@ -41,6 +41,7 @@ class ShellService : public OrganizationModelObserver {
   using SetAppearanceLayoutModeCallback =
       base::RepeatingCallback<bool(LiveWindowKey, ShellAppearanceLayoutMode)>;
   using OpenBoostCallback = base::RepeatingCallback<bool(LiveWindowKey)>;
+  using BeginCaptureCallback = base::RepeatingCallback<bool(LiveWindowKey)>;
   using ProjectResourcesCallback =
       base::RepeatingCallback<ShellProjectResources(WorkspaceId)>;
   using CreateProjectChatCallback =
@@ -81,6 +82,7 @@ class ShellService : public OrganizationModelObserver {
   void SetAppearanceLayoutModeCallbacks(AppearanceLayoutModeStateCallback state,
                                         SetAppearanceLayoutModeCallback set);
   void SetOpenBoostCallback(OpenBoostCallback callback);
+  void SetBeginCaptureCallback(BeginCaptureCallback callback);
   void SetProjectCallbacks(ProjectResourcesCallback resources,
                            CreateProjectChatCallback create_chat,
                            OpenProjectChatCallback open_chat,
@@ -112,6 +114,7 @@ class ShellService : public OrganizationModelObserver {
   AppearanceLayoutModeStateCallback appearance_layout_state_callback_;
   SetAppearanceLayoutModeCallback set_appearance_layout_callback_;
   OpenBoostCallback open_boost_callback_;
+  BeginCaptureCallback begin_capture_callback_;
   ProjectResourcesCallback project_resources_callback_;
   CreateProjectChatCallback create_project_chat_callback_;
   OpenProjectChatCallback open_project_chat_callback_;

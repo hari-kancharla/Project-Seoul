@@ -61,6 +61,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "chrome/test/base/search_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/favicon_base/favicon_callback.h"
 #include "components/favicon_base/favicon_types.h"
@@ -165,6 +166,42 @@ void CollectVerticalTabViews(views::View* root,
   }
 }
 
+// Lowercase letters, digits, and spaces are enough to type a real query, and
+// keeping the mapping explicit means the tests send the key codes a keyboard
+// sends rather than calling a text setter.
+ui::KeyboardCode KeyCodeForCharacter(char character) {
+  if (character >= 'a' && character <= 'z') {
+    return static_cast<ui::KeyboardCode>(ui::VKEY_A + (character - 'a'));
+  }
+  if (character >= '0' && character <= '9') {
+    return static_cast<ui::KeyboardCode>(ui::VKEY_0 + (character - '0'));
+  }
+  switch (character) {
+    case ' ':
+      return ui::VKEY_SPACE;
+    case '.':
+      return ui::VKEY_OEM_PERIOD;
+    case '-':
+      return ui::VKEY_OEM_MINUS;
+    case '/':
+      return ui::VKEY_OEM_2;
+    case ':':
+      return ui::VKEY_OEM_1;
+    default:
+      NOTREACHED() << "no key code mapped for '" << character << "'";
+  }
+}
+
+void TypeWithRealKeys(ui::test::EventGenerator& generator,
+                      std::string_view text) {
+  for (const char character : text) {
+    const bool shifted = character == ':';
+    generator.PressAndReleaseKey(
+        KeyCodeForCharacter(shifted ? character : std::tolower(character)),
+        shifted ? ui::EF_SHIFT_DOWN : ui::EF_NONE);
+  }
+}
+
 }  // namespace
 
 class SeoulShellBrowserTest : public InProcessBrowserTest {
@@ -183,6 +220,41 @@ class SeoulShellBrowserTest : public InProcessBrowserTest {
 
   LiveWindowKey WindowKey() const {
     return LiveWindowKey::FromSessionId(browser()->session_id().id());
+  }
+
+  // A search provider this test process owns, so what Return produces is
+  // decided by Chromium's configured default provider - never by a hardcoded
+  // engine - and is identical on every machine that runs the suite.
+  void UseControlledSearchProvider() {
+    TemplateURLService* const model =
+        TemplateURLServiceFactory::GetForProfile(browser()->profile());
+    ASSERT_TRUE(model);
+    search_test_utils::WaitForTemplateURLServiceToLoad(model);
+    ASSERT_TRUE(model->loaded());
+
+    TemplateURLData data;
+    data.SetShortName(u"SeoulTestSearch");
+    data.SetKeyword(u"seoultest");
+    data.SetURL("https://search.test/find?q={searchTerms}");
+    model->SetUserSelectedDefaultSearchProvider(
+        model->Add(std::make_unique<TemplateURL>(data)));
+
+    // Prepopulated engines would otherwise turn up as suggestions and decide
+    // which match Return opens.
+    for (TemplateURL* const url : model->GetTemplateURLs()) {
+      if (url->prepopulate_id() != 0) {
+        model->Remove(url);
+      }
+    }
+  }
+
+  ui::test::EventGenerator MakeEventGenerator() {
+    browser()->window()->Activate();
+    gfx::NativeWindow event_window = browser()->window()->GetNativeWindow();
+#if defined(USE_AURA)
+    event_window = event_window->GetRootWindow();
+#endif
+    return ui::test::EventGenerator(event_window);
   }
 
   LiveTabKey TabKeyAt(int index) const {
@@ -2236,6 +2308,238 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   EXPECT_TRUE(browser_view->ShowSeoulNewTabSurface());
   EXPECT_FALSE(browser_view->is_seoul_new_tab_surface_pending());
   EXPECT_FALSE(browser_view->seoul_omnibox_surface_for_testing());
+}
+
+// The regression this suite exists for: on a loaded page, click the real
+// address field and start typing with no pause at all. Every character has to
+// arrive. Seoul expands the docked field into its floating surface when
+// editing begins, and that expansion reparents the field, which blurs it;
+// restoring focus the way a fresh keyboard invocation does would select the
+// text typed so far and let the next keystroke replace it.
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       TypingImmediatelyAfterClickingTheOmniboxKeepsEveryKey) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  const GURL page = embedded_test_server()->GetURL(
+      "/empty.html?a-deliberately-long-committed-url-so-the-resting-field-"
+      "elides-and-the-editing-field-does-not");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), page));
+
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  LocationBarView* const location_bar =
+      browser_view->toolbar()->location_bar_view();
+  ASSERT_TRUE(location_bar);
+  OmniboxViewViews* const omnibox = location_bar->omnibox_view();
+  ASSERT_TRUE(omnibox);
+  browser_view->DeprecatedLayoutImmediately();
+  ASSERT_FALSE(browser_view->seoul_omnibox_surface_for_testing())
+      << "the field starts docked, which is what makes this a reparent";
+
+  ui::test::EventGenerator generator = MakeEventGenerator();
+  generator.MoveMouseTo(omnibox->GetBoundsInScreen().CenterPoint());
+  generator.ClickLeftButton();
+  ASSERT_TRUE(omnibox->HasFocus());
+
+  // No wait, no run loop, no settling: the first key follows the click.
+  constexpr std::string_view kTyped = "seoul immediate typing regression";
+  TypeWithRealKeys(generator, kTyped);
+
+  EXPECT_EQ(base::UTF8ToUTF16(kTyped), omnibox->GetText());
+  EXPECT_TRUE(omnibox->HasFocus());
+  EXPECT_TRUE(browser_view->seoul_omnibox_surface_for_testing())
+      << "typing is what floats the field, so it must have floated";
+  EXPECT_EQ(browser_view->seoul_omnibox_surface_for_testing(),
+            location_bar->parent());
+}
+
+// The same invariant for the keyboard entry point, which reaches the floating
+// surface through FocusLocation() rather than through the first keystroke.
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       TypingImmediatelyAfterFocusShortcutKeepsEveryKey) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/empty.html")));
+
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  LocationBarView* const location_bar =
+      browser_view->toolbar()->location_bar_view();
+  ASSERT_TRUE(location_bar);
+  OmniboxViewViews* const omnibox = location_bar->omnibox_view();
+  ASSERT_TRUE(omnibox);
+
+  ui::test::EventGenerator generator = MakeEventGenerator();
+  // Cmd+L is bound to IDC_FOCUS_LOCATION, and the command is what this drives:
+  // a raw accelerator does not reach the browser's handler in the headless
+  // backend, where the window is never the system key window. FocusLocation()
+  // also clears focus when it cannot take it, and activation is asynchronous,
+  // so the command has to run against a window that is already active.
+  // Everything after the command is real key events.
+  ASSERT_TRUE(
+      base::test::RunUntil([&] { return browser()->window()->IsActive(); }))
+      << "the test window never became active";
+  ASSERT_TRUE(chrome::ExecuteCommand(browser(), IDC_FOCUS_LOCATION));
+  ASSERT_TRUE(omnibox->HasFocus());
+  ASSERT_TRUE(browser_view->seoul_omnibox_surface_for_testing())
+      << "the focus shortcut floats the field before any key arrives";
+
+  constexpr std::string_view kTyped = "seoul immediate typing regression";
+  TypeWithRealKeys(generator, kTyped);
+
+  EXPECT_EQ(base::UTF8ToUTF16(kTyped), omnibox->GetText());
+  EXPECT_TRUE(omnibox->HasFocus());
+}
+
+// Presentation is not allowed to interrupt an edit. A lifecycle snapshot or a
+// page finishing its load used to be able to dock the surface out from under
+// someone typing in it, which cleared focus and stranded the rest of the
+// query.
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       PresentationCannotDockAnOmniboxBeingTypedInto) {
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  LocationBarView* const location_bar =
+      browser_view->toolbar()->location_bar_view();
+  ASSERT_TRUE(location_bar);
+  OmniboxViewViews* const omnibox = location_bar->omnibox_view();
+  ASSERT_TRUE(omnibox);
+
+  ui::test::EventGenerator generator = MakeEventGenerator();
+  ASSERT_TRUE(
+      base::test::RunUntil([&] { return browser()->window()->IsActive(); }))
+      << "the test window never became active";
+  ASSERT_TRUE(chrome::ExecuteCommand(browser(), IDC_FOCUS_LOCATION));
+  TypeWithRealKeys(generator, "half typed query");
+  ASSERT_EQ(u"half typed query", omnibox->GetText());
+  ASSERT_TRUE(browser_view->seoul_omnibox_surface_for_testing());
+
+  // What an arriving snapshot or a completed load does.
+  browser_view->SetSeoulOmniboxFloating(false);
+
+  EXPECT_TRUE(browser_view->seoul_omnibox_surface_for_testing())
+      << "docking must be refused while the user is editing";
+  EXPECT_EQ(u"half typed query", omnibox->GetText());
+  EXPECT_TRUE(omnibox->HasFocus());
+
+  // Typing continues into the same field.
+  TypeWithRealKeys(generator, " continued");
+  EXPECT_EQ(u"half typed query continued", omnibox->GetText());
+
+  // Abandoning the edit releases the protection, so the surface can still be
+  // dismissed the moment it stops holding the user's work.
+  generator.PressAndReleaseKey(ui::VKEY_ESCAPE);
+  EXPECT_FALSE(browser_view->seoul_omnibox_surface_for_testing());
+}
+
+// Bug B. A query that names no Seoul command is a search, and the command
+// surface must hand it back to Chromium rather than running the command whose
+// name happens to share a few letters with it.
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       CommandSurfaceSearchesWhatItCannotRun) {
+  UseControlledSearchProvider();
+
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  LocationBarView* const location_bar =
+      browser_view->toolbar()->location_bar_view();
+  ASSERT_TRUE(location_bar);
+  OmniboxViewViews* const omnibox = location_bar->omnibox_view();
+  ASSERT_TRUE(omnibox);
+  TabStripModel* const tab_strip = browser()->tab_strip_model();
+
+  browser_view->ShowSeoulOmniboxActions();
+  ASSERT_TRUE(browser_view->IsSeoulOmniboxActionMode());
+  ASSERT_TRUE(browser_view->IsSeoulOmniboxShowingActions())
+      << "the empty palette lists what it can do";
+
+  ui::test::EventGenerator generator = MakeEventGenerator();
+  TypeWithRealKeys(generator, "best mechanical keyboards");
+
+  EXPECT_EQ(u"best mechanical keyboards", omnibox->GetText());
+  EXPECT_FALSE(browser_view->IsSeoulOmniboxShowingActions())
+      << "no command is named, so the surface must stand aside";
+  EXPECT_TRUE(browser_view->IsSeoulOmniboxActionMode())
+      << "still the same surface; only the body changed hands";
+
+  generator.PressAndReleaseKey(ui::VKEY_RETURN);
+
+  content::WebContents* const contents = tab_strip->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+  ASSERT_TRUE(base::test::RunUntil([&] {
+    return contents->GetVisibleURL().host() == "search.test";
+  })) << "Return produced " << contents->GetVisibleURL()
+      << " instead of a default-provider search";
+  EXPECT_EQ("/find", contents->GetVisibleURL().path());
+  EXPECT_EQ("q=best+mechanical+keyboards", contents->GetVisibleURL().query());
+}
+
+// The other half of the same rule: a query that does name a command still
+// runs it. Both halves have to hold, or the fix for one is a regression in
+// the other.
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       CommandSurfaceStillRunsACommandThatIsNamed) {
+  UseControlledSearchProvider();
+
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  ASSERT_TRUE(browser_view->toolbar()->location_bar_view());
+
+  browser_view->ShowSeoulOmniboxActions();
+  ASSERT_TRUE(browser_view->IsSeoulOmniboxActionMode());
+
+  ui::test::EventGenerator generator = MakeEventGenerator();
+  TypeWithRealKeys(generator, "compact");
+
+  ASSERT_TRUE(browser_view->IsSeoulOmniboxShowingActions());
+  auto* const actions = browser_view->seoul_omnibox_action_view_for_testing();
+  ASSERT_TRUE(actions);
+  ASSERT_GT(actions->result_count(), 0u);
+
+  ShellController* const controller =
+      service()->shell_service()->GetController(WindowKey());
+  ASSERT_TRUE(controller);
+  const bool compact_before = controller->snapshot().compact_mode.enabled;
+
+  generator.PressAndReleaseKey(ui::VKEY_RETURN);
+
+  EXPECT_TRUE(base::test::RunUntil([&] {
+    return controller->snapshot().compact_mode.enabled != compact_before;
+  })) << "naming a command must still run it";
+  EXPECT_EQ(GURL(url::kAboutBlankURL),
+            browser()->tab_strip_model()->GetActiveWebContents()->GetVisibleURL())
+      << "and must not also navigate";
+}
+
+// A URL typed into the command surface is a navigation, not a search and not
+// a command. Chromium's own interpretation decides which, from the text.
+IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
+                       CommandSurfaceNavigatesAnExplicitUrl) {
+  UseControlledSearchProvider();
+  ASSERT_TRUE(embedded_test_server()->Start());
+  const GURL target = embedded_test_server()->GetURL("/empty.html");
+
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+  browser_view->ShowSeoulOmniboxActions();
+  ASSERT_TRUE(browser_view->IsSeoulOmniboxActionMode());
+
+  ui::test::EventGenerator generator = MakeEventGenerator();
+  TypeWithRealKeys(generator, target.spec());
+  EXPECT_FALSE(browser_view->IsSeoulOmniboxShowingActions());
+
+  generator.PressAndReleaseKey(ui::VKEY_RETURN);
+
+  content::WebContents* const contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+  ASSERT_TRUE(content::WaitForLoadStop(contents));
+  EXPECT_EQ(target, contents->GetLastCommittedURL());
 }
 
 // Seoul projects the tab strip; it never replaces it. Adding a tab through the

@@ -66,6 +66,8 @@ class ShellController : public OrganizationModelObserver,
   ShellStatusResult CreateSplitFromActive();
   ShellStatusResult OpenCanvas();
   ShellStatusResult OpenBoost();
+  // Arc's Capture: pick a region of the live page and keep it.
+  ShellStatusResult BeginCapture();
   ShellStatusResult RunReconciliation();
   ShellStatusResult AcknowledgeRecovery();
   // Typed utility dispatch shared by native controls and the command
@@ -84,6 +86,7 @@ class ShellController : public OrganizationModelObserver,
       base::RepeatingCallback<MutationStatus()> callback);
   void SetOpenCanvasCallback(base::RepeatingCallback<bool()> callback);
   void SetOpenBoostCallback(base::RepeatingCallback<bool()> callback);
+  void SetBeginCaptureCallback(base::RepeatingCallback<bool()> callback);
   void SetBrowserPageCallbacks(base::RepeatingCallback<bool()> settings,
                                base::RepeatingCallback<bool()> downloads);
   void SetProjectCallbacks(
@@ -145,6 +148,7 @@ class ShellController : public OrganizationModelObserver,
   base::RepeatingCallback<MutationStatus()> acknowledge_recovery_callback_;
   base::RepeatingCallback<bool()> open_canvas_callback_;
   base::RepeatingCallback<bool()> open_boost_callback_;
+  base::RepeatingCallback<bool()> begin_capture_callback_;
   base::RepeatingCallback<bool()> open_settings_callback_;
   base::RepeatingCallback<bool()> open_downloads_callback_;
   base::RepeatingCallback<ShellProjectResources(WorkspaceId)>

@@ -107,6 +107,11 @@ ShellController& ShellService::EnsureController(ShellWindowKey window) {
           return callback && !callback->is_null() && callback->Run(window);
         },
         base::Unretained(&open_boost_callback_), window));
+    controller->SetBeginCaptureCallback(base::BindRepeating(
+        [](BeginCaptureCallback* callback, LiveWindowKey window) {
+          return callback && !callback->is_null() && callback->Run(window);
+        },
+        base::Unretained(&begin_capture_callback_), window));
     controller->SetProjectCallbacks(
         project_resources_callback_,
         base::BindRepeating(
@@ -342,6 +347,18 @@ void ShellService::SetOpenBoostCallback(OpenBoostCallback callback) {
                  callback->Run(bound_window);
         },
         base::Unretained(&open_boost_callback_), window));
+  }
+}
+
+void ShellService::SetBeginCaptureCallback(BeginCaptureCallback callback) {
+  begin_capture_callback_ = std::move(callback);
+  for (auto& [window, controller] : controllers_) {
+    controller->SetBeginCaptureCallback(base::BindRepeating(
+        [](BeginCaptureCallback* callback, LiveWindowKey bound_window) {
+          return callback && !callback->is_null() &&
+                 callback->Run(bound_window);
+        },
+        base::Unretained(&begin_capture_callback_), window));
   }
 }
 

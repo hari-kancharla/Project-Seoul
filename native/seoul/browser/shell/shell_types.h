@@ -85,6 +85,7 @@ enum class ShellUtilityAction {
   kCommandLauncher,
   kOpenCanvas,
   kOpenBoost,
+  kCapture,
   kOpenTaskDeck,
   kCreateSplit,
   kToggleCompactMode,

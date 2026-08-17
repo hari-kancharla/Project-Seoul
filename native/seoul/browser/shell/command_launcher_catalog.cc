@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cctype>
 #include <limits>
+#include <ranges>
+#include <string>
 #include <string_view>
 
 namespace seoul {
@@ -145,6 +147,8 @@ std::vector<CommandLauncherEntry> CommandLauncherCatalog::BuildEntries(
       action_enabled(ShellUtilityAction::kOpenCanvas);
   const ShellActionEnablement boost =
       action_enabled(ShellUtilityAction::kOpenBoost);
+  const ShellActionEnablement capture =
+      action_enabled(ShellUtilityAction::kCapture);
   const ShellActionEnablement tasks =
       action_enabled(ShellUtilityAction::kOpenTaskDeck);
   const ShellActionEnablement appearance_single =
@@ -167,14 +171,30 @@ std::vector<CommandLauncherEntry> CommandLauncherCatalog::BuildEntries(
   entries.push_back(MakeEntry("create_split", "Create Split", {"split", "pane"},
                               split.enabled, split.disabled_reason));
   entries.back().action = ShellUtilityAction::kCreateSplit;
+  // "easel" and "board" reach the same authored spatial surface: Arc opens its
+  // Easels by typing "New Easel", and Seoul's Boards are that surface. The
+  // phrase has to be a token or Arc's own gesture falls through to a search.
   entries.push_back(MakeEntry("open_canvas", "Open Seoul Canvas",
-                              {"canvas", "assistant", "voice", "tasks"},
+                              {"canvas", "assistant", "voice", "tasks",
+                               "board", "boards", "easel", "new easel"},
                               canvas.enabled, canvas.disabled_reason));
   entries.back().action = ShellUtilityAction::kOpenCanvas;
+  // "new boost" is Arc's own phrase for this route, so typing it reaches the
+  // command rather than falling through to a web search. It is a token rather
+  // than the label because the surface opens the editor for the page you are
+  // on, which is what "Boost This Site" says and "New Boost" does not.
   entries.push_back(MakeEntry("open_boost", "Boost This Site",
-                              {"boost", "customize", "style", "script", "site"},
+                              {"boost", "new boost", "customize", "style",
+                               "script", "site"},
                               boost.enabled, boost.disabled_reason));
   entries.back().action = ShellUtilityAction::kOpenBoost;
+  // Arc takes a Capture by typing "Capture" and dragging a rectangle over the
+  // page, so that phrase has to reach this command rather than being searched.
+  entries.push_back(MakeEntry("capture", "Capture",
+                              {"capture", "screenshot", "snip", "region",
+                               "easel"},
+                              capture.enabled, capture.disabled_reason));
+  entries.back().action = ShellUtilityAction::kCapture;
   entries.push_back(MakeEntry("open_task_deck", "Open Task Deck",
                               {"tasks", "progress", "receipts", "automation"},
                               tasks.enabled, tasks.disabled_reason));
@@ -322,6 +342,25 @@ std::vector<CommandLauncherEntry> CommandLauncherCatalog::Filter(
     filtered.push_back(entries[match.original_index]);
   }
   return filtered;
+}
+
+// static
+bool CommandLauncherCatalog::HasCommandIntent(const CommandLauncherEntry& entry,
+                                              std::string_view query) {
+  const std::string normalized_query = Normalize(query);
+  if (normalized_query.empty()) {
+    return true;
+  }
+  auto names_command = [&normalized_query](std::string_view value) {
+    const std::string normalized_value = Normalize(value);
+    const size_t at = normalized_value.find(normalized_query);
+    return at != std::string::npos &&
+           (at == 0 || normalized_value[at - 1] == ' ');
+  };
+  if (names_command(entry.label) || names_command(entry.id)) {
+    return true;
+  }
+  return std::ranges::any_of(entry.tokens, names_command);
 }
 
 CommandLauncherEntry::CommandLauncherEntry() = default;
