@@ -109,6 +109,11 @@ npm run test:swift           # 21 overlay/transform cases
 npm run test:native          # build + run all 30 Seoul unit binaries
 npm run test:native:browser  # build + run the Seoul browser-test filter
 npm run stress:native        # churn the built product: remounts, 12 tabs, navigation
+
+# The Swift overlay/bridge (SeoulApp, SeoulHost):
+swift test                            # transforms, display selection, queues, socket
+swift build && \
+  python3 scripts/test-host-reconnect.py   # bridge resilience, with real processes
 ```
 
 `npm run check` includes two wiring gates, because a suite that exists but never
@@ -120,6 +125,13 @@ into `seoul_browser_tests` falls outside the gtest filter.
 
 Every gate is currently green, with per-suite counts and the exact commands in
 `docs/release/seoul-product-readiness.md`.
+
+`test-host-reconnect.py` starts and kills real SeoulHost and SeoulApp processes
+to check that the bridge survives the two halves coming and going in any order.
+It runs on `SEOUL_SOCKET_PATH`, not `/tmp/seoul.sock`, so a SeoulApp you have
+open for real is left alone. Two of its cases run the actual SeoulApp binary for
+a few seconds, which puts a menu bar item up and claims `cmd+shift+space` while
+they do.
 
 ## Canvas Design Lab
 

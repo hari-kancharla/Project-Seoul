@@ -58,6 +58,14 @@ final class SeoulAppController: NSObject {
 
     private var requestCounter = 0
 
+    /// Hotkey presses made while no SeoulHost was connected.
+    ///
+    /// Chrome starts and stops the host on its own schedule and MV3 restarts
+    /// the service worker whenever it likes, so "nothing connected right now"
+    /// is a normal gap of a second or two, not a reason to throw the user's
+    /// keypress away. M4 specified holding it; this is that.
+    private var deferred = DeferredRequestQueue(capacity: 8, window: 2.0)
+
     /// Scroll re-anchors. Counted rather than logged, then summarised on
     /// disconnect: per-event logging at frame rate would itself cost more than
     /// the work being measured.
@@ -68,13 +76,23 @@ final class SeoulAppController: NSObject {
     private let selfTest: Bool
     private var selfTestFired = false
 
-    init(selfTest: Bool) {
+    init(selfTest: Bool, queueSelfTest: Bool = false) {
         self.selfTest = selfTest
         super.init()
         buildMenu()
         startServer()
         installHotKey()
         installFocusWatcher()
+
+        // --selftest-queue: fire one query RIGHT NOW, before anything has had a
+        // chance to connect. That is the M4 path — a hotkey pressed into a gap
+        // in the bridge — and it is otherwise only reachable by pressing a
+        // global hotkey at exactly the right moment, which no test can do
+        // without taking cmd+shift+space off the user. Driven by
+        // scripts/test-host-reconnect.py.
+        if queueSelfTest {
+            DispatchQueue.main.async { [weak self] in self?.fire() }
+        }
     }
 
     /// A sketch pointing at a page you are no longer looking at is always wrong,
@@ -206,6 +224,7 @@ final class SeoulAppController: NSObject {
             guard let self else { return }
             self.setStatus("connected")
             elog("SeoulHost connected")
+            self.flushDeferred()
             if self.selfTest && !self.selfTestFired {
                 self.selfTestFired = true
                 // Twice: the first find pays for creating the overlay panel and
@@ -498,19 +517,17 @@ final class SeoulAppController: NSObject {
 
     @objc private func findNow() { fire() }
 
-    /// One query, out the socket.
+    /// One query, out the socket — or into the queue if there is no socket yet.
     private func fire() {
         let t0 = DispatchTime.now()
-        guard server.isConnected else {
-            elog("no SeoulHost connected — is Chrome running with the extension loaded?")
-            return
-        }
         // Captured now, while the browser is still frontmost: the hotkey is
         // global and this app never activates, so whatever is in front at this
-        // instant is the window the answer will land on. Stored PER REQUEST —
-        // two queries fired at two windows have two different owners, and a
-        // single shared field attributes the second one's owner to the first
-        // one's answer.
+        // instant is the window the answer will land on. Captured BEFORE the
+        // connection is checked, because a queued request lands on the window
+        // that was in front when the key was pressed, not when the host turns
+        // up. Carried PER REQUEST rather than in one shared field: two queries
+        // fired at two windows have two different owners, and a single field
+        // attributes the second one's owner to the first one's answer.
         guard let owner = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
             elog("no frontmost application — nothing to annotate")
             return
@@ -525,8 +542,24 @@ final class SeoulAppController: NSObject {
             elog("could not encode request")
             return
         }
+
+        guard server.isConnected else {
+            hold(DeferredRequest(requestId: requestId, query: query, ownerPID: owner,
+                                 payload: payload, firedAt: t0.uptimeNanoseconds))
+            return
+        }
+        deliver(requestId: requestId, query: query, ownerPID: owner, payload: payload, t0: t0)
+    }
+
+    /// Writes one already-encoded request and records it as in flight.
+    ///
+    /// The ledger entry is created here rather than in `fire()` so that a queued
+    /// request is not counted as in flight while it waits: nothing has been sent,
+    /// so nothing can be superseded or answered yet.
+    private func deliver(requestId: String, query: String, ownerPID: pid_t,
+                         payload: Data, t0: DispatchTime) {
         let superseded = ledger.register(requestId: requestId, query: query,
-                                         ownerPID: owner, atNanos: t0.uptimeNanoseconds)
+                                         ownerPID: ownerPID, atNanos: t0.uptimeNanoseconds)
         let ok = server.send(payload)
         ledger.markSent(requestId, atNanos: DispatchTime.now().uptimeNanoseconds)
         if !ok {
@@ -538,6 +571,54 @@ final class SeoulAppController: NSObject {
             elog("superseded in-flight " + superseded.joined(separator: ", "))
         }
         elog("find [\(requestId)] \"\(query)\"")
+    }
+
+    /// Holds a request for the window, and schedules the log line that says so
+    /// if no host ever arrives.
+    private func hold(_ request: DeferredRequest) {
+        if let evicted = deferred.enqueue(request) {
+            elog("request queue full — dropped [\(evicted.requestId)] \"\(evicted.query)\"")
+        }
+        let seconds = Double(deferred.windowNanos) / 1_000_000_000
+        elog(String(format: "no SeoulHost connected — holding [%@] \"%@\" for up to %.1f s " +
+                    "(is Chrome running with the extension loaded?)",
+                    request.requestId, request.query, seconds))
+
+        // Fires just past the deadline so a request that is exactly on it is
+        // already expired by the time this runs.
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds + 0.01) { [weak self] in
+            guard let self else { return }
+            let gone = self.deferred.expire(now: DispatchTime.now().uptimeNanoseconds)
+            for request in gone {
+                elog(String(format: "queued [%@] \"%@\" expired after %.1f s with no " +
+                            "SeoulHost; dropped", request.requestId, request.query, seconds))
+            }
+            // Nothing to unwind on the ledger: a held request was never
+            // registered, because it was never sent. The owner it captured
+            // lives on the queue entry and expires with it, so an expired
+            // request cannot leave a stale owner behind for the next app
+            // switch to report clearing.
+        }
+    }
+
+    /// Sends everything still inside its window. Called the moment a host
+    /// connects, which is the whole point of the queue.
+    private func flushDeferred() {
+        guard !deferred.isEmpty else { return }
+        let now = DispatchTime.now()
+        let (ready, expired) = deferred.drain(now: now.uptimeNanoseconds)
+
+        for gone in expired {
+            elog("queued [\(gone.requestId)] \"\(gone.query)\" was already past its window; dropped")
+        }
+        for request in ready {
+            let waited = Double(now.uptimeNanoseconds &- request.firedAt) / 1_000_000
+            elog(String(format: "sending queued [%@] — waited %.0f ms for a SeoulHost",
+                        request.requestId, waited))
+            deliver(requestId: request.requestId, query: request.query,
+                    ownerPID: request.ownerPID, payload: request.payload,
+                    t0: DispatchTime(uptimeNanoseconds: request.firedAt))
+        }
     }
 
     // MARK: - Debug gestures (milestone 2)
@@ -623,9 +704,11 @@ final class SeoulAppController: NSObject {
 }
 
 let wantsSelfTest = CommandLine.arguments.contains("--selftest")
+let wantsQueueSelfTest = CommandLine.arguments.contains("--selftest-queue")
 
 MainActor.assumeIsolated {
-    SeoulAppController.shared = SeoulAppController(selfTest: wantsSelfTest)
+    SeoulAppController.shared = SeoulAppController(selfTest: wantsSelfTest,
+                                                   queueSelfTest: wantsQueueSelfTest)
 }
 
 NSApplication.shared.run()

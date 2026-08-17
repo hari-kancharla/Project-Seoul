@@ -28,8 +28,14 @@ secrets/
 # local probe scripts
 _probe_*.mjs
 
-# Native baseline audit evidence (screenshots, raw logs) - never committed
+# Verification evidence (screenshots, raw logs) - never committed.
+#
+# The root-level rule is here because 19 MB of seoul-ui-verify-*.png got swept
+# into a commit about Package.swift and sat in the tree unreferenced. The
+# verifiers write these to /tmp by design; nothing in the repo reads one.
 native/evidence/
+seoul-ui-verify*.png
+seoul-verify-*.png
 
 # Verification captures dropped in the working directory. Product artwork lives
 # under native/seoul/resources/; a bare image at the root is always scratch, and
