@@ -3,17 +3,30 @@
 #ifndef SEOUL_BROWSER_ADBLOCK_AD_BLOCK_NAVIGATION_THROTTLE_H_
 #define SEOUL_BROWSER_ADBLOCK_AD_BLOCK_NAVIGATION_THROTTLE_H_
 
+#include <optional>
+
 #include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
+#include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/navigation_throttle.h"
 #include "seoul/browser/adblock/ad_block_decision.h"
 #include "seoul/browser/adblock/ad_block_request.h"
+#include "url/gurl.h"
 
 namespace content {
 class NavigationThrottleRegistry;
 }  // namespace content
 
 namespace seoul::adblock {
+
+// What the throttle needs to know about the frame it is guarding. Captured
+// once at construction: a top-frame navigation destroys the subframe and its
+// throttle, so the outermost URL cannot shift underneath a redirect chain.
+struct AdBlockNavigationContext {
+  bool is_subframe = false;
+  GURL outermost_top_frame_url;
+  std::optional<content::GlobalRenderFrameHostToken> parent_frame_token;
+};
 
 class AdBlockNavigationThrottle : public content::NavigationThrottle {
  public:
@@ -24,7 +37,8 @@ class AdBlockNavigationThrottle : public content::NavigationThrottle {
   static void MaybeCreateAndAdd(content::NavigationThrottleRegistry& registry);
 
   AdBlockNavigationThrottle(content::NavigationThrottleRegistry& registry,
-                            CheckRequestCallback check_request);
+                            CheckRequestCallback check_request,
+                            AdBlockNavigationContext context = {});
   AdBlockNavigationThrottle(const AdBlockNavigationThrottle&) = delete;
   AdBlockNavigationThrottle& operator=(const AdBlockNavigationThrottle&) =
       delete;
@@ -45,6 +59,7 @@ class AdBlockNavigationThrottle : public content::NavigationThrottle {
   void ScheduleRestartNavigation(const GURL& url);
 
   CheckRequestCallback check_request_;
+  const AdBlockNavigationContext context_;
   base::RepeatingCallback<void(const GURL&)> restart_callback_for_testing_;
   bool callback_ran_ = false;
   bool is_deferred_ = false;

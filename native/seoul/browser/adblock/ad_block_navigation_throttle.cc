@@ -40,7 +40,25 @@ void AdBlockNavigationThrottle::MaybeCreateAndAdd(
     content::NavigationThrottleRegistry& registry) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   content::NavigationHandle& handle = registry.GetNavigationHandle();
-  if (!handle.IsInPrimaryMainFrame() || !handle.GetWebContents()) {
+  if (!handle.GetWebContents()) {
+    return;
+  }
+
+  // Subframe document loads are what `$subdocument` rules describe, and a
+  // third-party ad iframe is the most visible ad on the web. Nothing else in
+  // Seoul checks them: navigation loads are never proxied, so this throttle is
+  // the only place they can be caught.
+  AdBlockNavigationContext context;
+  if (content::RenderFrameHost* parent =
+          handle.GetParentFrameOrOuterDocument()) {
+    context.is_subframe = true;
+    context.parent_frame_token = parent->GetGlobalFrameToken();
+    if (content::RenderFrameHost* outermost = parent->GetOutermostMainFrame()) {
+      context.outermost_top_frame_url = outermost->GetLastCommittedURL();
+    }
+  } else if (!handle.IsInPrimaryMainFrame()) {
+    // A non-primary main frame (prerender) stays out of scope, exactly as
+    // before.
     return;
   }
 
@@ -53,14 +71,17 @@ void AdBlockNavigationThrottle::MaybeCreateAndAdd(
   }
 
   registry.AddThrottle(std::make_unique<AdBlockNavigationThrottle>(
-      registry, base::BindRepeating(&CheckWithService, service->GetWeakPtr())));
+      registry, base::BindRepeating(&CheckWithService, service->GetWeakPtr()),
+      std::move(context)));
 }
 
 AdBlockNavigationThrottle::AdBlockNavigationThrottle(
     content::NavigationThrottleRegistry& registry,
-    CheckRequestCallback check_request)
+    CheckRequestCallback check_request,
+    AdBlockNavigationContext context)
     : content::NavigationThrottle(registry),
-      check_request_(std::move(check_request)) {
+      check_request_(std::move(check_request)),
+      context_(std::move(context)) {
   CHECK(check_request_);
 }
 
@@ -95,11 +116,20 @@ AdBlockNavigationThrottle::CheckCurrentUrl() {
   if (method.empty()) {
     method = "GET";
   }
-  check_request_.Run(
-      BuildNavigationAdBlockRequest(
-          url, navigation_handle()->GetInitiatorOrigin(), std::move(method)),
-      base::BindOnce(&AdBlockNavigationThrottle::OnDecision,
-                     weak_factory_.GetWeakPtr()));
+  AdBlockRequest request =
+      context_.is_subframe
+          ? BuildSubFrameNavigationAdBlockRequest(
+                url, context_.outermost_top_frame_url,
+                navigation_handle()->GetInitiatorOrigin(), std::move(method))
+          : BuildNavigationAdBlockRequest(
+                url, navigation_handle()->GetInitiatorOrigin(),
+                std::move(method));
+  // Attribute a blocked frame to the document that embedded it, which is how
+  // subresources are already attributed.
+  request.render_frame_token = context_.parent_frame_token;
+  check_request_.Run(std::move(request),
+                     base::BindOnce(&AdBlockNavigationThrottle::OnDecision,
+                                    weak_factory_.GetWeakPtr()));
   if (callback_ran_) {
     return immediate_result_;
   }
@@ -110,9 +140,14 @@ AdBlockNavigationThrottle::CheckCurrentUrl() {
 
 void AdBlockNavigationThrottle::OnDecision(AdBlockDecision decision) {
   callback_ran_ = true;
-  const bool should_block = decision.action == AdBlockAction::kBlock;
+  const bool should_block = decision.action == AdBlockAction::kBlock ||
+                            decision.action == AdBlockAction::kRedirect;
   std::optional<GURL> rewritten_url;
-  if (decision.action == AdBlockAction::kRewrite &&
+  // ScheduleRestartNavigation() re-opens the URL in the *tab*. For a subframe
+  // that would yank the user's whole page to the frame's target, so a
+  // $removeparam match on an embedded frame is simply not applied rather than
+  // navigating somewhere the user never asked to go.
+  if (!context_.is_subframe && decision.action == AdBlockAction::kRewrite &&
       decision.rewritten_url) {
     const GURL candidate(*decision.rewritten_url);
     std::string method = navigation_handle()->GetRequestMethod();
@@ -136,16 +171,25 @@ void AdBlockNavigationThrottle::OnDecision(AdBlockDecision decision) {
     return;
   }
 
-  immediate_result_ = should_block ? ThrottleCheckResult(BLOCK_REQUEST)
-                                   : ThrottleCheckResult(PROCEED);
+  // BLOCK_REQUEST_AND_COLLAPSE removes the frame owner element from layout, so
+  // a blocked ad iframe leaves no reserved gap. It is only valid for a
+  // subframe, and only from WillStartRequest/WillRedirectRequest - which is
+  // where this runs.
+  immediate_result_ =
+      should_block ? ThrottleCheckResult(context_.is_subframe
+                                             ? BLOCK_REQUEST_AND_COLLAPSE
+                                             : BLOCK_REQUEST,
+                                         net::ERR_BLOCKED_BY_CLIENT)
+                   : ThrottleCheckResult(PROCEED);
   if (!is_deferred_) {
     return;
   }
 
   is_deferred_ = false;
   if (should_block) {
-    CancelDeferredNavigation(
-        ThrottleCheckResult(CANCEL, net::ERR_BLOCKED_BY_CLIENT));
+    CancelDeferredNavigation(ThrottleCheckResult(
+        context_.is_subframe ? BLOCK_REQUEST_AND_COLLAPSE : CANCEL,
+        net::ERR_BLOCKED_BY_CLIENT));
     return;
   }
 

@@ -367,8 +367,15 @@ void AdBlockService::OnEvaluated(
   decision.rewritten_url = std::move(result.match.rewritten_url);
   const bool should_block =
       decision.important || (decision.matched && !decision.has_exception);
-  if (should_block && !navigation_url &&
-      factory_type != AdBlockFactoryType::kWebSocket && decision.redirect &&
+  // A replacement resource is only servable by the subresource interceptor,
+  // which synthesises the response. Navigations have no such path, so keying
+  // this on the factory type rather than on `navigation_url` matters: a
+  // subframe navigation carries no navigation_url, and would otherwise be
+  // marked kRedirect and then let straight through by the throttle.
+  const bool servable_as_replacement =
+      factory_type != AdBlockFactoryType::kNavigation &&
+      factory_type != AdBlockFactoryType::kWebSocket;
+  if (should_block && servable_as_replacement && decision.redirect &&
       FindAdBlockResourceByDataUrl(*decision.redirect)) {
     decision.action = AdBlockAction::kRedirect;
     decision.rule_category = AdBlockRuleCategory::kRedirect;

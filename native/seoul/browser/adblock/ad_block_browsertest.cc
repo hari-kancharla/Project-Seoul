@@ -197,6 +197,31 @@ class AdBlockBrowserTest : public InProcessBrowserTest {
           "<div id=\"frame-ad\" class=\"frame-ad\">frame ad</div>");
       return response;
     }
+    if (request.relative_url == "/subdocument-host.html") {
+      response->set_content_type("text/html");
+      response->set_content(
+          "<script>window.hostLoaded = true;</script><iframe id=\"ad\" "
+          "src=\"" +
+          embedded_test_server()->GetURL("ads.example", "/ad-frame.html").spec() +
+          "\"></iframe><iframe id=\"ok\" src=\"" +
+          embedded_test_server()
+              ->GetURL("widgets.example", "/ok-frame.html")
+              .spec() +
+          "\"></iframe>");
+      return response;
+    }
+    if (request.relative_url == "/ad-frame.html") {
+      ++ad_frame_requests_;
+      response->set_content_type("text/html");
+      response->set_content("<script>window.adFrameLoaded = true;</script>ad");
+      return response;
+    }
+    if (request.relative_url == "/ok-frame.html") {
+      ++ok_frame_requests_;
+      response->set_content_type("text/html");
+      response->set_content("<script>window.okFrameLoaded = true;</script>ok");
+      return response;
+    }
     if (request.relative_url == "/other.html") {
       response->set_content_type("text/html");
       response->set_content("<p>other page</p>");
@@ -283,7 +308,82 @@ class AdBlockBrowserTest : public InProcessBrowserTest {
   std::atomic<int> unsafe_original_rewrite_requests_{0};
   std::atomic<int> rewritten_navigation_requests_{0};
   std::atomic<int> unsafe_original_navigation_requests_{0};
+  std::atomic<int> ad_frame_requests_{0};
+  std::atomic<int> ok_frame_requests_{0};
 };
+
+// A third-party ad iframe is the most visible ad format on the web, and the
+// one class Seoul never filtered: navigation loads are not proxied, and the
+// throttle declined every subframe, so no `$subdocument` rule could ever fire.
+// The rule must stop the frame before the server sees it, collapse the empty
+// box it would leave, and touch nothing else on the page.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
+                       BlocksThirdPartyAdSubframeAndCollapsesIt) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  ReplaceRules("||ads.example^$subdocument\n");
+
+  const GURL host_url =
+      embedded_test_server()->GetURL("news.example", "/subdocument-host.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), host_url));
+  content::WebContents* const contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+
+  // The embedding page is untouched.
+  EXPECT_EQ(host_url, contents->GetLastCommittedURL());
+  EXPECT_EQ(true, content::EvalJs(contents, "window.hostLoaded === true"));
+
+  // The ad frame never reached the network.
+  EXPECT_EQ(0, ad_frame_requests_.load())
+      << "the ad iframe's document load was not filtered";
+
+  // And it leaves no reserved gap where the ad would have been.
+  EXPECT_EQ(0, content::EvalJs(
+                   contents, "document.getElementById('ad').clientHeight"));
+
+  // An unrelated third-party frame still loads - an over-broad sub_frame path
+  // shows up right here.
+  EXPECT_EQ(1, ok_frame_requests_.load());
+}
+
+// The same rule must not touch a top-level navigation: a main frame is first
+// party to itself, and `$subdocument` does not describe it.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
+                       SubdocumentRuleLeavesTopLevelNavigationAlone) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  ReplaceRules("||ads.example^$subdocument\n");
+
+  const GURL direct =
+      embedded_test_server()->GetURL("ads.example", "/ad-frame.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), direct));
+  content::WebContents* const contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+  EXPECT_EQ(direct, contents->GetLastCommittedURL());
+  EXPECT_EQ(true, content::EvalJs(contents, "window.adFrameLoaded === true"));
+  EXPECT_EQ(1, ad_frame_requests_.load());
+}
+
+// Turning blocking off for the page the user is looking at has to disable it
+// for the frames inside that page too. This is what pins the subframe request
+// to the *embedder* as its top frame: keyed off the frame's own URL instead,
+// the per-site lookup would consult the ad network and keep blocking.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
+                       DisablingBlockingOnTheEmbedderFreesItsSubframes) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  ReplaceRules("||ads.example^$subdocument\n");
+
+  AdBlockService* const service =
+      AdBlockServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(service);
+  const GURL host_url =
+      embedded_test_server()->GetURL("news.example", "/subdocument-host.html");
+  service->SetSiteMode(host_url, AdBlockMode::kOff);
+
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), host_url));
+  EXPECT_EQ(1, ad_frame_requests_.load())
+      << "blocking was off for this page, so its frames must load";
+}
 
 // The player-ad treatment rides the cosmetic pipeline into every http(s)
 // document and presses a matched player's skip control. Driven through the

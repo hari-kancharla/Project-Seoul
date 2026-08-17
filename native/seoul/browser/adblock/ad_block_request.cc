@@ -294,4 +294,37 @@ AdBlockRequest BuildNavigationAdBlockRequest(
   return result;
 }
 
+AdBlockRequest BuildSubFrameNavigationAdBlockRequest(
+    const GURL& url,
+    const GURL& outermost_top_frame_url,
+    const std::optional<url::Origin>& initiator_origin,
+    std::string method) {
+  AdBlockRequest result;
+  result.url = url.spec();
+  result.hostname = url.host();
+  result.request_type = "sub_frame";
+  result.method = std::move(method);
+  result.factory_type = AdBlockFactoryType::kNavigation;
+
+  std::optional<url::Origin> top_frame_origin;
+  if (outermost_top_frame_url.is_valid() &&
+      outermost_top_frame_url.SchemeIsHTTPOrHTTPS()) {
+    top_frame_origin = url::Origin::Create(outermost_top_frame_url);
+    // Per-site settings key off this, so it has to be the page the user is
+    // looking at. Pointing it at the frame's own URL would make "turn blocking
+    // off for this site" look up the ad network instead of the site.
+    result.outermost_top_frame_url = outermost_top_frame_url.spec();
+  }
+  if (initiator_origin && !initiator_origin->opaque()) {
+    result.initiator_url = initiator_origin->GetURL().spec();
+  }
+  if (const std::optional<GURL> first_party =
+          FirstPartyUrl(top_frame_origin, initiator_origin)) {
+    result.source_hostname = first_party->host();
+  }
+  result.is_third_party =
+      IsThirdPartyRequest(url, top_frame_origin, initiator_origin);
+  return result;
+}
+
 }  // namespace seoul::adblock

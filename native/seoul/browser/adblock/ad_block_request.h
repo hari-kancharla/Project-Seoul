@@ -100,6 +100,24 @@ AdBlockRequest BuildNavigationAdBlockRequest(
     const std::optional<url::Origin>& initiator_origin,
     std::string method);
 
+// A frame document load that is not the outermost main frame - the request
+// `$subdocument` rules describe, and the one an ad iframe makes.
+//
+// Unlike a main frame, a subframe has a first party that is not itself, so the
+// third-party bit is real here and the caller supplies the embedding page. The
+// source is the outermost main frame rather than the immediate parent, which
+// is what every other Seoul request already uses: subresources inside a frame
+// are evaluated against the top page, the WebSocket path resolves
+// GetOutermostMainFrame(), and the CSP throttle keys off the tab's committed
+// URL. Choosing the parent for the frame's own document alone would classify
+// it differently from everything inside it, and would let a network embedding
+// its own ad frame escape every $third-party rule.
+AdBlockRequest BuildSubFrameNavigationAdBlockRequest(
+    const GURL& url,
+    const GURL& outermost_top_frame_url,
+    const std::optional<url::Origin>& initiator_origin,
+    std::string method);
+
 }  // namespace seoul::adblock
 
 #endif  // SEOUL_BROWSER_ADBLOCK_AD_BLOCK_REQUEST_H_
