@@ -33,7 +33,7 @@ notarization, an installer, or production update infrastructure.
 | Output | `out/SeoulBaseline/Seoul.app` |
 | Build mode | release component build, `symbol_level=0` |
 | Seoul overlay | `native/seoul/` materialized to `src/seoul/` |
-| Integration | 33 ordered, hash-verified patches |
+| Integration | 34 ordered, hash-verified patches |
 | First-party Canvas | `chrome://seoul-canvas` |
 
 The build host passed the RAM, storage, Xcode, SDK, architecture, and checkout
@@ -48,7 +48,7 @@ earlier run.
 
 | Suite | Result |
 |---|---|
-| Native unit executables | 32 of 32 passed |
+| Native unit executables | 32 of 32 passed (see the note below: there are now 33) |
 | Native unit tests | 722 passed, 0 failed |
 | Focused Chromium browser tests | 145 passed, 0 failed |
 | Product smoke (`native/scripts/smoke.mjs`) | passed |
@@ -69,8 +69,43 @@ earlier run.
 | Patch manifest, apply, and reverse verification | passed |
 | Architecture, boundary, domain-neutrality, and test-wiring gates | passed |
 
+The unit-executable and unit-test counts in this table are the 2026-08-09
+measurement and predate the Handset suite. `native/scripts/test.sh` now builds
+and runs **33** binaries: the 32 `test("seoul_*_unittests")` targets under
+`native/seoul` - one more than when this was measured, because
+`seoul_handset_unittests` was added - plus
+`seoul_development_keychain_policy_unittests`, which lives in `chrome/app` and
+so is not part of the `native/seoul` scan that `check:native-tests` reports.
+`seoul_handset_unittests` has been built and run on its own and passes 22 of 22.
+The aggregate figures above are not refreshed here, because no full re-run of
+all 33 has been executed since; refreshing them requires running the suite, not
+adding 22 to the previous total.
+
 The syntax-audit skips are not uncompiled gaps. They depend on GN-generated
 Chromium headers and were compiled through their native build targets.
+
+### Patch series regression found and fixed
+
+`patches.sh verify` was failing, and the README's claim that the series "applies
+and reverses cleanly" was not true when this was written. Two patches had been
+regenerated from a checkout that already had a later patch applied, so they
+carried that later patch's content as well as their own:
+
+| Patch | Absorbed | Effect |
+|---|---|---|
+| `0020-seoul-native-adblock-network-hook` | all of `0024`'s change | `0024` could not apply; `0020` could not reverse |
+| `0017-seoul-zen-interaction-and-visual-fidelity` | 9 of `0025`'s 10 hunks | `0025` could not apply |
+
+With duplicated content in two places the series could not be applied from a
+pristine checkout at all, which means the tree it was built from had been
+patched incrementally rather than by a clean `patches.sh apply`. Both patches
+were regenerated to contain only their own change; `0024` and `0025` were left
+untouched and still own theirs.
+
+Verified after the fix: `patches.sh verify` applies all 34 in ascending order,
+reverses them in descending order, and restores the checkout byte-identical.
+The corrected series reproduces the previously built tree exactly - all 173
+patched files match by sha256 - so nothing about the built product changed.
 
 ### Resolved since the previous report
 

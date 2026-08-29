@@ -16,7 +16,8 @@ The repository contains:
    subsystems - adaptive visual UI (`saui/`), Library/Boards/Live Collections
    (`library/`), exact-scope agent permissions (`policy/`), voice (`voice/`), the tool
    registry and general operator (`tools/`, `tasks/`), workflows (`workflows/`),
-   Scenes (`scenes/`), themes (`themes/`), Site Layers (`site_layers/`), Context
+   Scenes (`scenes/`), themes (`themes/`), Site Layers (`site_layers/`),
+   Handset device presentation (`handset/`), Context
    Threads (`context/`), hybrid intelligence (`intelligence/`), grounded data
    contracts (`data/`), and connected tools (`connectors/`). Every module ships a
    unit-test target.
@@ -93,10 +94,10 @@ at runtime).
 ## Checks and tests
 
 ```
-npm run check   # 13 static gates: scripts, json, adblock vendor, patch
-                # manifest, boundary, neutrality, native/product architecture,
-                # canvas webui, native syntax, protocol drift, test wiring,
-                # native test wiring
+npm run check   # 15 static gates: scripts, json, adblock vendor, patch
+                # manifest, patch overlap, boundary, neutrality, native/product
+                # architecture, canvas webui, native syntax, checkout
+                # resolution, protocol drift, test wiring, native test wiring
 npm test        # 89 cases: protocol conformance, Canvas Design Lab, Boost
                 # editor, extension-harness resolver and providers, and the
                 # reference coordinate transform
@@ -115,6 +116,20 @@ swift test                            # transforms, display selection, queues, s
 swift build && \
   python3 scripts/test-host-reconnect.py   # bridge resilience, with real processes
 ```
+
+`check:patch-overlap` exists because the patch series can rot while every other
+gate stays green. A patch regenerated from a checkout that already had a later
+patch applied carries that patch's additions as well as its own; the tree still
+builds, because it was patched incrementally, but the series can no longer be
+applied to a pristine checkout or reversed - which is the entire point of
+keeping it reversible. `check:manifest` cannot see this: it validates hashes and
+metadata, never that a patch applies. The overlap gate reads the patch files
+alone, so it runs in the checkout-free CI job where the real proof cannot.
+
+The real proof is `npm run verify:patches`, which applies the whole series in
+order and reverses it, leaving the checkout byte-identical. It needs a clean
+Chromium checkout and so cannot run in CI; run it on a build host after
+touching any patch.
 
 `npm run check` includes two wiring gates, because a suite that exists but never
 runs is indistinguishable from one that passes. `check:test-wiring` fails if a

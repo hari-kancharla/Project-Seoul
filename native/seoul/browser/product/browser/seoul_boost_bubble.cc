@@ -67,6 +67,11 @@ namespace {
 // reading as a pile of unrelated controls.
 constexpr int kBubbleWidth = 288;
 
+// Radius for every chip in the panel - the font/case pickers, the +/- and
+// A-/A+ steppers, the footer actions. One constant so they all round the
+// same amount instead of drifting into slightly different shapes.
+constexpr int kChipCornerRadius = 6;
+
 struct FontChoice {
   const char* label;
   const char* family;  // empty = site default
@@ -126,6 +131,60 @@ bool ParseHexColor(const std::string& value, SkColor* out) {
   *out = SkColorSetRGB(r, g, b);
   return true;
 }
+
+// A rounded highlight on hover and press, plus a persistent one while
+// selected - every "pick one of these" or "press this" control in the panel
+// reads as a real button instead of plain text. Mirrors the choice-button
+// treatment already used in the workspace icon picker, so Seoul's chips look
+// the same wherever they show up.
+class BoostChipButton final : public views::LabelButton {
+  METADATA_HEADER(BoostChipButton, views::LabelButton)
+
+ public:
+  BoostChipButton(views::Button::PressedCallback callback,
+                  std::u16string text)
+      : views::LabelButton(std::move(callback), std::move(text)) {
+    SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(4, 10)));
+    SetFocusRingCornerRadius(kChipCornerRadius);
+    UpdateBackground();
+  }
+  BoostChipButton(const BoostChipButton&) = delete;
+  BoostChipButton& operator=(const BoostChipButton&) = delete;
+  ~BoostChipButton() override = default;
+
+  // Set once from the registry read-back, not on every click, so a chip
+  // whose adjustment write fails silently does not claim to be selected.
+  void SetSelected(bool selected) {
+    if (selected_ == selected) {
+      return;
+    }
+    selected_ = selected;
+    UpdateBackground();
+    SchedulePaint();
+  }
+
+ private:
+  void StateChanged(ButtonState old_state) override {
+    views::LabelButton::StateChanged(old_state);
+    UpdateBackground();
+  }
+
+  void UpdateBackground() {
+    const bool highlighted = selected_ ||
+                             GetState() == views::Button::STATE_HOVERED ||
+                             GetState() == views::Button::STATE_PRESSED;
+    SetBackground(highlighted
+                      ? views::CreateRoundedRectBackground(
+                            kColorToolbarBackgroundSubtleEmphasis,
+                            kChipCornerRadius)
+                      : nullptr);
+  }
+
+  bool selected_ = false;
+};
+
+BEGIN_METADATA(BoostChipButton)
+END_METADATA
 
 // Arc's colour wheel: "drag the colored dots in different configurations to
 // change the color of webpages". Two dots - page background and page text -
@@ -337,6 +396,20 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
   SeoulBoostBubble& operator=(const SeoulBoostBubble&) = delete;
   ~SeoulBoostBubble() override = default;
 
+  // The panel holds a fixed width - `kBubbleWidth` - and CreateBubbleDeprecated
+  // sizes the widget from this view's preferred size. Setting that preferred
+  // size outright would fix both dimensions, so the height would stay at
+  // whatever value was on hand when it was set - before a single row had been
+  // added. Constraining only the width and asking the box layout for the
+  // height it actually needs at that width is what keeps the panel's real
+  // height, whichever rows are showing, instead of collapsing to zero.
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override {
+    const gfx::Size laid_out = views::BoxLayoutView::CalculatePreferredSize(
+        views::SizeBounds(kBubbleWidth, available_size.height()));
+    return gfx::Size(kBubbleWidth, laid_out.height());
+  }
+
   static void Show(views::View* anchor,
                    SeoulRuntimeService* runtime,
                    const LiveWindowKey& window,
@@ -449,8 +522,6 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
   // --- Controls -------------------------------------------------------------
 
   void BuildContents() {
-    SetPreferredSize(gfx::Size(kBubbleWidth, 0));
-
     // Header. The panel says what it is, then which site it acts on, then
     // offers the one switch that turns all of it off. A bare hostname with an
     // unlabelled toggle beside it does not say either of the first two.
@@ -494,8 +565,17 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
 
     AddChildView(std::make_unique<views::Separator>());
 
-    // Arc's control #1: the colour wheel, above everything else it affects.
-    color_wheel_ = AddChildView(std::make_unique<BoostColorWheel>(
+    // Arc's control #1: the colour wheel, above everything else it affects,
+    // centred in the panel. A bare fixed-size child under the panel's
+    // vertical layout stretches to the full row width on its cross axis, and
+    // the wheel's own hit-testing and paint code size the disc to a square
+    // inset from that width - hugging the left edge with a dead gap beside
+    // it rather than sitting in the middle the way Arc's does. Wrapping it in
+    // a row that centres its one child on the row's own main axis keeps the
+    // disc itself square while landing it in the middle of the panel.
+    auto* wheel_row = AddChildView(std::make_unique<views::BoxLayoutView>());
+    wheel_row->SetMainAxisAlignment(views::BoxLayout::MainAxisAlignment::kCenter);
+    color_wheel_ = wheel_row->AddChildView(std::make_unique<BoostColorWheel>(
         base::BindRepeating(&SeoulBoostBubble::OnWheelColor,
                             base::Unretained(this))));
 
@@ -615,13 +695,11 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
     label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   }
 
-  views::LabelButton* AddChip(views::BoxLayoutView* row,
-                              const std::u16string& text,
-                              views::Button::PressedCallback callback) {
-    auto* chip = row->AddChildView(
-        std::make_unique<views::LabelButton>(std::move(callback), text));
-    chip->SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(4, 10)));
-    return chip;
+  BoostChipButton* AddChip(views::BoxLayoutView* row,
+                           const std::u16string& text,
+                           views::Button::PressedCallback callback) {
+    return row->AddChildView(
+        std::make_unique<BoostChipButton>(std::move(callback), text));
   }
 
   // --- Handlers, all through the one write path -----------------------------
@@ -909,12 +987,27 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
                            stored(SiteAdjustmentKind::kTextColor));
     }
 
+    // The font row never showed which family was active at all - not even
+    // the disabled-state signal the case row had. Empty family means the
+    // default, matching the empty entry OnFontPicked treats as "no override".
+    const SiteAdjustment* font_family =
+        FindAdjustment(layer, SiteAdjustmentKind::kFontFamily);
+    const std::string active_font =
+        font_family ? font_family->font_family : std::string();
+    for (size_t i = 0; i < kFonts.size(); ++i) {
+      font_chips_[i]->SetSelected(active_font == kFonts[i].family);
+    }
+
     const SiteAdjustment* text_case =
         FindAdjustment(layer, SiteAdjustmentKind::kTextCase);
     const TextCase active =
         text_case ? text_case->text_case : TextCase::kOriginal;
     for (size_t i = 0; i < kCases.size(); ++i) {
-      case_chips_[i]->SetEnabled(kCases[i].value != active);
+      const bool is_active = kCases[i].value == active;
+      case_chips_[i]->SetSelected(is_active);
+      // Still block re-picking the case you're already on, same as before -
+      // SetSelected only adds the highlight that says which one that is.
+      case_chips_[i]->SetEnabled(!is_active);
     }
   }
 
@@ -932,8 +1025,8 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
   raw_ptr<views::ToggleButton> dark_toggle_ = nullptr;
   raw_ptr<BoostColorWheel> color_wheel_ = nullptr;
   std::array<raw_ptr<views::Label>, kFilters.size()> filter_values_ = {};
-  std::array<raw_ptr<views::LabelButton>, kCases.size()> case_chips_ = {};
-  std::array<views::LabelButton*, kFonts.size()> font_chips_ = {};
+  std::array<raw_ptr<BoostChipButton>, kCases.size()> case_chips_ = {};
+  std::array<BoostChipButton*, kFonts.size()> font_chips_ = {};
   raw_ptr<views::LabelButton> smaller_ = nullptr;
   raw_ptr<views::LabelButton> larger_ = nullptr;
   raw_ptr<views::Label> size_value_ = nullptr;

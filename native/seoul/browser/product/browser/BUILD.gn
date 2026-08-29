@@ -15,6 +15,10 @@ source_set("product_chromium") {
     "boost_web_preferences.h",
     "browser_capabilities.cc",
     "browser_capabilities.h",
+    "handset_mode.cc",
+    "handset_mode.h",
+    "handset_picker_menu.cc",
+    "handset_picker_menu.h",
     "network_http_transport.cc",
     "network_http_transport.h",
     "page_agent.cc",
@@ -29,6 +33,8 @@ source_set("product_chromium") {
     "seoul_capture.cc",
     "seoul_capture.h",
     "seoul_boost_bubble.h",
+    "seoul_handset_size_dialog.cc",
+    "seoul_handset_size_dialog.h",
     "space_partition_resolver.cc",
     "space_partition_resolver.h",
   ]
@@ -54,16 +60,19 @@ source_set("product_chromium") {
 
   deps = [
     "//base",
+    "//base/version_info",
     "//chrome/browser/profiles:profile",
     "//chrome/browser/ui/browser_window",
     "//chrome/browser/ui/tabs",
     "//chrome/browser/ui/tabs:tab_strip",
     "//chrome/common",
+    "//components/constrained_window",
     "//components/download/public/common:public",
     "//components/keyed_service/core",
     "//components/os_crypt/common:switches",
     "//components/permissions",
     "//components/pref_registry",
+    "//components/embedder_support:user_agent",
     "//components/prefs",
     "//components/sessions",
     "//components/sessions:session_id",
@@ -71,6 +80,7 @@ source_set("product_chromium") {
     "//content/public/browser",
     "//net/traffic_annotation",
     "//seoul/browser/commands:command_chromium",
+    "//seoul/browser/handset:handset_core",
     "//seoul/browser/connectors:connectors_core",
     "//seoul/browser/intelligence:intelligence_core",
     "//seoul/browser/library:library_core",
@@ -101,7 +111,11 @@ source_set("product_chromium") {
 source_set("product_browser_tests") {
   testonly = true
   defines = [ "HAS_OUT_OF_PROC_TEST_RUNNER" ]
-  sources = [ "seoul_runtime_browsertest.cc" ]
+  sources = [
+    "handset_browsertest.cc",
+    "seoul_handset_size_dialog_unittest.cc",
+    "seoul_runtime_browsertest.cc",
+  ]
   deps = [
     ":product_chromium",
     "//base/test:test_support",
@@ -111,6 +125,7 @@ source_set("product_browser_tests") {
     "//content/test:test_support",
     "//net:test_support",
     "//seoul/browser/canvas",
+    "//seoul/browser/handset:handset_core",
     "//seoul/browser/preview:preview_chromium",
     "//seoul/browser/preview:preview_core",
     "//seoul/browser/product:product_core",

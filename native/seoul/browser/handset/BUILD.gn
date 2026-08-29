@@ -1,0 +1,37 @@
+# Project Seoul Handset.
+# Presents one page as a phone: exact device metrics, a mobile viewport,
+# coarse-pointer media features, a coherent mobile User-Agent with matching
+# client hints, and injected touch instead of a mouse. This target is the pure
+# model - the device catalogue, the resolved geometry, and the User-Agent
+# rules - so every rule that decides what a site sees is unit tested without a
+# browser. The WebContents integration lives in product/browser.
+
+import("//testing/test.gni")
+
+source_set("handset_core") {
+  sources = [
+    "handset_types.cc",
+    "handset_types.h",
+    "user_agent_profile.cc",
+    "user_agent_profile.h",
+    "viewport_math.cc",
+    "viewport_math.h",
+  ]
+
+  deps = [ "//base" ]
+}
+
+test("seoul_handset_unittests") {
+  testonly = true
+  sources = [
+    "user_agent_profile_unittest.cc",
+    "viewport_math_unittest.cc",
+  ]
+  deps = [
+    ":handset_core",
+    "//base",
+    "//base/test:run_all_unittests",
+    "//base/test:test_support",
+    "//testing/gtest",
+  ]
+}

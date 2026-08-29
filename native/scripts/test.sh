@@ -41,6 +41,7 @@ run_unit_tests() {
     seoul_containers_unittests
     seoul_context_unittests
     seoul_data_unittests
+    seoul_handset_unittests
     seoul_intelligence_unittests
     seoul_library_unittests
     seoul_lifecycle_core_unittests
@@ -75,6 +76,7 @@ run_unit_tests() {
     seoul/browser/containers:seoul_containers_unittests
     seoul/browser/context:seoul_context_unittests
     seoul/browser/data:seoul_data_unittests
+    seoul/browser/handset:seoul_handset_unittests
     seoul/browser/intelligence:seoul_intelligence_unittests
     seoul/browser/library:seoul_library_unittests
     seoul/browser/lifecycle:seoul_lifecycle_core_unittests
@@ -131,6 +133,8 @@ run_browser_tests() {
   filter="SeoulRuntimeSessionRestoreBrowserTest.*"
   filter="${filter}:SeoulRuntimeBrowserTest.*"
   filter="${filter}:SeoulBoostDarkBrowserTest.*"
+  filter="${filter}:HandsetBrowserTest.*"
+  filter="${filter}:SeoulHandsetSizeDialogTest.*"
   filter="${filter}:ChromiumMutationAdapterBrowserTest.*"
   filter="${filter}:VerticalPresentationBrowserTest.*"
   filter="${filter}:SeoulShellBrowserTest.*"

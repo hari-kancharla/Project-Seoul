@@ -441,15 +441,7 @@ index 4c11c75aa0e632382fee6bbc854d65e201cccfa1..59c26e9469995ffe7f9f85c472dcc564
 diff --git a/chrome/browser/ui/animation/browser_animation_controller.cc b/chrome/browser/ui/animation/browser_animation_controller.cc
 --- a/chrome/browser/ui/animation/browser_animation_controller.cc
 +++ b/chrome/browser/ui/animation/browser_animation_controller.cc
-@@ -124,6 +124,7 @@ class BrowserAnimationController::GroupData : public gfx::AnimationDelegate {
-     // TODO(dfried): figure out how to redirect animations.
-     Cancel();
-     MaybeCreateAnimator();
-+    ++motion_generation_;
-     current_motion_ = motion;
-     current_motion_spec_ = std::move(motion_spec);
-     for (const auto& [sequence, sequence_spec] :
-@@ -191,13 +192,36 @@ class BrowserAnimationController::GroupData : public gfx::AnimationDelegate {
+@@ -191,6 +191,12 @@
  
    // gfx::AnimationDelegate:
    void AnimationEnded(const gfx::Animation*) override {
@@ -460,20 +452,9 @@ diff --git a/chrome/browser/ui/animation/browser_animation_controller.cc b/chrom
 +      return;
 +    }
      UpdateValues(current_duration_, 1.0);
-+    // A subscriber may start a new motion synchronously from kEnded - the
-+    // vertical rail does exactly that, chaining an expand-on-hover reveal off
-+    // the end of a collapse. Clearing unconditionally would erase the *new*
-+    // motion's state while its animator is still running, leaving
-+    // IsAnimating() false for a live animation; layout would then take the
-+    // static branch and snap to the end value instead of animating. Only clear
-+    // when this motion is still the current one.
-+    const uint64_t ended_generation = motion_generation_;
      Notify(BrowserAnimationUpdate::kEnded);
-+    if (motion_generation_ != ended_generation) {
-+      return;
-+    }
      current_motion_ = BrowserAnimationMotion();
-     current_values_.clear();
+@@ -198,6 +204,12 @@
    }
  
    void AnimationProgressed(const gfx::Animation* animation) override {
@@ -486,16 +467,6 @@ diff --git a/chrome/browser/ui/animation/browser_animation_controller.cc b/chrom
      const double unscaled_percent = animation->GetCurrentValue();
      const double scaled_percent = gfx::Tween::CalculateValue(
          current_motion_spec_.global_tween, unscaled_percent);
-@@ -221,6 +245,9 @@ class BrowserAnimationController::GroupData : public gfx::AnimationDelegate {
- 
-   std::map<BrowserAnimationSequence, double> current_values_;
-   BrowserAnimationMotion current_motion_;
-+  // Bumped by every Start(). Lets AnimationEnded() detect that a subscriber
-+  // started a replacement motion during its own kEnded notification.
-+  uint64_t motion_generation_ = 0;
-   internal::BrowserAnimationMotionSpecification current_motion_spec_;
-   base::TimeDelta current_duration_;
-   std::unique_ptr<Animator> animator_;
 diff --git a/chrome/browser/ui/browser_actions.cc b/chrome/browser/ui/browser_actions.cc
 index 1631afc28c672a3b8d0111fb80f3d887786ecdb1..0d3921d30752f5c23e9f5892ea02db57998089a9 100644
 --- a/chrome/browser/ui/browser_actions.cc
@@ -2175,10 +2146,11 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
  #include "ui/views/view_utils.h"
  #include "ui/views/views_features.h"
  #include "ui/views/widget/native_widget.h"
-@@ -422,6 +433,181 @@ using content::WebContents;
+@@ -421,7 +432,182 @@
+ using content::WebContents;
  using input::NativeWebKeyboardEvent;
  using web_modal::WebContentsModalDialogHost;
- 
++
 +namespace {
 +
 +constexpr float kSeoulOmniboxCornerRadius = 12.0f;
@@ -2309,7 +2281,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
 +        SkColorGetA(shadow_color_) == 0) {
 +      return;
 +    }
-+
+ 
 +    const gfx::RectF border_bounds(gfx::Rect(content_origin_, content_size_));
 +    gfx::RectF caster_bounds = border_bounds;
 +    caster_bounds.Inset(gfx::InsetsF(std::max(0, -spread_)));
@@ -2357,7 +2329,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
  class SeoulOmniboxEntranceAnimation final : public gfx::LinearAnimation {
   public:
    explicit SeoulOmniboxEntranceAnimation(views::View* surface)
-@@ -455,6 +641,70 @@ class SeoulOmniboxEntranceAnimation final : public gfx::LinearAnimation {
+@@ -455,6 +641,70 @@
    raw_ptr<views::View> surface_;
  };
  
@@ -2428,10 +2400,12 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
  namespace {
  
  // The visible height of the shadow above the tabs. Clicks in this area are
-@@ -478,6 +728,50 @@ seoul::ShellController* GetSeoulShellController(Browser* browser) {
+@@ -476,6 +726,50 @@
+   }
+   return organization->shell_service()->GetController(
        seoul::LiveWindowKey::FromSessionId(session_id.id()));
- }
- 
++}
++
 +seoul::LiveWindowStateProvider* GetSeoulLiveWindowStateProvider(
 +    Browser* browser) {
 +  if (!browser || !browser->profile()) {
@@ -2474,12 +2448,10 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
 +  }
 +  organization->shell_service()->SetCommandLauncherVisible(
 +      seoul::LiveWindowKey::FromSessionId(session_id.id()), visible);
-+}
-+
+ }
+ 
  #if BUILDFLAG(IS_CHROMEOS)
- // UMA histograms that record animation smoothness for tab loading animation.
- constexpr char kTabLoadingSmoothnessHistogramName[] =
-@@ -1030,28 +1324,14 @@ BrowserView::BrowserView(Browser* browser)
+@@ -1030,28 +1324,14 @@
      vertical_tab_strip_region_view_ =
          AddChildView(std::move(vertical_tab_strip_container));
  
@@ -2516,7 +2488,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
      for (ContentsContainerView* container :
           multi_contents_view_->contents_container_views()) {
        container->SetSeoulRoundedContent(true);
-@@ -1121,6 +1401,9 @@ BrowserView::BrowserView(Browser* browser)
+@@ -1121,6 +1401,9 @@
        prefs::kFullscreenAllowed,
        base::BindRepeating(&BrowserView::UpdateFullscreenAllowedFromPolicy,
                            base::Unretained(this), CanFullscreen()));
@@ -2526,7 +2498,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
    UpdateFullscreenAllowedFromPolicy(CanFullscreen());
  
    WebUIContentsPreloadManager::GetInstance()->WarmupForBrowser(browser_.get());
-@@ -1161,6 +1444,8 @@ BrowserView::BrowserView(Browser* browser)
+@@ -1161,6 +1444,8 @@
  }
  
  BrowserView::~BrowserView() {
@@ -2535,7 +2507,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
    // Remove the layout manager to avoid dangling. This needs to be earlier than
    // other cleanups that destroy views referenced in the layout manager.
    SetLayoutManager(nullptr);
-@@ -1186,6 +1471,22 @@ BrowserView::~BrowserView() {
+@@ -1186,6 +1471,22 @@
  
    // These are raw pointers to child views, so they need to be set to null
    // before `RemoveAllChildViews()` is called to avoid dangling.
@@ -2558,7 +2530,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
    browser_widget_ = nullptr;
    main_background_region_ = nullptr;
    top_container_ = nullptr;
-@@ -1590,6 +1891,215 @@ bool BrowserView::IsInSplitView() const {
+@@ -1590,6 +1891,200 @@
    return multi_contents_view_->IsInSplitView();
  }
  
@@ -2603,16 +2575,6 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
 +    return;
 +  }
 +
-+  // View::DoRemoveChildView de-registers the child from its parent's layout
-+  // manager *before* it dispatches removal notifications, but clears
-+  // View::parent() only after. Any observer reached from those notifications
-+  // that re-enters Seoul's sidebar presentation would therefore see a stale
-+  // parent and call SetVisible() on a toolbar the layout manager no longer
-+  // tracks, which CHECKs in LayoutManagerBase::ViewVisibilitySet. Suppress the
-+  // presentation update for the duration; both branches below re-apply the
-+  // correct presentation once the hierarchy is settled.
-+  const base::AutoReset<bool> reparenting(&seoul_toolbar_reparenting_, true);
-+
 +  views::View* const old_parent = toolbar_->parent();
 +  if (old_parent != vertical_tab_strip_region_view_) {
 +    auto owned_toolbar = old_parent->RemoveChildViewT(toolbar_);
@@ -2646,11 +2608,6 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
 +  if (!top_container_ || !toolbar_) {
 +    return;
 +  }
-+
-+  // See ReparentToolbarToSeoulRail: removal notifications run while the layout
-+  // manager has already forgotten the child but View::parent() still points at
-+  // the old parent.
-+  const base::AutoReset<bool> reparenting(&seoul_toolbar_reparenting_, true);
 +
 +  views::View* const old_parent = toolbar_->parent();
 +  if (old_parent != top_container_) {
@@ -2774,7 +2731,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
  void BrowserView::OnVerticalTabStripModeChanged(
      tabs::VerticalTabStripStateController* controller) {
    // Clear selection model
-@@ -1610,6 +2120,10 @@ void BrowserView::OnVerticalTabStripModeChanged(
+@@ -1610,6 +2105,10 @@
      horizontal_tab_strip_region_view_->InitializeTabStrip();
    }
  
@@ -2785,7 +2742,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
    GetFrameView()->OnTabStripStateChanged();
  
    auto* const immersive_mode_controller =
-@@ -2137,6 +2651,16 @@ void BrowserView::OnActiveTabChanged(content::WebContents* old_contents,
+@@ -2137,6 +2636,16 @@
    UpdateTitleBar();
  
    CHECK_DEREF(TranslateBubbleController::From(browser_.get())).CloseBubble();
@@ -2802,7 +2759,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
  }
  
  void BrowserView::OnTabDetached(content::WebContents* contents,
-@@ -2364,11 +2888,16 @@ void BrowserView::SetFocusToLocationBar(bool is_user_initiated) {
+@@ -2364,11 +2873,16 @@
      return;
    }
  #endif
@@ -2822,7 +2779,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
      SetSeoulOmniboxFloating(true);
    } else if (!IsLocationBarVisible()) {
      return;
-@@ -3168,8 +3697,7 @@ bool BrowserView::IsLocationBarVisible() const {
+@@ -3168,8 +3682,7 @@
    // browser command controller so Cmd+L and Open Location are not discarded
    // before SetFocusToLocationBar() has a chance to float it.
    const bool seoul_command_bar_available =
@@ -2832,10 +2789,11 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
        toolbar_->location_bar_view()->parent() == toolbar_;
    return seoul_command_bar_available || GetLocationBar()->IsVisible();
  }
-@@ -4940,9 +5468,120 @@ gfx::Size BrowserView::GetMinimumSize() const {
+@@ -4939,23 +5452,154 @@
+ 
  ///////////////////////////////////////////////////////////////////////////////
  // BrowserView, views::View overrides:
- 
++
 +bool BrowserView::ShowSeoulNewTabSurface(NewTabTypes context) {
 +  if (!IsSeoulToolbarIntegrated() || !toolbar_ ||
 +      !toolbar_->location_bar_view()) {
@@ -2870,7 +2828,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
 +    seoul_new_tab_entry_mode_ = false;
 +    return false;
 +  }
-+
+ 
 +  location_bar->GetOmniboxController()->StopAutocomplete(
 +      /*clear_result=*/true);
 +  OmniboxViewViews* const omnibox = location_bar->omnibox_view();
@@ -2943,18 +2901,18 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
    if (!vertical_tab_strip_region_view_ || !toolbar_ ||
 -      seoul_omnibox_reparenting_ || seoul_omnibox_floating_ == floating) {
 +      seoul_omnibox_reparenting_) {
-+    return;
-+  }
+     return;
+   }
 +  if (!floating) {
 +    seoul_new_tab_entry_mode_ = false;
 +    seoul_new_tab_placeholder_surface_ = false;
 +    SetSeoulCommandLauncherVisible(browser_.get(), false);
 +  }
 +  if (seoul_omnibox_floating_ == floating) {
-     return;
-   }
++    return;
++  }
  
-@@ -4950,12 +5589,32 @@ void BrowserView::SetSeoulOmniboxFloating(bool floating) {
+   LocationBarView* const location_bar = toolbar_->location_bar_view();
    if (!location_bar) {
      return;
    }
@@ -2987,7 +2945,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
      location_bar->SetProperty(views::kViewIgnoredByLayoutKey, true);
      location_bar->SetVisible(true);
  
-@@ -4964,56 +5623,252 @@ void BrowserView::SetSeoulOmniboxFloating(bool floating) {
+@@ -4964,56 +5608,252 @@
      surface->SetPaintToLayer();
      surface->layer()->SetFillsBoundsOpaquely(false);
      seoul_omnibox_surface_ = AddChildView(std::move(surface));
@@ -3042,12 +3000,12 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
 +    if (seoul_omnibox_popup_view_) {
 +      location_bar->GetOmniboxController()->StopAutocomplete(
 +          /*clear_result=*/true);
-+    }
+     }
+-    auto owned_location_bar = RemoveChildViewT(location_bar);
 +    if (seoul_omnibox_popup_view_) {
 +      SetSeoulOmniboxPopupView(/*popup_view=*/nullptr,
 +                               /*results_content_height=*/0);
-     }
--    auto owned_location_bar = RemoveChildViewT(location_bar);
++    }
 +    auto owned_location_bar =
 +        seoul_omnibox_surface_->RemoveChildViewT(location_bar);
 +    RemoveChildViewT(seoul_omnibox_surface_.get());
@@ -3096,9 +3054,9 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
 +                                  /*clear_focus_if_failed=*/false);
 +    }
      location_bar->omnibox_view()->InstallPlaceholderText();
-   }
- }
- 
++  }
++}
++
 +void BrowserView::LayoutSeoulOmniboxSurface() {
 +  if (!seoul_omnibox_floating_ || !toolbar_ || !seoul_omnibox_surface_ ||
 +      toolbar_->location_bar_view()->parent() != seoul_omnibox_surface_) {
@@ -3181,7 +3139,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
 +    seoul_omnibox_popup_content_height_ = 0;
 +    LayoutSeoulOmniboxSurface();
 +    return;
-+  }
+   }
 +
 +  if (!CanHostSeoulOmniboxPopup()) {
 +    return;
@@ -3222,8 +3180,8 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
 +  seoul_omnibox_popup_view_ = popup_view;
 +  seoul_omnibox_popup_content_height_ = results_content_height;
 +  LayoutSeoulOmniboxSurface();
-+}
-+
+ }
+ 
 +bool BrowserView::IsHostingSeoulOmniboxPopup(
 +    const views::View* popup_view) const {
 +  return popup_view && seoul_omnibox_popup_view_ == popup_view &&
@@ -3260,7 +3218,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
    location_bar->SetSeoulActionMode(true);
  
    if (!seoul_omnibox_action_view_) {
-@@ -5021,18 +5876,18 @@ void BrowserView::ShowSeoulOmniboxActions() {
+@@ -5021,18 +5861,18 @@
          controller, base::BindRepeating(&BrowserView::ExecuteSeoulOmniboxAction,
                                          weak_ptr_factory_.GetWeakPtr()));
      results->SetProperty(views::kViewIgnoredByLayoutKey, true);
@@ -3284,7 +3242,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
    omnibox->SetFocus(/*is_user_initiated=*/true);
  }
  
-@@ -5040,10 +5895,34 @@ bool BrowserView::IsSeoulOmniboxActionMode() const {
+@@ -5040,10 +5880,34 @@
    return seoul_omnibox_action_mode_ && seoul_omnibox_action_view_;
  }
  
@@ -3320,7 +3278,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
  }
  
  void BrowserView::UpdateSeoulOmniboxActions(const std::u16string& query) {
-@@ -5051,8 +5930,7 @@ void BrowserView::UpdateSeoulOmniboxActions(const std::u16string& query) {
+@@ -5051,8 +5915,7 @@
      return;
    }
    seoul_omnibox_action_view_->SetQuery(base::UTF16ToUTF8(query));
@@ -3330,7 +3288,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
  }
  
  bool BrowserView::HandleSeoulOmniboxActionKeyEvent(const ui::KeyEvent& event) {
-@@ -5123,16 +6001,20 @@ void BrowserView::HideSeoulOmniboxActions(bool restore_page_focus) {
+@@ -5123,16 +5986,20 @@
      return;
    }
    seoul_omnibox_action_mode_ = false;
@@ -3353,29 +3311,25 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
    if (restore_page_focus) {
      if (views::FocusManager* focus_manager = GetFocusManager()) {
        focus_manager->ClearFocus();
-@@ -5147,6 +6029,12 @@ void BrowserView::ExecuteSeoulOmniboxAction(seoul::CommandLauncherEntry entry) {
+@@ -5145,6 +6012,12 @@
+ void BrowserView::ExecuteSeoulOmniboxAction(seoul::CommandLauncherEntry entry) {
+   seoul::ShellController* controller = GetSeoulShellController(browser_.get());
    if (!controller) {
-     return;
-   }
++    return;
++  }
 +  if (entry.enabled &&
 +      entry.action == seoul::ShellUtilityAction::kNewTemporaryTab) {
 +    HideSeoulOmniboxActions(/*restore_page_focus=*/false);
 +    ShowSeoulNewTabSurface();
-+    return;
-+  }
+     return;
+   }
    if (controller->ExecuteCommandLauncherEntry(entry).has_value()) {
-     HideSeoulOmniboxActions(/*restore_page_focus=*/true);
-   } else if (seoul_omnibox_action_view_) {
-@@ -5158,15 +6046,32 @@ void BrowserView::ExecuteSeoulOmniboxAction(seoul::CommandLauncherEntry entry) {
+@@ -5158,15 +6031,32 @@
  }
  
  void BrowserView::RefreshSeoulOmniboxSurfaceBackground() {
 -  if (!seoul_omnibox_surface_) {
 +  if (!seoul_omnibox_backdrop_) {
-+    return;
-+  }
-+  const ui::ColorProvider* color_provider = GetColorProvider();
-+  if (!color_provider) {
      return;
    }
 -  constexpr int kZenRadius = 12;
@@ -3384,6 +3338,10 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
 -      /*for_border_thickness=*/1));
 -  seoul_omnibox_surface_->SetBorder(
 -      views::CreateRoundedRectBorder(1, kZenRadius, kColorLocationBarBorder));
++  const ui::ColorProvider* color_provider = GetColorProvider();
++  if (!color_provider) {
++    return;
++  }
 +  const SkColor background_color =
 +      color_provider->GetColor(kColorOmniboxResultsBackground);
 +  const bool dark = color_utils::IsDark(background_color);
@@ -3406,7 +3364,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
  }
  
  void BrowserView::StartSeoulOmniboxEntranceAnimation() {
-@@ -5175,6 +6080,12 @@ void BrowserView::StartSeoulOmniboxEntranceAnimation() {
+@@ -5175,6 +6065,12 @@
    }
    seoul_omnibox_entrance_animation_.reset();
    seoul_omnibox_surface_->layer()->SetTransform(gfx::Transform());
@@ -3419,7 +3377,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
    if (gfx::Animation::PrefersReducedMotion()) {
      return;
    }
-@@ -5184,6 +6095,29 @@ void BrowserView::StartSeoulOmniboxEntranceAnimation() {
+@@ -5184,6 +6080,29 @@
    seoul_omnibox_entrance_animation_->Start();
  }
  
@@ -3449,7 +3407,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
  void BrowserView::Layout(PassKey) {
    TRACE_EVENT0("ui", "BrowserView::Layout");
    if (!initialized_ || in_process_fullscreen_ ||
-@@ -5205,30 +6139,7 @@ void BrowserView::Layout(PassKey) {
+@@ -5205,30 +6124,7 @@
  
    LayoutSuperclass<views::View>(this);
  
@@ -3481,7 +3439,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
  
    // TODO(jamescook): Why was this in the middle of layout code?
    toolbar_->location_bar()->UpdateFocusBehavior(IsToolbarVisible());
-@@ -5464,10 +6375,24 @@ void BrowserView::AddedToWidget() {
+@@ -5464,10 +6360,24 @@
      }
    }
  
@@ -3506,7 +3464,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
  }
  
  void BrowserView::RemovedFromWidget() {
-@@ -5499,6 +6424,7 @@ void BrowserView::OnThemeChanged() {
+@@ -5499,6 +6409,7 @@
    }
  
    FrameColorsChanged();
@@ -3514,7 +3472,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
  }
  
  bool BrowserView::GetDropFormats(
-@@ -5535,10 +6461,19 @@ const views::View* BrowserView::GetViewByElementId(
+@@ -5535,10 +6446,19 @@
  // BrowserView, ui::AcceleratorTarget overrides:
  
  bool BrowserView::AcceleratorPressed(const ui::Accelerator& accelerator) {
@@ -3536,7 +3494,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
      ShowSeoulOmniboxActions();
      return true;
    }
-@@ -5914,6 +6849,9 @@ void BrowserView::LoadAccelerators() {
+@@ -5914,6 +6834,9 @@
    views::FocusManager* focus_manager = GetFocusManager();
    DCHECK(focus_manager);
  
@@ -3546,7 +3504,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/v
    // Let's fill our own accelerator table.
    const bool is_app_mode = IsRunningInForcedAppMode();
  #if BUILDFLAG(IS_CHROMEOS)
-@@ -5951,11 +6889,22 @@ void BrowserView::LoadAccelerators() {
+@@ -5951,11 +6874,22 @@
      accelerator_table_[accelerator] = entry.command_id;
  
      // Also register with the focus manager.
@@ -3600,7 +3558,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.h b/chrome/browser/ui/vi
  #include "ui/gfx/native_ui_types.h"
  #include "ui/views/controls/button/button.h"
  #include "ui/views/controls/webview/unhandled_keyboard_event_handler.h"
-@@ -122,7 +126,7 @@ enum class Channel;
+@@ -122,7 +126,7 @@
  }
  
  namespace views {
@@ -3609,7 +3567,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.h b/chrome/browser/ui/vi
  class WebView;
  }  // namespace views
  
-@@ -133,6 +137,7 @@ struct WebAppBannerData;
+@@ -133,6 +137,7 @@
  
  class CustomFloatingCorner;
  class SeoulOmniboxEntranceAnimation;
@@ -3617,7 +3575,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.h b/chrome/browser/ui/vi
  
  ///////////////////////////////////////////////////////////////////////////////
  // BrowserView
-@@ -151,7 +156,8 @@ class BrowserView : public BrowserWindow,
+@@ -151,7 +156,8 @@
                      public ImmersiveModeController::Observer,
                      public webapps::AppBannerManager::Observer,
                      public views::FocusChangeListener,
@@ -3627,7 +3585,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.h b/chrome/browser/ui/vi
    METADATA_HEADER(BrowserView, views::ClientView)
  
   public:
-@@ -291,6 +297,8 @@ class BrowserView : public BrowserWindow,
+@@ -291,6 +297,8 @@
        const {
      return vertical_tab_strip_region_view_.get();
    }
@@ -3636,7 +3594,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.h b/chrome/browser/ui/vi
  
    ProjectsPanelView* projects_panel_container_for_testing() const {
      return projects_panel_container_;
-@@ -304,7 +312,25 @@ class BrowserView : public BrowserWindow,
+@@ -304,7 +312,25 @@
    // Accessor for the Toolbar.
    const ToolbarView* toolbar() const { return toolbar_; }
    ToolbarView* toolbar() { return toolbar_; }
@@ -3662,7 +3620,7 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.h b/chrome/browser/ui/vi
    void ShowSeoulOmniboxActions();
    bool IsSeoulOmniboxActionMode() const;
    void UpdateSeoulOmniboxActions(const std::u16string& query);
-@@ -316,6 +342,27 @@ class BrowserView : public BrowserWindow,
+@@ -316,6 +342,24 @@
    views::View* seoul_omnibox_surface_for_testing() const {
      return seoul_omnibox_surface_;
    }
@@ -3684,13 +3642,10 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.h b/chrome/browser/ui/vi
 +  float seoul_omnibox_glow_blur_for_testing() const;
 +  float seoul_omnibox_glow_opacity_for_testing() const;
 +  bool seoul_omnibox_search_mode_animation_running_for_testing() const;
-+  bool seoul_toolbar_reparenting() const {
-+    return seoul_toolbar_reparenting_;
-+  }
  
    // Bookmark bar may be null, for example for pop-ups.
    BookmarkBarView* bookmark_bar() { return bookmark_bar_view_; }
-@@ -867,8 +914,18 @@ class BrowserView : public BrowserWindow,
+@@ -867,8 +911,18 @@
  
    void HideSeoulOmniboxActions(bool restore_page_focus);
    void ExecuteSeoulOmniboxAction(seoul::CommandLauncherEntry entry);
@@ -3709,17 +3664,13 @@ diff --git a/chrome/browser/ui/views/frame/browser_view.h b/chrome/browser/ui/vi
  
    // Modes that require reparenting of views. For example, tab strip and web app
    // views must be reparented to top_container in certain modes. This state is
-@@ -1285,14 +1342,41 @@ class BrowserView : public BrowserWindow,
+@@ -1285,14 +1339,37 @@
  
    // The view responsible for housing the contents of the vertical tab strip.
    raw_ptr<VerticalTabStripRegionView> vertical_tab_strip_region_view_ = nullptr;
 +  seoul::SeoulLayoutMode seoul_layout_mode_ = seoul::SeoulLayoutMode::kSingle;
    bool seoul_omnibox_floating_ = false;
    bool seoul_omnibox_reparenting_ = false;
-+  // True while the toolbar is being moved between the vertical rail and the
-+  // top container. Removal notifications dispatched inside that window observe
-+  // a stale View::parent(), so sidebar presentation updates are suppressed.
-+  bool seoul_toolbar_reparenting_ = false;
    bool seoul_omnibox_action_mode_ = false;
 +  bool seoul_new_tab_entry_mode_ = false;
 +  bool seoul_new_tab_placeholder_surface_ = false;
@@ -4397,7 +4348,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
  #include "chrome/browser/ui/views/frame/custom_corners_background.h"
  #include "chrome/browser/ui/views/frame/shadow_frame_view.h"
  #include "chrome/browser/ui/views/frame/tab_strip_region_view.h"
-@@ -94,7 +96,10 @@ constexpr int kResizeAreaWidth = 5;
+@@ -94,7 +96,10 @@
  constexpr int kCollapsedResizeAreaWidth = 2;
  constexpr int kKeyboardResizeWidth = 50;
  constexpr int kSnapDistance = 15;
@@ -4409,7 +4360,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
  
  // Shadow is used in expand-on-hover mode. Shadow radius and opacity are dynamic
  // and set by the layout.
-@@ -381,7 +386,13 @@ void VerticalTabStripRegionView::OnAnimationProgressed(
+@@ -381,7 +386,13 @@
        InvalidateLayout();
        break;
      case BrowserAnimationUpdate::kEnded: {
@@ -4424,7 +4375,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
        animation_perf_reporter_.reset();
        hover_card_animation_lock_.reset();
        if (tab_strip_view_) {
-@@ -389,6 +400,12 @@ void VerticalTabStripRegionView::OnAnimationProgressed(
+@@ -389,6 +400,12 @@
        }
        const auto motion =
            controller->GetCurrentMotion(TabStripAnimations::kVerticalTabStrip);
@@ -4437,15 +4388,15 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
        if (motion == TabStripAnimations::kCollapse ||
            motion == TabStripAnimations::kExpand) {
          views::ElementTrackerViews::GetInstance()->NotifyCustomEvent(
-@@ -396,12 +413,18 @@ void VerticalTabStripRegionView::OnAnimationProgressed(
+@@ -396,12 +413,18 @@
        }
        if (motion == TabStripAnimations::kCollapse) {
          update_state_controller_collapsed_callback_.Run(true);
 +        normal_collapse_start_width_.reset();
-+      }
+       }
 +      if (motion == TabStripAnimations::kExpand) {
 +        ClearSeoulCompactTransition();
-       }
++      }
        InvalidateLayout();
        break;
      }
@@ -4457,7 +4408,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
        animation_perf_reporter_.reset();
        hover_card_animation_lock_.reset();
        if (tab_strip_view_) {
-@@ -420,6 +443,22 @@ void VerticalTabStripRegionView::OnAnimationProgressed(
+@@ -420,6 +443,22 @@
        if (!target_collapse_state_.collapsed) {
          update_state_controller_collapsed_callback_.Run(true);
        }
@@ -4480,10 +4431,12 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
        break;
    }
  }
-@@ -463,6 +502,24 @@ bool VerticalTabStripRegionView::IsPositionInWindowCaption(
-   return true;
- }
+@@ -461,8 +500,26 @@
  
+   // If the click doesnt fall under any view,then it counts as window caption.
+   return true;
++}
++
 +bool VerticalTabStripRegionView::IsSeoulCompactModeEnabled() const {
 +  const bool has_integrated_toolbar =
 +      browser_view_ && browser_view_->toolbar() &&
@@ -4495,8 +4448,8 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
 +
 +void VerticalTabStripRegionView::ArmSeoulCompactExit() {
 +  seoul_compact_exit_pending_ = true;
-+}
-+
+ }
+ 
 +void VerticalTabStripRegionView::ClearSeoulCompactTransition() {
 +  seoul_compact_exit_pending_ = false;
 +  seoul_compact_exit_animation_ = false;
@@ -4505,7 +4458,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
  void VerticalTabStripRegionView::SetToolbarHeightForLayout(int toolbar_height) {
    top_button_container_->SetToolbarHeightForLayout(toolbar_height);
  }
-@@ -573,7 +630,7 @@ views::View* VerticalTabStripRegionView::GetDefaultFocusableChild() {
+@@ -573,7 +630,7 @@
  gfx::Size VerticalTabStripRegionView::GetMinimumSize() const {
    auto min_size = TabStripRegionView::GetMinimumSize();
    min_size.set_width((state_controller_->IsCollapsed() || IsAnimatingSize())
@@ -4514,7 +4467,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
                           : kUncollapsedMinWidth);
    return min_size;
  }
-@@ -581,6 +638,7 @@ gfx::Size VerticalTabStripRegionView::GetMinimumSize() const {
+@@ -581,6 +638,7 @@
  gfx::Size VerticalTabStripRegionView::CalculatePreferredSize(
      const views::SizeBounds& available_size) const {
    auto size = TabStripRegionView::CalculatePreferredSize(available_size);
@@ -4522,7 +4475,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
    const auto* controller =
        BrowserAnimationController::From(browser_view_->browser());
    const auto motion =
-@@ -591,21 +649,37 @@ gfx::Size VerticalTabStripRegionView::CalculatePreferredSize(
+@@ -591,19 +649,35 @@
          *BrowserAnimationController::From(browser_view_->browser())
               ->GetCurrentValue(TabStripAnimations::kVerticalTabStrip,
                                 TabStripAnimations::kTabStripWidth);
@@ -4547,8 +4500,8 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
                         : target_collapse_state_.uncollapsed_width);
    }
    return size;
- }
- 
++}
++
 +int VerticalTabStripRegionView::CollapsedRegionWidth() const {
 +  if (seoul_compact_exit_animation_) {
 +    return kCompactCollapsedWidth;
@@ -4559,12 +4512,10 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
 +  return has_integrated_toolbar && state_controller_->IsExpandOnHoverEnabled()
 +             ? kCompactCollapsedWidth
 +             : kCollapsedWidth;
-+}
-+
+ }
+ 
  bool VerticalTabStripRegionView::OnKeyPressed(const ui::KeyEvent& event) {
-   if (resize_area_->HasFocus()) {
-     int resize_amount = 0;
-@@ -911,6 +985,21 @@ TabDragContext* VerticalTabStripRegionView::GetDragContext() {
+@@ -911,6 +985,21 @@
  
  std::optional<BrowserRootView::DropIndex>
  VerticalTabStripRegionView::GetDropIndex(const ui::DropTargetEvent& event) {
@@ -4586,7 +4537,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
    // Check pinned tabs.
    VerticalPinnedTabContainerView* pinned_container = GetPinnedTabsContainer();
    if (pinned_container && !pinned_container->children().empty()) {
-@@ -1106,6 +1195,18 @@ bool VerticalTabStripRegionView::IsCollapsing() {
+@@ -1106,6 +1195,18 @@
  }
  
  void VerticalTabStripRegionView::RequestCollapse(bool collapse) {
@@ -4605,7 +4556,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
    target_collapse_state_.collapsed = collapse;
    const auto motion =
        collapse ? TabStripAnimations::kCollapse : TabStripAnimations::kExpand;
-@@ -1159,7 +1260,7 @@ views::View* VerticalTabStripRegionView::SetTabStripView(
+@@ -1159,7 +1260,7 @@
    tab_strip_view_->SetProperty(
        views::kFlexBehaviorKey,
        views::FlexSpecification(views::MinimumFlexSizeRule::kScaleToMinimum,
@@ -4614,7 +4565,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
    tab_strip_view_->SetProperty(
        views::kMarginsKey,
        gfx::Insets::VH(
-@@ -1189,6 +1290,12 @@ views::View* VerticalTabStripRegionView::SetTabStripView(
+@@ -1189,6 +1290,12 @@
    CHECK(separator_index.has_value());
    ReorderChildView(tab_strip_view_, separator_index.value() + 1);
  
@@ -4627,13 +4578,13 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
    OnCollapseStateChanged(state_controller_->GetCollapseState());
  
    return tab_strip_view_;
-@@ -1202,9 +1309,30 @@ void VerticalTabStripRegionView::ClearTabStripView(views::View* view) {
+@@ -1202,9 +1309,30 @@
  
    ResetExpandOnHoverTimers();
    is_expanded_on_hover_ = false;
 +  normal_collapse_start_width_.reset();
 +  ClearSeoulCompactTransition();
-+
+ 
 +  // Native macOS controls are not descendants of the Views rail. Restore them
 +  // before detaching the vertical tree so a switch to horizontal tabs cannot
 +  // leave hidden traffic-light buttons behind.
@@ -4644,7 +4595,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
 +          true);
 +    }
 +  }
- 
++
    CHECK(tab_strip_view_);
    CHECK(tab_strip_view_ == view);
 +  std::unique_ptr<views::View> new_tab_button_row =
@@ -4658,7 +4609,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
    RemoveChildViewT(std::exchange(tab_strip_view_, nullptr));
  }
  
-@@ -1220,7 +1348,15 @@ void VerticalTabStripRegionView::OnCollapseStateChanged(
+@@ -1220,7 +1348,15 @@
  
    resize_area_width_ = collapsed ? kCollapsedResizeAreaWidth : kResizeAreaWidth;
  
@@ -4675,7 +4626,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
  
    if (browser_view_ && browser_view_->browser()) {
      Profile* profile = browser_view_->browser()->profile();
-@@ -1292,6 +1428,20 @@ void VerticalTabStripRegionView::OnChildMoved() {
+@@ -1292,6 +1428,20 @@
  void VerticalTabStripRegionView::OnExpandOnHoverEnabledChanged(bool enabled) {
    resize_area_->SetVisible(!state_controller_->IsCollapsed() || !enabled ||
                             resize_area_->is_resizing());
@@ -4696,7 +4647,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
    UpdateExpandOnHoverState();
  }
  
-@@ -1361,6 +1511,17 @@ void VerticalTabStripRegionView::UpdateExpandOnHoverState(
+@@ -1361,6 +1511,17 @@
      hover_card_animation_lock_ = hover_card_controller_->GetHoverCardHideLock();
    }
  
@@ -4714,7 +4665,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
    if (tabs::kVerticalTabsExpandOnHoverUseVelocityHeuristic.Get()) {
      CalculateMouseVelocityForExpandOnHover();
    } else if (expand_on_hover_timer_.IsRunning()) {
-@@ -1461,6 +1622,7 @@ void VerticalTabStripRegionView::CalculateMouseVelocityForExpandOnHover() {
+@@ -1461,6 +1622,7 @@
  
  void VerticalTabStripRegionView::ResetExpandOnHoverTimers() {
    hover_card_animation_lock_.reset();
@@ -4722,7 +4673,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
  
    if (expand_on_hover_timer_.IsRunning()) {
      expand_on_hover_timer_.Stop();
-@@ -1480,7 +1642,11 @@ void VerticalTabStripRegionView::ResetExpandOnHoverTimers() {
+@@ -1480,7 +1642,11 @@
  
  void VerticalTabStripRegionView::AnimateExpandOnHover(bool expand) {
    is_expanded_on_hover_ = expand;
@@ -4735,7 +4686,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
    ResetExpandOnHoverTimers();
  
    if (expand) {
-@@ -1522,7 +1688,34 @@ void VerticalTabStripRegionView::UpdateSeoulSidebarPresentation(
+@@ -1522,7 +1688,27 @@
    if (!browser_view_ || !browser_view_->browser()) {
      return;
    }
@@ -4759,19 +4710,12 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
 +    widget->browser_native_widget()->SetSeoulCompactFrameControlsVisible(
 +        !compact_hidden);
 +  }
-+  // `toolbar->parent() == this` is NOT a valid proxy for "still registered in
-+  // this view's layout manager": View::DoRemoveChildView erases the child from
-+  // the layout manager before dispatching removal notifications and clears
-+  // parent() only afterwards, so during that window the guard passes while
-+  // LayoutManagerBase::ViewVisibilitySet would CHECK. Testing children() would
-+  // be equally stale. BrowserView flags the reparent instead.
 +  if (ToolbarView* toolbar = browser_view_->toolbar();
-+      toolbar && toolbar->parent() == this &&
-+      !browser_view_->seoul_toolbar_reparenting()) {
++      toolbar && toolbar->parent() == this) {
      toolbar->SetSeoulSidebarPresentation(collapsed);
    }
    Profile* profile = browser_view_->browser()->profile();
-@@ -1776,7 +1969,10 @@ views::View* VerticalTabStripRegionView::GetSeoulShellSeparatorAnchor() {
+@@ -1776,7 +1962,10 @@
  }
  
  views::View* VerticalTabStripRegionView::GetSeoulShellFooterAnchor() {
@@ -4783,7 +4727,7 @@ diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/c
  }
  
  bool VerticalTabStripRegionView::ShowSeoulCommandLauncher() {
-@@ -1790,9 +1986,8 @@ bool VerticalTabStripRegionView::ShowSeoulCommandLauncher() {
+@@ -1790,9 +1979,8 @@
      return false;
    }
    const SessionID sid = browser_view_->browser()->session_id();
@@ -5076,7 +5020,6 @@ index e8e97a972099de17b76d2e6e2918429780d01b43..a4ea89461cffe101d50f56a524ad6c82
        "//components/record_replay/core/browser",
        "//components/record_replay/core/common",
 diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.cc b/chrome/browser/ui/views/location_bar/location_bar_view.cc
-index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2eeecc4c823 100644
 --- a/chrome/browser/ui/views/location_bar/location_bar_view.cc
 +++ b/chrome/browser/ui/views/location_bar/location_bar_view.cc
 @@ -5,6 +5,7 @@
@@ -5111,10 +5054,11 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
  #include "ui/views/controls/label.h"
  #include "ui/views/interaction/element_tracker_views.h"
  #include "ui/views/property_effects.h"
-@@ -332,6 +336,37 @@ void LocationBarView::Init() {
+@@ -331,7 +335,38 @@
+       std::make_unique<LocationIconView>(omnibox_chip_font_list, this, this);
    location_icon_view->set_drag_controller(this);
    location_icon_view_ = AddChildView(std::move(location_icon_view));
- 
++
 +  auto seoul_floating_search_icon = std::make_unique<views::ImageView>();
 +  seoul_floating_search_icon->SetPreferredSize(gfx::Size(28, 28));
 +  seoul_floating_search_icon->SetImageSize(gfx::Size(16, 16));
@@ -5123,7 +5067,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
 +  seoul_floating_search_icon->SetVisible(false);
 +  seoul_floating_search_icon_ =
 +      AddChildView(std::move(seoul_floating_search_icon));
-+
+ 
 +  auto seoul_action_mode_label = std::make_unique<views::Label>(u"Actions");
 +  const gfx::FontList& action_font = typography_provider.GetFont(
 +      CONTEXT_OMNIBOX_PRIMARY, views::style::STYLE_PRIMARY);
@@ -5149,7 +5093,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
    if (page_info::IsMerchantTrustFeatureEnabled() &&
        page_info::kMerchantTrustEnableOmniboxChip.Get()) {
      merchant_trust_chip_ = AddChildView(std::make_unique<OmniboxChipButton>());
-@@ -372,6 +407,8 @@ void LocationBarView::Init() {
+@@ -372,6 +407,8 @@
    const bool web_ui_popup_dropdown_only =
        omnibox::IsWebUIOmniboxPopupEnabled() &&
        !omnibox::IsWebUIOmniboxFullPopupEnabled();
@@ -5158,7 +5102,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
  
    // Default to the legacy popup view for web apps and devtools windows since
    // creating the WebUI popup results in an extra Omnibox process being created
-@@ -379,7 +416,7 @@ void LocationBarView::Init() {
+@@ -379,7 +416,7 @@
    // `OmniboxPopupViewViews` is deprecated we will need to ensure that a null
    // `omnibox_popup_view_` doesn't cause any issues (or aim for a cleaner
    // solution).
@@ -5167,10 +5111,11 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
        ((web_ui_popup_dropdown_only &&
          !base::FeatureList::IsEnabled(omnibox::kWebUIOmniboxPopupDebug)) ||
         omnibox::IsWebUIOmniboxFullPopupEnabled())) {
-@@ -605,6 +642,16 @@ void LocationBarView::Init() {
+@@ -604,6 +641,16 @@
+   ai_mode_hint_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
    ai_mode_hint_label->SetVisible(false);
    ai_mode_hint_label_ = AddChildView(std::move(ai_mode_hint_label));
- 
++
 +  // Zen fades compact identity and page-action affordances in on implicit
 +  // hover. Give the three independently managed Chromium containers their own
 +  // transparent layers so the fade does not repaint or flash the omnibox text.
@@ -5180,11 +5125,10 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
 +    view->SetPaintToLayer();
 +    view->layer()->SetFillsBoundsOpaquely(false);
 +  }
-+
+ 
    // Initialize the location entry. We do this to avoid a black flash which is
    // visible when the location entry has just been initialized.
-   Update(nullptr);
-@@ -697,10 +744,11 @@ void LocationBarView::SelectAll() {
+@@ -697,10 +744,11 @@
  
  void LocationBarView::FocusLocation(bool is_user_initiated,
                                      bool clear_focus_if_failed) {
@@ -5200,7 +5144,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
      delegate_->OnOmniboxFocusChanged(true);
    }
    omnibox_view_->SetFocus(is_user_initiated);
-@@ -875,7 +923,13 @@ void LocationBarView::Layout(PassKey) {
+@@ -875,7 +923,13 @@
                                    .indent_input_when_popup_closed) &&
                               !location_icon_view_->ShouldShowLabel() &&
                               !ShouldShowKeywordBubble();
@@ -5215,7 +5159,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
      icon_left += 7 /*icon_indent*/;
      icon_left += omnibox_feature_configs::AdjustOmniboxIndent()
                       .Get()
-@@ -917,12 +971,21 @@ void LocationBarView::Layout(PassKey) {
+@@ -917,12 +971,21 @@
    const double kLeadingDecorationMaxFraction = 0.5;
  
    const bool show_overriding_permission_chip =
@@ -5243,7 +5187,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
    if (show_overriding_permission_chip) {
      if (base::FeatureList::IsEnabled(
              content_settings::features::kLeftHandSideActivityIndicators)) {
-@@ -938,12 +1001,50 @@ void LocationBarView::Layout(PassKey) {
+@@ -938,12 +1001,50 @@
    }
  
    if (seoul_floating_mode_) {
@@ -5297,7 +5241,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
      location_icon_view_->SetVisible(false);
      leading_decorations.AddDecoration(
          vertical_padding, location_height, false, kLeadingDecorationMaxFraction,
-@@ -972,16 +1073,22 @@ void LocationBarView::Layout(PassKey) {
+@@ -972,16 +1073,22 @@
      }
    } else if (location_icon_view_->GetShowText() &&
               !ShouldChipOverrideLocationIcon()) {
@@ -5320,7 +5264,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
      location_icon_view_->SetVisible(false);
    }
  
-@@ -992,6 +1099,7 @@ void LocationBarView::Layout(PassKey) {
+@@ -992,6 +1099,7 @@
      // 3. the omnibox is not in editing mode
      // 4. location bar icon doesn't have extra text
      const bool should_show_merchant_chip =
@@ -5328,7 +5272,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
          merchant_trust_chip_controller_->ShouldBeVisible() &&
          !show_overriding_permission_chip && !IsEditingOrEmpty() &&
          !location_icon_view_->GetShowText();
-@@ -1010,6 +1118,10 @@ void LocationBarView::Layout(PassKey) {
+@@ -1010,6 +1118,10 @@
  
    auto add_trailing_decoration = [&](View* view, int intra_item_padding,
                                       int edge_padding) {
@@ -5339,7 +5283,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
      if (view->GetVisible()) {
        trailing_decorations.AddDecoration(
            vertical_padding, location_height, /*auto_collapse=*/false,
-@@ -1175,6 +1287,7 @@ void LocationBarView::OnThemeChanged() {
+@@ -1175,6 +1287,7 @@
    }
  
    RefreshBackground();
@@ -5347,7 +5291,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
    RefreshClearAllButtonIcon();
  }
  
-@@ -1217,16 +1330,32 @@ void LocationBarView::Update(WebContents* contents) {
+@@ -1217,16 +1330,32 @@
      merchant_trust_chip_controller_->UpdateWebContents(contents);
    }
  
@@ -5366,8 +5310,8 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
 +                                            IsEditingOrEmpty());
      page_action_icon_container_->SetVisible(false);
      page_action_container_->SetVisible(false);
-     ai_mode_hint_label_->SetVisible(false);
-     clear_all_button_->SetVisible(false);
++    ai_mode_hint_label_->SetVisible(false);
++    clear_all_button_->SetVisible(false);
 +  } else if (seoul_sidebar_mode_) {
 +    // Zen's implicit-hover state temporarily restores the current page
 +    // identity and page actions. Empty tabs retain the non-interactive search
@@ -5377,14 +5321,14 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
 +    seoul_floating_search_icon_->SetVisible(show_search_icon);
 +    page_action_icon_container_->SetVisible(true);
 +    page_action_container_->SetVisible(true);
-+    ai_mode_hint_label_->SetVisible(false);
-+    clear_all_button_->SetVisible(false);
+     ai_mode_hint_label_->SetVisible(false);
+     clear_all_button_->SetVisible(false);
    }
 +  UpdateSeoulSidebarChromeOpacity();
  
    OnChanged();  // NOTE: Triggers layout.
  
-@@ -1252,7 +1381,17 @@ bool LocationBarView::ShouldCloseOmniboxPopup(ui::MouseEvent* event) {
+@@ -1252,7 +1381,17 @@
  
    auto* const view = static_cast<views::View*>(event->target());
    CHECK(view);
@@ -5403,7 +5347,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
  }
  
  ChipController* LocationBarView::GetChipController() {
-@@ -1582,12 +1721,69 @@ int LocationBarView::GetMinimumTrailingWidth() const {
+@@ -1582,12 +1721,69 @@
  }
  
  gfx::Rect LocationBarView::GetLocalBoundsWithoutEndcaps() const {
@@ -5474,7 +5418,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
  void LocationBarView::RefreshBackground() {
    const double opacity = hover_animation_.GetCurrentValue();
    const bool is_caret_visible =
-@@ -1635,21 +1831,18 @@ void LocationBarView::RefreshBackground() {
+@@ -1635,21 +1831,18 @@
      // second rounded border around its embedded location row produces a seam
      // and clipped-looking top corners.
      SetBackground(views::CreateSolidBackground(background_color_));
@@ -5506,27 +5450,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
    } else {
      SetBackground(CreateRoundRectBackground(
          background_color_, border_color, size(),
-@@ -2046,6 +2239,19 @@ void LocationBarView::ValidatePopupState(OmniboxPopupState state) {
-     return;
-   }
- 
-+  // Seoul presents omnibox results as a child view of BrowserView's floating
-+  // command surface rather than as a popup widget, and installs or removes that
-+  // view outside the popup state manager's transition. Installing it lays the
-+  // surface out synchronously, which re-enters Layout() -> IsPopupOpen() while
-+  // the two are momentarily out of step. The invariant below describes
-+  // widget-backed presentation only, so it does not hold here - the same reason
-+  // the WebUI popups above are exempt.
-+  if (BrowserView* const browser_view =
-+          BrowserView::GetBrowserViewForBrowser(browser_);
-+      browser_view && browser_view->CanHostSeoulOmniboxPopup()) {
-+    return;
-+  }
-+
-   const bool classic_is_open = omnibox_popup_view_->IsOpen();
-   const bool aim_is_shown =
-       omnibox_popup_aim_presenter_ && omnibox_popup_aim_presenter_->IsShown();
-@@ -2076,6 +2282,7 @@ void LocationBarView::ClearInPopupStateTransition() {
+@@ -2076,6 +2269,7 @@
  void LocationBarView::AnimationProgressed(const gfx::Animation* animation) {
    DCHECK_EQ(animation, &hover_animation_);
    RefreshBackground();
@@ -5534,7 +5458,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
  }
  
  void LocationBarView::AnimationEnded(const gfx::Animation* animation) {
-@@ -2095,6 +2302,12 @@ void LocationBarView::OnChildViewRemoved(View* observed_view, View* child) {
+@@ -2095,6 +2289,12 @@
  
  void LocationBarView::OnChanged() {
    TRACE_EVENT("omnibox", "LocationBarView::OnChanged");
@@ -5547,7 +5471,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
    // Ensure that background colors get updated on tab-switch.
    RefreshBackground();
    location_icon_view_->Update(
-@@ -2119,7 +2332,11 @@ const LocationBarModel* LocationBarView::GetLocationBarModel() const {
+@@ -2119,7 +2319,11 @@
  }
  
  void LocationBarView::OnOmniboxFocused() {
@@ -5560,7 +5484,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
    if (views::FocusRing::Get(this)) {
      views::FocusRing::Get(this)->SchedulePaint();
    }
-@@ -2153,10 +2370,34 @@ void LocationBarView::SetSeoulSidebarMode(bool enabled) {
+@@ -2153,10 +2357,34 @@
      return;
    }
    seoul_sidebar_mode_ = enabled;
@@ -5586,17 +5510,17 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
 +  } else if (!enabled) {
 +    SetVisible(true);
 +    Update(GetWebContents());
-+  }
+   }
 +  if (omnibox_view_) {
 +    omnibox_view_->InstallPlaceholderText();
-   }
++  }
 +  UpdateSeoulSidebarChromeOpacity();
    RefreshBackground();
 +  InvalidateLayout();
  }
  
  void LocationBarView::SetSeoulFloatingMode(bool enabled) {
-@@ -2164,11 +2405,17 @@ void LocationBarView::SetSeoulFloatingMode(bool enabled) {
+@@ -2164,11 +2392,17 @@
      return;
    }
    seoul_floating_mode_ = enabled;
@@ -5614,7 +5538,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
      if (page_action_icon_container_) {
        page_action_icon_container_->SetVisible(false);
      }
-@@ -2182,17 +2429,46 @@ void LocationBarView::SetSeoulFloatingMode(bool enabled) {
+@@ -2182,10 +2416,36 @@
        clear_all_button_->SetVisible(false);
      }
    } else {
@@ -5630,8 +5554,8 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
 +  UpdateSeoulSidebarChromeOpacity();
    RefreshBackground();
    InvalidateLayout();
- }
- 
++}
++
 +void LocationBarView::RefreshSeoulFloatingFont() {
 +  const gfx::FontList& default_font = views::TypographyProvider::Get().GetFont(
 +      CONTEXT_OMNIBOX_PRIMARY, views::style::STYLE_PRIMARY);
@@ -5648,10 +5572,10 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
 +  } else {
 +    omnibox_view_->SetFontList(default_font);
 +  }
-+}
-+
+ }
+ 
  void LocationBarView::SetSeoulActionMode(bool enabled) {
-   if (seoul_action_mode_ == enabled) {
+@@ -2193,6 +2453,9 @@
      return;
    }
    seoul_action_mode_ = enabled;
@@ -5661,7 +5585,7 @@ index cd3aa1b692c094105a0bc96492003c4756d521d2..0298bc016826c120aeea2e1ccdc8e2ee
    const bool hide_embedded_chrome = seoul_floating_mode_ || seoul_action_mode_;
    if (hide_embedded_chrome) {
      if (location_icon_view_) {
-@@ -2218,21 +2494,35 @@ void LocationBarView::SetSeoulActionMode(bool enabled) {
+@@ -2218,21 +2481,35 @@
  }
  
  void LocationBarView::OnOmniboxHovered(bool is_hovering) {

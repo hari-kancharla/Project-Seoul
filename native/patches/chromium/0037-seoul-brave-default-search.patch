@@ -1,0 +1,22 @@
+diff --git a/components/search_engines/template_url_prepopulate_data.cc b/components/search_engines/template_url_prepopulate_data.cc
+--- a/components/search_engines/template_url_prepopulate_data.cc
++++ b/components/search_engines/template_url_prepopulate_data.cc
+@@ -275,6 +275,18 @@ std::unique_ptr<TemplateURLData> GetPrepopulatedFallbackSearch(
+     PrefService& prefs,
+     const std::vector<const PrepopulatedEngine*>&
+         regional_prepopulated_engines) {
++  // Seoul: default every fresh profile to Brave Search regardless of
++  // country. Brave is not listed in every region's own search_engines[]
++  // (unlike Google), so this has to search the complete built-in engine set
++  // - GetPrepopulatedEngineFromBuiltInData falls back to it automatically -
++  // rather than FindPrepopulatedEngineInternal's region-restricted list,
++  // which would otherwise silently return whatever is first in a region
++  // that does not carry Brave.
++  if (const PrepopulatedEngine* const brave_engine =
++          GetPrepopulatedEngineFromBuiltInData(brave.id,
++                                               regional_prepopulated_engines)) {
++    return PrepopulatedEngineToTemplateURLData(brave_engine);
++  }
+   return FindPrepopulatedEngineInternal(prefs, regional_prepopulated_engines,
+                                         google.id,
+                                         /*use_first_as_fallback=*/true);

@@ -537,7 +537,7 @@
         "seoul-native-material-and-state-colors",
         "seoul-platform-content-and-tab-radii"
       ],
-      "sha256": "e8cb6d67fcf330d0bbe39d896beb1400aa575559f813589467f1a86cf03bfac4",
+      "sha256": "dcef98650180bed82a3cd28e1448901683c62000eade812dad08cf19fc9b9c87",
       "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0017-seoul-zen-interaction-and-visual-fidelity.patch after applying patches 0001 through 0016",
       "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0017-seoul-zen-interaction-and-visual-fidelity.patch",
       "reviewable": true
@@ -593,7 +593,7 @@
     {
       "id": "seoul-native-adblock-network-hook",
       "description": "Register Seoul's profile-keyed native blocker before profile creation, place its browser-process URLLoaderFactory proxy ahead of Chromium's extension, sign-in, and enterprise request-factory chain for document, worker, and service-worker subresources, gate frame-associated WS/WSS handshakes asynchronously while preserving Chromium's extension WebRequest continuation, and add a deferred top-level NavigationThrottle that rechecks redirects and fails blocked pages with ERR_BLOCKED_BY_CLIENT.",
-      "rationale": "A Chromium-native blocker must make its allow/block decision before a supported request reaches the network while preserving Chromium's URLLoader, redirect, response, WebSocket, extension-proxy, and navigation semantics. Registering the keyed-service factory at Chromium's canonical profile-factory seam, appending the tested Seoul proxy at WillCreateURLLoaderFactory, using Chromium's dedicated CreateWebSocket interception seam, and registering a separate NavigationThrottle for primary-main-frame requests are the smallest browser-process integrations; renderer script, DevTools interception, and a second network stack were rejected because they miss workers, sockets, or top-level documents, race page execution, or bypass Chromium's request lifecycle.",
+      "rationale": "A Chromium-native blocker must make its allow/block decision before a supported request reaches the network while preserving Chromium's URLLoader, redirect, response, WebSocket, extension-proxy, and navigation semantics. Registering the keyed-service factory at Chromium's canonical profile-factory seam, appending the tested Seoul proxy at WillCreateURLLoaderFactory, using Chromium's dedicated CreateWebSocket interception seam, and registering a separate NavigationThrottle for primary-main-frame requests are the smallest browser-process integrations; renderer script, DevTools interception, and a second network stack were rejected because they miss workers, sockets, or top-level documents, race page execution, or bypass Chromium's request lifecycle. Regenerated to contain only its own change: an earlier revision of this patch was produced from a checkout that already had the $csp response filter applied, so it absorbed patch 0024's include and its AdBlockCspThrottle registration. With both patches carrying the same additions the series could not apply from a pristine checkout (0024 failed) and could not reverse (0020 failed), which defeats the whole point of a reversible series. The two now own disjoint changes and the series round-trips.",
       "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
       "order": 20,
       "file": "0020-seoul-native-adblock-network-hook.patch",
@@ -606,7 +606,7 @@
       "dependencies": [
         "seoul-native-core"
       ],
-      "sha256": "c5630010cf9e495d92447510aeea14d5b6bdbd5a6a30a873f742a61bad9adefc",
+      "sha256": "c01101423af4e9009026eeab687f7606900500c68ec7b8cc5171badbc8371ef2",
       "applyVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply --check native/patches/chromium/0020-seoul-native-adblock-network-hook.patch after applying patches 0001 through 0019",
       "reverseVerify": "git -C $SEOUL_CHROMIUM_ROOT/src apply -R --check native/patches/chromium/0020-seoul-native-adblock-network-hook.patch",
       "reviewable": true
@@ -877,6 +877,86 @@
         "seoul-boost-entry-points"
       ],
       "sha256": "c1da392dcae40bd8b48a49372b8118815f14369326db06abfd8c921544281297",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-handset-web-preferences",
+      "description": "Apply Handset mode's mobile WebPreferences from both preference recomputation paths, so a page presented as a phone actually lays out as one.",
+      "rationale": "The mobile viewport (viewport_enabled, viewport_meta_enabled, viewport_style, shrinks_viewport_contents_to_fit, the page-scale limits) and the coarse-pointer/no-hover media features are WebPreferences, not CSS and not something the browser layer can set on a WebContents directly. Chromium recomputes the whole preference set from ChromeContentBrowserClient, so the only honest place to contribute Seoul's mobile half is the same hook patch 0005 uses for the Boost dark-mode bit, and this patch mirrors it exactly. Both variants are wired deliberately: OverrideWebPreferences covers the initial computation, and OverrideWebPreferencesAfterNavigation covers every navigation afterwards. Wiring only the first is the quiet failure - the preferences would be dropped on the next navigation, and while device emulation is active that drop stays invisible until emulation is turned off and the page snaps back to desktop layout. The after-navigation variant contributes to prefs_changed via the function's own return value rather than by comparing a dozen fields at the call site, which would duplicate the knowledge of which fields Handset owns in a second place that could drift. The upstream alternative rejected was a DevTools Emulation session: it requires an attached agent host for a permanent product mode, and it cannot contribute to Chromium's own preference recomputation, so a later navigation would silently revert the layout.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 34,
+      "file": "0034-seoul-handset-web-preferences.patch",
+      "affectedPaths": [
+        "chrome/browser/chrome_content_browser_client.cc"
+      ],
+      "dependencies": [
+        "seoul-native-core",
+        "seoul-boost-entry-points"
+      ],
+      "sha256": "08ffcaa0216782978b7b7108dab33b2f689a28d0a3cce20d2a4f3c16efb69164",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-handset-site-control",
+      "description": "Put a handset beside the paintbrush at the right of the address field that presents the page as a phone, which is the only way the feature is discoverable.",
+      "rationale": "Handset mode had no user-reachable entry point at all: patch 0034 wired the mobile WebPreferences into Chromium's recomputation, but nothing could turn the mode on. This is the same affordance in the same place as the Boost paintbrush from patch 0033, for the neighbouring question about the same page - not 'restyle this site' but 'show me what a phone gets'. It reuses that patch's visibility rules, and eligibility is answered by seoul::CanHandsetWebContents rather than by the view, so every entry point agrees about what can be presented; that helper in turn reuses Boost's EligibleBrowserFor for the window half, so the two controls appear and disappear together instead of drifting apart. One deliberate difference from the paintbrush: a Boost opens an editor, but a Handset is a toggle, so the control reports live state - the glyph tints and the tooltip flips - because a toggle that looks identical in both states can only be read by clicking it. The upstream alternative rejected was Chromium's own Request Mobile Site: it overrides the User-Agent string alone, which is the half of the problem that no longer decides what a site serves. Note that this patch presents the page in place, in its existing tab and therefore its existing renderer process. That is safe only while Handset is WebPreferences and User-Agent, both per-WebContents. Blink's device emulation installs process-global overrides, so the separate-process requirement arrives with that work, not here.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 35,
+      "file": "0035-seoul-handset-site-control.patch",
+      "affectedPaths": [
+        "chrome/app/vector_icons/BUILD.gn",
+        "chrome/app/vector_icons/seoul_handset.icon",
+        "chrome/browser/ui/views/location_bar/location_bar_view.cc",
+        "chrome/browser/ui/views/location_bar/location_bar_view.h"
+      ],
+      "dependencies": [
+        "seoul-native-core",
+        "seoul-handset-web-preferences",
+        "seoul-boost-site-control-affordance"
+      ],
+      "sha256": "17af100ec4ad64997abdb15f5c84277984f2ad8ecd56a8e86afccf576b3da12f",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-handset-device-presentation",
+      "description": "Add a content/public facade of free functions so the browser layer can present a page as a physical device - emulated screen, pixel ratio, and real touch delivery.",
+      "rationale": "This is the first Seoul patch to touch //content, and it is deliberately a facade rather than an export. Both things Handset needs are content-internal and must stay that way: RenderWidgetHostImpl::GetAssociatedFrameWidget() returns a mojo::AssociatedRemote to a Blink interface, and GetTouchEmulator() returns TouchEmulatorImpl, whose Enable/Disable/InjectTouchEvent are not on the public RenderWidgetHost at all. Exporting either would put a raw pipe to Blink, or a content-internal type, in an embedder's hands; three free functions taking a WebContents keep the widget lookup, the frame walk and the emulator inside //content. Chromium reaches the same machinery only through a DevTools session, which is the wrong shape for a permanent product mode - it needs an attached agent host and cannot contribute to Chromium's own preference recomputation, so a later navigation would silently revert the layout. Two behaviours here are what make this a mode rather than a toggle. The presentation is applied to every main frame including speculative ones, because a cross-process navigation builds its new frame before retiring the old one and a frame that never received it renders at desktop size for the whole of its life. And the caller re-applies on every committed navigation, with kKeepCache, because emulation is state on a widget and the widget is replaced; keeping the cache matters because the device did not change and the new document is about to use exactly those resources. Device emulation is also not redundant with the WebPreferences of patch 0034: the emulated screen size and pixel ratio have no WebPreferences equivalent, so without this window.screen and devicePixelRatio keep reporting the real display and every DPR-driven asset choice picks the wrong image. Touch is separate again - there is no public way to forward a touch event, so without the emulator a page listening for touchstart receives nothing and a swipeable carousel simply does not work. The emulator runs in kEmulatingTouchFromMouse rather than kInjectingTouchEvents: the injecting mode delivers a touch only when something calls InjectTouchEvent, and Seoul has no trackpad gesture layer to do that yet, so enabling it would be worse than leaving touch off - a page would detect touch support, retire its mouse handlers, and then never receive a touch. Synthesizing from the pointer makes a drag a real swipe today; the injecting mode is where a genuine gesture layer plugs in once one exists.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 36,
+      "file": "0036-seoul-handset-device-presentation.patch",
+      "affectedPaths": [
+        "content/browser/BUILD.gn",
+        "content/browser/seoul_device_presentation.cc",
+        "content/public/browser/BUILD.gn",
+        "content/public/browser/seoul_device_presentation.h"
+      ],
+      "dependencies": [
+        "seoul-native-core",
+        "seoul-handset-web-preferences"
+      ],
+      "sha256": "a0e0638015ded0c144090a545cf10c86c923f9f539401f391f6a047ae1c8e44e",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-brave-default-search",
+      "description": "Default every fresh Seoul profile to Brave Search rather than Google, regardless of country.",
+      "rationale": "TemplateURLPrepopulateData::GetPrepopulatedFallbackSearch is what actually backs a fresh profile's default search engine: DefaultSearchManager's constructor loads it into fallback_default_search_, and GetDefaultSearchEngine() returns that (source FROM_FALLBACK) whenever there is no user pref, policy, or extension override - which is exactly the state of every brand-new profile, since nothing writes kDefaultSearchProviderDataPrefName automatically on first run. Existing profiles that already have a default configured never reach this path, so this only changes what a fresh install starts with. Brave Search is already a fully-defined prepopulated engine upstream (id 109, third_party/search_engines_data), so this is a preference-of-existing-choice, not a new-engine addition. A plain google.id-to-brave.id substitution in FindPrepopulatedEngineInternal would not be correct: that helper only searches the current country's own regional_settings.json list, and Brave is present in only a handful of those lists, so most countries would silently fall through to whatever is first in their own regional list instead of Brave. GetPrepopulatedEngineFromBuiltInData - already used by GetPrepopulatedEngineFromFullList a few lines above for the same reason - searches the region's list first and then the complete built-in set, so Brave resolves everywhere regardless of country.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 37,
+      "file": "0037-seoul-brave-default-search.patch",
+      "affectedPaths": [
+        "components/search_engines/template_url_prepopulate_data.cc"
+      ],
+      "dependencies": [],
+      "sha256": "33a9216a92e405f6ff56a069a46790784b53adc099ac3f4686043e1ba55f5880",
       "applyVerify": "git apply --check",
       "reverseVerify": "git apply -R --check",
       "reviewable": true

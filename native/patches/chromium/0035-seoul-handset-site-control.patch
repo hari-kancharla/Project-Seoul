@@ -1,0 +1,185 @@
+diff --git a/chrome/app/vector_icons/BUILD.gn b/chrome/app/vector_icons/BUILD.gn
+--- a/chrome/app/vector_icons/BUILD.gn
++++ b/chrome/app/vector_icons/BUILD.gn
+@@ -185,6 +185,7 @@
+     "seoul_collapse_sidebar.icon",
+   "seoul_expand_sidebar.icon",
+     "seoul_forward.icon",
++    "seoul_handset.icon",
+     "seoul_plus.icon",
+     "seoul_reload.icon",
+     "seoul_stop.icon",
+diff --git a/chrome/app/vector_icons/seoul_handset.icon b/chrome/app/vector_icons/seoul_handset.icon
+new file mode 100644
+index 0000000000..bf0c976030
+--- /dev/null
++++ b/chrome/app/vector_icons/seoul_handset.icon
+@@ -0,0 +1,29 @@
++// Copyright 2026 The Project Seoul Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++// Handset, for the device-presentation affordance in the address field. A
++// phone outline is the one glyph every user already reads as "show me the
++// mobile version"; the drawing is Seoul's own and matches the 18-DIP,
++// 1.5-stroke rail set.
++//
++// Two parts, so it cannot be misread as a generic rounded rectangle: a tall
++// rounded body, and a short speaker line inset at the top. The proportions are
++// a phone's, not a tablet's - 8 wide by 14 tall - because the action it names
++// presents the page at phone width.
++CANVAS_DIMENSIONS, 18,
++STROKE, 1.5,
++MOVE_TO, 7, 2,
++LINE_TO, 11, 2,
++R_ARC_TO, 2, 2, 0, 0, 1, 2, 2,
++LINE_TO, 13, 14,
++R_ARC_TO, 2, 2, 0, 0, 1, -2, 2,
++LINE_TO, 7, 16,
++R_ARC_TO, 2, 2, 0, 0, 1, -2, -2,
++LINE_TO, 5, 4,
++R_ARC_TO, 2, 2, 0, 0, 1, 2, -2,
++CLOSE,
++NEW_PATH,
++STROKE, 1.5,
++MOVE_TO, 8, 4.5,
++LINE_TO, 10, 4.5,
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.h b/chrome/browser/ui/views/location_bar/location_bar_view.h
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.h
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.h
+@@ -19,6 +19,7 @@
+ #include "base/scoped_observation.h"
+ #include "build/build_config.h"
+ #include "chrome/browser/ui/location_bar/location_bar.h"
++#include "seoul/browser/product/browser/handset_picker_menu.h"  // nogncheck
+ #include "chrome/browser/ui/omnibox/omnibox_popup_state_manager.h"
+ #include "chrome/browser/ui/page_action/page_action_icon_type.h"
+ #include "chrome/browser/ui/views/location_bar/content_setting_image_view.h"
+@@ -310,6 +311,9 @@
+   void SetSeoulActionModeLabelVisible(bool visible);
+   views::ImageButton* seoul_boost_button_for_testing() {
+     return seoul_boost_button_;
++  }
++  views::ImageButton* seoul_handset_button_for_testing() {
++    return seoul_handset_button_;
+   }
+   // Expands the docked Single Toolbar field into the floating command surface
+   // on the keystroke that begins editing, before that keystroke reaches the
+@@ -391,6 +395,7 @@
+   void RefreshSeoulFloatingFont();
+   void UpdateSeoulSidebarChromeOpacity();
+   void OnSeoulBoostButtonPressed();
++  void OnSeoulHandsetButtonPressed();
+   void HideSeoulSidebarChromeAfterFade();
+ 
+   // Updates the visibility state of the Content Blocked icons to reflect what
+@@ -622,6 +627,13 @@
+   // Arc's Site Control Panel paintbrush: the discoverable entry point to the
+   // Boost editor for the page in the address field.
+   raw_ptr<views::ImageButton> seoul_boost_button_ = nullptr;
++  // The Handset control, beside it: presents the page in the address field as
++  // a phone. Same panel, same rules, one action apart.
++  raw_ptr<views::ImageButton> seoul_handset_button_ = nullptr;
++  // Owns the device-picker menu's model and runner across the
++  // asynchronous show/click round trip. See handset_picker_menu.h for why
++  // this cannot be a call-scoped local.
++  seoul::HandsetPickerMenu seoul_handset_picker_menu_;
+ 
+   // Views to show inline autocompletion when an IME is active.  In this case,
+   // we shouldn't change the text or selection inside the OmniboxView itself,
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.cc b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.cc
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+@@ -192,6 +192,7 @@
+ #include "ui/views/border.h"
+ #include "ui/views/button_drag_utils.h"
+ #include "seoul/browser/product/browser/boost_entry_points.h"  // nogncheck
++#include "seoul/browser/product/browser/handset_mode.h"  // nogncheck
+ #include "ui/views/controls/button/image_button.h"
+ #include "ui/views/controls/button/image_button_factory.h"
+ #include "ui/views/controls/focus_ring.h"
+@@ -385,6 +386,24 @@
+   seoul_boost_button->GetViewAccessibility().SetName(u"Boost this site");
+   seoul_boost_button->SetVisible(false);
+   seoul_boost_button_ = AddChildView(std::move(seoul_boost_button));
++
++  // The Handset control sits beside the paintbrush because it answers the
++  // neighbouring question about the same page: not "restyle this site" but
++  // "show me this site the way a phone gets it". Putting it anywhere else -
++  // a menu, the command surface - makes it undiscoverable in the same way the
++  // Boost editor was before it had a button here.
++  auto seoul_handset_button = std::make_unique<views::ImageButton>(
++      base::BindRepeating(&LocationBarView::OnSeoulHandsetButtonPressed,
++                          base::Unretained(this)));
++  seoul_handset_button->SetImageHorizontalAlignment(
++      views::ImageButton::ALIGN_CENTER);
++  seoul_handset_button->SetImageVerticalAlignment(
++      views::ImageButton::ALIGN_MIDDLE);
++  seoul_handset_button->SetTooltipText(u"Show this site as a phone");
++  seoul_handset_button->GetViewAccessibility().SetName(
++      u"Show this site as a phone");
++  seoul_handset_button->SetVisible(false);
++  seoul_handset_button_ = AddChildView(std::move(seoul_handset_button));
+ 
+   if (page_info::IsMerchantTrustFeatureEnabled() &&
+       page_info::kMerchantTrustEnableOmniboxChip.Get()) {
+@@ -1174,6 +1193,38 @@
+     }
+   }
+ 
++  // Same visibility rules as the paintbrush, and for the same reasons: while
++  // the field floats the user is editing a query rather than looking at a
++  // page, and a device presentation is scoped to a real web page. Eligibility
++  // itself is Seoul's answer, not this view's, so the button and every other
++  // entry point cannot disagree about what can be presented.
++  if (seoul_handset_button_) {
++    content::WebContents* const contents = GetWebContents();
++    const bool presentable =
++        !seoul_floating_mode_ && seoul::CanHandsetWebContents(contents);
++    seoul_handset_button_->SetVisible(presentable);
++    if (presentable) {
++      // The control reports the live state rather than only the action, so a
++      // page already presented as a phone is legible at a glance instead of
++      // leaving the user to infer it from the layout.
++      const bool active = seoul::IsHandsetModeEnabled(contents);
++      seoul_handset_button_->SetImageModel(
++          views::Button::STATE_NORMAL,
++          ui::ImageModel::FromVectorIcon(
++              kSeoulHandsetIcon,
++              active ? kColorOmniboxResultsIconSelected : kColorOmniboxText,
++              GetLayoutConstant(LayoutConstant::kLocationBarTrailingIconSize)));
++      // "Stop showing..." would be a lie now that the click opens a picker
++      // rather than toggling directly - turning it off is one item in that
++      // menu, not the click itself.
++      seoul_handset_button_->SetTooltipText(
++          active ? u"Change or stop the phone presentation"
++                 : u"Show this site as a phone");
++      add_trailing_decoration(seoul_handset_button_, /*intra_item_padding=*/0,
++                              /*edge_padding=*/icon_left);
++    }
++  }
++
+   // When the AIM page action is shown as the right-most page action in the
+   // location bar, it should be positioned flush against the right edge of the
+   // location bar.
+@@ -2512,6 +2563,20 @@
+   }
+ }
+ 
++void LocationBarView::OnSeoulHandsetButtonPressed() {
++  content::WebContents* const contents = GetWebContents();
++  if (!contents || !seoul_handset_button_) {
++    return;
++  }
++  // A device lab needs a picker as the primary interaction, not a single
++  // hardcoded device behind a plain toggle - "which phone" is the question
++  // being asked here, and a bare on/off control cannot answer it. Selecting
++  // an item reloads the page under the new identity, same as the old toggle
++  // did; the control's own appearance is recomputed on the next layout pass
++  // once the menu closes, the same way the boost button's menu is.
++  seoul_handset_picker_menu_.Show(seoul_handset_button_, contents);
++}
++
+ void LocationBarView::SetSeoulActionModeLabelVisible(bool visible) {
+   if (!seoul_action_mode_label_) {
+     return;

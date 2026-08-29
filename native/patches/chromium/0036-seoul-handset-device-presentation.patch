@@ -1,0 +1,238 @@
+diff --git a/content/public/browser/BUILD.gn b/content/public/browser/BUILD.gn
+--- a/content/public/browser/BUILD.gn
++++ b/content/public/browser/BUILD.gn
+@@ -408,6 +408,7 @@
+     "service_process_info.h",
+     "service_process_observer_hub.h",
+     "service_worker_client_info.h",
++    "seoul_device_presentation.h",
+     "service_worker_context.h",
+     "service_worker_context_observer.h",
+     "service_worker_external_request_result.h",
+diff --git a/content/browser/BUILD.gn b/content/browser/BUILD.gn
+--- a/content/browser/BUILD.gn
++++ b/content/browser/BUILD.gn
+@@ -2180,6 +2180,7 @@
+     "service_worker/service_worker_container_host.h",
+     "service_worker/service_worker_content_settings_proxy_impl.cc",
+     "service_worker/service_worker_content_settings_proxy_impl.h",
++    "seoul_device_presentation.cc",
+     "service_worker/service_worker_context_core.cc",
+     "service_worker/service_worker_context_core.h",
+     "service_worker/service_worker_context_core_observer.h",
+diff --git a/content/public/browser/seoul_device_presentation.h b/content/public/browser/seoul_device_presentation.h
+new file mode 100644
+index 0000000000..a03401dc5b
+--- /dev/null
++++ b/content/public/browser/seoul_device_presentation.h
+@@ -0,0 +1,73 @@
++// Copyright 2026 The Project Seoul Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CONTENT_PUBLIC_BROWSER_SEOUL_DEVICE_PRESENTATION_H_
++#define CONTENT_PUBLIC_BROWSER_SEOUL_DEVICE_PRESENTATION_H_
++
++#include "content/common/content_export.h"
++
++namespace blink {
++struct DeviceEmulationParams;
++}
++
++namespace content {
++
++class WebContents;
++
++// Presenting a page as a physical device, for embedders.
++//
++// Everything this needs is content-internal and must stay that way. The mojo
++// remote that carries device emulation is reached through
++// RenderWidgetHostImpl::GetAssociatedFrameWidget(), which hands out a
++// mojo::AssociatedRemote to a Blink interface; the touch emulator is
++// TouchEmulatorImpl, whose Enable/Disable/InjectTouchEvent are not on the
++// public RenderWidgetHost at all. Exporting either object would put a raw pipe
++// to Blink, or a content-internal type, in an embedder's hands. So this is a
++// facade of free functions: the embedder names a WebContents and says what it
++// wants, and the widget lookup, the frame iteration and the emulator stay
++// inside //content.
++//
++// Chromium reaches the same machinery only through a DevTools session, which
++// is the wrong shape for a permanent product mode: it needs an attached agent
++// host, and it cannot contribute to Chromium's own preference recomputation.
++
++// Presents `web_contents` as the device described by `params`.
++//
++// Applies to every main frame of the page including speculative ones, which is
++// what makes this survive a cross-process navigation rather than reverting to
++// a desktop screen the moment the user follows a link off-site. Call it again
++// after a navigation commits to cover a frame that did not exist yet.
++//
++// `preserve_cache` should be true when re-applying unchanged parameters - a
++// navigation re-sync - so the memory cache is not needlessly cleared, and
++// false when the device genuinely changed. Returns false when the page has no
++// live widget to present.
++CONTENT_EXPORT bool SetDevicePresentation(
++    WebContents* web_contents,
++    const blink::DeviceEmulationParams& params,
++    bool preserve_cache);
++
++// Returns `web_contents` to the real display. Safe to call when no
++// presentation is active.
++CONTENT_EXPORT void ClearDevicePresentation(WebContents* web_contents);
++
++// Turns touch event delivery on or off for `web_contents`.
++//
++// Touches are synthesized from the pointer, so a drag becomes a swipe. That is
++// what makes a page with a touchstart listener - a swipeable carousel, a
++// pull-to-refresh - work at all, because there is no public way to forward a
++// touch event otherwise.
++//
++// It has to be this way round rather than the emulator's injecting mode, which
++// delivers nothing until an embedder supplies a touch stream: enabling touch
++// with no source of touches is worse than leaving it off, because a page that
++// feature-detects touch will retire its mouse handlers and then wait forever.
++//
++// Returns false when the page has no live widget.
++CONTENT_EXPORT bool SetTouchPresentationEnabled(WebContents* web_contents,
++                                                bool enabled);
++
++}  // namespace content
++
++#endif  // CONTENT_PUBLIC_BROWSER_SEOUL_DEVICE_PRESENTATION_H_
+diff --git a/content/browser/seoul_device_presentation.cc b/content/browser/seoul_device_presentation.cc
+new file mode 100644
+index 0000000000..9b16adbffd
+--- /dev/null
++++ b/content/browser/seoul_device_presentation.cc
+@@ -0,0 +1,131 @@
++// Copyright 2026 The Project Seoul Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "content/public/browser/seoul_device_presentation.h"
++
++#include "components/input/touch_emulator.h"
++#include "content/browser/renderer_host/input/touch_emulator_impl.h"
++#include "content/browser/renderer_host/render_frame_host_impl.h"
++#include "content/browser/renderer_host/render_widget_host_impl.h"
++#include "content/public/browser/web_contents.h"
++#include "third_party/blink/public/common/widget/device_emulation_params.h"
++#include "third_party/blink/public/mojom/page/widget.mojom.h"
++#include "ui/events/gesture_detection/gesture_provider_config_helper.h"
++
++namespace content {
++
++namespace {
++
++RenderFrameHostImpl* PrimaryMainFrame(WebContents* web_contents) {
++  return web_contents ? static_cast<RenderFrameHostImpl*>(
++                            web_contents->GetPrimaryMainFrame())
++                      : nullptr;
++}
++
++// The widget that actually carries the presentation for the page's main frame,
++// or null while a frame has no live widget - which is normal for a speculative
++// frame that has not been assigned one yet.
++RenderWidgetHostImpl* PresentationWidget(WebContents* web_contents) {
++  RenderFrameHostImpl* const frame = PrimaryMainFrame(web_contents);
++  return frame ? frame->GetRenderWidgetHost() : nullptr;
++}
++
++}  // namespace
++
++bool SetDevicePresentation(WebContents* web_contents,
++                           const blink::DeviceEmulationParams& params,
++                           bool preserve_cache) {
++  RenderFrameHostImpl* const primary = PrimaryMainFrame(web_contents);
++  if (!primary) {
++    return false;
++  }
++
++  const blink::mojom::DeviceEmulationCacheBehavior cache_behavior =
++      preserve_cache ? blink::mojom::DeviceEmulationCacheBehavior::kKeepCache
++                     : blink::mojom::DeviceEmulationCacheBehavior::kClearCache;
++
++  bool applied = false;
++  // Speculative frames are included deliberately. A cross-process navigation
++  // builds its new frame before the old one goes away, and a frame that never
++  // received the presentation renders the page at desktop size for the whole
++  // of its life. Nested main frames - a fenced frame's own main frame - are
++  // covered by the same walk, so an embedded document is presented as the same
++  // device as the page containing it rather than as the real display.
++  primary->ForEachRenderFrameHostImplIncludingSpeculative(
++      [&](RenderFrameHostImpl* frame) {
++        if (!frame->is_main_frame()) {
++          return;
++        }
++        RenderWidgetHostImpl* const widget = frame->GetRenderWidgetHost();
++        if (!widget) {
++          return;
++        }
++        auto& frame_widget = widget->GetAssociatedFrameWidget();
++        if (!frame_widget) {
++          return;
++        }
++        frame_widget->EnableDeviceEmulation(params, cache_behavior);
++        applied = true;
++      });
++  return applied;
++}
++
++void ClearDevicePresentation(WebContents* web_contents) {
++  RenderFrameHostImpl* const primary = PrimaryMainFrame(web_contents);
++  if (!primary) {
++    return;
++  }
++  primary->ForEachRenderFrameHostImplIncludingSpeculative(
++      [](RenderFrameHostImpl* frame) {
++        if (!frame->is_main_frame()) {
++          return;
++        }
++        RenderWidgetHostImpl* const widget = frame->GetRenderWidgetHost();
++        if (!widget) {
++          return;
++        }
++        auto& frame_widget = widget->GetAssociatedFrameWidget();
++        if (frame_widget) {
++          frame_widget->DisableDeviceEmulation();
++        }
++      });
++}
++
++bool SetTouchPresentationEnabled(WebContents* web_contents, bool enabled) {
++  RenderWidgetHostImpl* const widget = PresentationWidget(web_contents);
++  if (!widget) {
++    return false;
++  }
++  // Only create the emulator when turning presentation on. Asking for one just
++  // to switch it off would allocate an emulator for a page that never had one.
++  TouchEmulatorImpl* const emulator =
++      widget->GetTouchEmulator(/*create_if_necessary=*/enabled);
++  if (!emulator) {
++    return !enabled;
++  }
++  if (enabled) {
++    // kEmulatingTouchFromMouse, deliberately, and not kInjectingTouchEvents.
++    //
++    // The injecting mode delivers a touch only when something calls
++    // InjectTouchEvent. Enabling it without an injector would be worse than
++    // leaving touch off: the page would detect touch support, switch to its
++    // touch-only code path, retire its mouse handlers, and then never receive
++    // a touch - a carousel that silently stops responding to the pointer that
++    // is actually there. Emulating from the mouse makes a drag a real swipe
++    // now, which is what a page presented as a phone has to answer to.
++    //
++    // The injecting mode is where a genuine trackpad gesture layer would plug
++    // in, once one exists to feed it.
++    //
++    // CURRENT_PLATFORM is the touch-screen gesture configuration, so the slop,
++    // tap and fling thresholds are a device's rather than a mouse's.
++    emulator->Enable(input::TouchEmulator::Mode::kEmulatingTouchFromMouse,
++                     ui::GestureProviderConfigType::CURRENT_PLATFORM);
++  } else {
++    emulator->Disable();
++  }
++  return true;
++}
++
++}  // namespace content

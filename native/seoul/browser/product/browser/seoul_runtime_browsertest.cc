@@ -17,11 +17,13 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/run_loop.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/test/run_until.h"
 #include "base/test/test_future.h"
 #include "base/time/time.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
@@ -41,12 +43,14 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/webui_config_map.h"
 #include "base/containers/circular_deque.h"
+#include "ui/events/test/event_generator.h"
 #include "ui/events/test/test_event.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/toggle_button.h"
 #include "ui/views/test/button_test_api.h"
 #include "ui/views/test/widget_test.h"
+#include "ui/views/widget/widget_utils.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/url_loader_interceptor.h"
@@ -71,8 +75,11 @@
 #include "seoul/browser/shell/shell_service.h"
 #include "seoul/browser/site_layers/site_layer_registry.h"
 #include "seoul/browser/tools/tool_registry.h"
+#include "components/search_engines/template_url.h"
+#include "components/search_engines/template_url_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/color/color_provider_key.h"
 #include "ui/native_theme/mock_os_settings_provider.h"
 #include "ui/native_theme/native_theme.h"
@@ -1983,6 +1990,186 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest, BoostBubbleWritesLayerForOrigin)
       << "a Boost with nothing left in it must not linger";
 }
 
+namespace {
+// Mirrors the private helper in seoul_boost_bubble.cc, which is not visible
+// across translation units.
+bool ParseHexColorForTest(const std::string& value, SkColor* out) {
+  if (value.size() != 7 || value[0] != '#') {
+    return false;
+  }
+  int r = 0, g = 0, b = 0;
+  if (!base::HexStringToInt(std::string_view(value).substr(1, 2), &r) ||
+      !base::HexStringToInt(std::string_view(value).substr(3, 2), &g) ||
+      !base::HexStringToInt(std::string_view(value).substr(5, 2), &b)) {
+    return false;
+  }
+  *out = SkColorSetRGB(r, g, b);
+  return true;
+}
+}  // namespace
+
+// Arc's colour wheel is two draggable dots on one HSV disc, and it has no
+// test coverage anywhere in the codebase. This drives it the way a real drag
+// would - real screen-coordinate mouse events through EventGenerator, not a
+// direct call into the view - and checks the whole loop: a drag near the
+// centre (where both dots start, tied) grabs the background dot; dragging to
+// the rim writes a real colour into the registry; the live page actually
+// repaints; a second press nearer the moved dot's opposite side grabs the
+// *other* dot instead of moving the first one again; and closing/reopening
+// the bubble does not drop either colour.
+IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest, BoostColorWheelDragWritesBothDots) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  const GURL url = embedded_test_server()->GetURL("/empty.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+
+  ASSERT_TRUE(seoul::OpenBoostEditorForWebContents(contents));
+
+  auto find_bubble = [&]() -> views::Widget* {
+    for (views::Widget* widget : views::test::WidgetTest::GetAllWidgets()) {
+      if (widget->widget_delegate() &&
+          widget->widget_delegate()->GetAccessibleWindowTitle() ==
+              u"Boost this site") {
+        return widget;
+      }
+    }
+    return nullptr;
+  };
+  views::Widget* bubble = find_bubble();
+  ASSERT_TRUE(bubble) << "the Boost bubble must actually appear";
+
+  auto find_wheel = [](views::Widget* widget) -> views::View* {
+    base::circular_deque<views::View*> queue;
+    queue.push_back(widget->GetContentsView());
+    while (!queue.empty()) {
+      views::View* view = queue.front();
+      queue.pop_front();
+      if (view->GetViewAccessibility().GetCachedName() == u"Page colours") {
+        return view;
+      }
+      for (views::View* child : view->children()) {
+        queue.push_back(child);
+      }
+    }
+    return nullptr;
+  };
+  views::View* wheel = find_wheel(bubble);
+  ASSERT_TRUE(wheel) << "the colour wheel must be reachable by its name";
+
+  const gfx::Rect wheel_bounds = wheel->GetBoundsInScreen();
+  ASSERT_GT(wheel_bounds.width(), 0);
+  ASSERT_GT(wheel_bounds.height(), 0);
+  const gfx::Point centre = wheel_bounds.CenterPoint();
+  const int radius =
+      std::min(wheel_bounds.width(), wheel_bounds.height()) / 2;
+  ASSERT_GT(radius, 4) << "the wheel must actually be laid out, not zero-size";
+  const gfx::Point left_rim(centre.x() - radius + 1, centre.y());
+  const gfx::Point top_rim(centre.x(), centre.y() - radius + 1);
+
+  // Both dots start unset and tie at the centre, so this first drag - from
+  // the centre to the left rim, which the wheel's own hue formula makes pure
+  // red at its fixed value - must grab the background dot.
+  ui::test::EventGenerator event_generator(
+      views::GetRootWindow(bubble));
+  event_generator.MoveMouseTo(centre);
+  event_generator.PressLeftButton();
+  event_generator.MoveMouseTo(left_rim);
+  event_generator.ReleaseLeftButton();
+
+  SeoulRuntimeService* runtime =
+      SeoulRuntimeServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(runtime);
+  const std::string origin = url::Origin::Create(url).Serialize();
+  auto find_layer = [&]() -> const seoul::SiteLayer* {
+    for (const seoul::SiteLayer* candidate : runtime->site_layers()->List()) {
+      if (candidate->origin_pattern == origin) {
+        return candidate;
+      }
+    }
+    return nullptr;
+  };
+  auto find_adjustment =
+      [](const seoul::SiteLayer* layer,
+         seoul::SiteAdjustmentKind kind) -> const seoul::SiteAdjustment* {
+    if (!layer) {
+      return nullptr;
+    }
+    for (const auto& adjustment : layer->adjustments) {
+      if (adjustment.kind == kind) {
+        return &adjustment;
+      }
+    }
+    return nullptr;
+  };
+
+  const seoul::SiteAdjustment* background_adjustment =
+      find_adjustment(find_layer(), seoul::SiteAdjustmentKind::kBackgroundColor);
+  ASSERT_TRUE(background_adjustment) << "dragging the nearer dot must write "
+                                        "the background colour adjustment";
+  // Copy the value out rather than holding the pointer: the next drag
+  // mutates the layer through a read-modify-write copy, which replaces the
+  // stored SiteLayer (and its adjustments) wholesale, so a pointer into the
+  // old one would dangle.
+  const std::string background_hex = background_adjustment->color_value;
+  SkColor background_color = SK_ColorTRANSPARENT;
+  ASSERT_TRUE(ParseHexColorForTest(background_hex, &background_color))
+      << background_hex;
+  EXPECT_GT(SkColorGetR(background_color), 180u)
+      << "the left rim is pure red at this wheel's fixed value: got "
+      << background_hex;
+  EXPECT_LT(SkColorGetG(background_color), 60u) << background_hex;
+  EXPECT_LT(SkColorGetB(background_color), 60u) << background_hex;
+
+  // The live page must actually see it, not just the registry.
+  EXPECT_TRUE(base::test::RunUntil([&]() {
+    return content::EvalJs(contents,
+                           "getComputedStyle(document.body).backgroundColor")
+               .ExtractString() != "rgba(0, 0, 0, 0)";
+  }));
+
+  // The background dot has moved to the left rim, so a fresh press near the
+  // top rim is much closer to the still-centred text dot - this must grab
+  // the *other* dot, proving the two-handle dispatch, not just that one dot
+  // can be dragged.
+  event_generator.MoveMouseTo(top_rim);
+  event_generator.PressLeftButton();
+  event_generator.ReleaseLeftButton();
+
+  const seoul::SiteAdjustment* text_adjustment =
+      find_adjustment(find_layer(), seoul::SiteAdjustmentKind::kTextColor);
+  ASSERT_TRUE(text_adjustment) << "pressing near the second dot must write "
+                                  "the text colour adjustment, not move the "
+                                  "first dot again";
+  SkColor text_color = SK_ColorTRANSPARENT;
+  ASSERT_TRUE(ParseHexColorForTest(text_adjustment->color_value, &text_color))
+      << text_adjustment->color_value;
+  EXPECT_GT(SkColorGetG(text_color), 180u) << text_adjustment->color_value;
+  EXPECT_LT(SkColorGetB(text_color), 60u) << text_adjustment->color_value;
+  // The background dot must still be where it was - a click near the top
+  // must not have disturbed it.
+  const seoul::SiteAdjustment* background_after =
+      find_adjustment(find_layer(), seoul::SiteAdjustmentKind::kBackgroundColor);
+  ASSERT_TRUE(background_after);
+  EXPECT_EQ(background_hex, background_after->color_value);
+
+  // Closing and reopening the bubble for the same site must not lose either
+  // colour - the wheel's read-back path must restore both dots.
+  bubble->CloseNow();
+  ASSERT_TRUE(seoul::OpenBoostEditorForWebContents(contents));
+  views::Widget* reopened_bubble = find_bubble();
+  ASSERT_TRUE(reopened_bubble) << "the bubble must reopen for the same site";
+  views::View* reopened_wheel = find_wheel(reopened_bubble);
+  ASSERT_TRUE(reopened_wheel) << "the colour wheel must reappear";
+  const seoul::SiteLayer* reopened_layer = find_layer();
+  ASSERT_TRUE(reopened_layer);
+  EXPECT_TRUE(find_adjustment(reopened_layer,
+                              seoul::SiteAdjustmentKind::kBackgroundColor));
+  EXPECT_TRUE(find_adjustment(reopened_layer,
+                              seoul::SiteAdjustmentKind::kTextColor));
+}
+
 IN_PROC_BROWSER_TEST_F(SeoulBoostDarkBrowserTest,
                        BoostTintFontAndAutomaticDarkModeAreLive) {
   net::EmbeddedTestServer http_server(net::EmbeddedTestServer::TYPE_HTTP);
@@ -3845,6 +4032,24 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
            workflows->FindList("workflows")->size() == 2u;
   }));
   EXPECT_TRUE(console.messages().empty());
+}
+
+// A fresh profile - no user pref, no policy, no extension override - falls
+// through TemplateURLService to TemplateURLPrepopulateData's fallback
+// search. That is the one Chromium patched here to be Brave for every
+// country rather than Google, so this is the real end-to-end signal: not
+// that the patched function returns the right struct in isolation, but that
+// a profile with nothing configured actually lands on Brave through the
+// whole real resolution path a user's fresh install goes through.
+IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest, FreshProfileDefaultsToBraveSearch) {
+  TemplateURLService* const service =
+      TemplateURLServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(service);
+  const TemplateURL* const default_provider =
+      service->GetDefaultSearchProvider();
+  ASSERT_TRUE(default_provider);
+  EXPECT_EQ(u"Brave", default_provider->short_name());
+  EXPECT_NE(std::string::npos, default_provider->url().find("search.brave.com"));
 }
 
 } // namespace seoul
