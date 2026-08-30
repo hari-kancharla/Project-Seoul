@@ -29,6 +29,7 @@ namespace seoul {
 // without creating a platform window.
 std::unique_ptr<ui::DialogModel> BuildWorkspaceNameDialogModel(
     const std::u16string& title,
+    const std::u16string& field_label,
     const std::u16string& initial_name,
     base::OnceCallback<void(std::string)> on_accept);
 
@@ -39,6 +40,7 @@ std::unique_ptr<ui::DialogModel> BuildWorkspaceNameDialogModel(
 views::Widget* ShowWorkspaceNameDialog(
     gfx::NativeWindow parent,
     const std::u16string& title,
+    const std::u16string& field_label,
     const std::u16string& initial_name,
     base::OnceCallback<void(std::string)> on_accept);
 

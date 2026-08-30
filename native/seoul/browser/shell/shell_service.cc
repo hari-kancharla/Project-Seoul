@@ -263,12 +263,6 @@ SeoulShellFooterView* ShellService::GetFooterForTesting(ShellWindowKey window) {
              : nullptr;
 }
 
-SeoulShellSpaceView* ShellService::GetSpaceForTesting(ShellWindowKey window) {
-  auto host = hosts_.find(window);
-  return host != hosts_.end() && host->second
-             ? host->second->space_for_testing()
-             : nullptr;
-}
 
 void ShellService::OnCollapseStateChanged(ShellWindowKey window,
                                           bool collapsed) {

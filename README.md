@@ -94,10 +94,11 @@ at runtime).
 ## Checks and tests
 
 ```
-npm run check   # 15 static gates: scripts, json, adblock vendor, patch
-                # manifest, patch overlap, boundary, neutrality, native/product
-                # architecture, canvas webui, native syntax, checkout
-                # resolution, protocol drift, test wiring, native test wiring
+npm run check   # 16 static gates: scripts, json, adblock vendor, patch
+                # manifest, patch overlap, handset device catalogue, boundary,
+                # neutrality, native/product architecture, canvas webui, native
+                # syntax, checkout resolution, protocol drift, test wiring,
+                # native test wiring
 npm test        # 89 cases: protocol conformance, Canvas Design Lab, Boost
                 # editor, extension-harness resolver and providers, and the
                 # reference coordinate transform

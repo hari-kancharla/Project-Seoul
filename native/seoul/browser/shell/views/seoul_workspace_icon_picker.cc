@@ -35,6 +35,7 @@
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/animation_builder.h"
 #include "ui/views/background.h"
+#include "ui/views/animation/ink_drop.h"
 #include "ui/views/border.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/button/label_button.h"
@@ -56,7 +57,9 @@ constexpr int kGridColumns = 7;
 constexpr int kChoiceSize = 22;
 constexpr int kChoiceColumnWidth = 28;
 constexpr int kChoiceGap = 5;
-constexpr int kChoiceCornerRadius = 4;
+// Matches kChipCornerRadius in seoul_boost_bubble.cc - Seoul chips round
+// identically wherever they appear.
+constexpr int kChoiceCornerRadius = 6;
 constexpr int kGridHorizontalInset = 10;
 constexpr int kGridTopInset = 5;
 
@@ -64,6 +67,28 @@ enum class PickerPage {
   kEmoji,
   kBuiltin,
 };
+
+// A row whose height is the design's and whose width is its content's. A
+// zero-width SetPreferredSize would also pin the height, but it lies about
+// the width - the same trap that collapsed the Boost panel.
+class FixedHeightRow final : public views::View {
+  METADATA_HEADER(FixedHeightRow, views::View)
+
+ public:
+  explicit FixedHeightRow(int height) : height_(height) {}
+
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available_size) const override {
+    return gfx::Size(views::View::CalculatePreferredSize(available_size).width(),
+                     height_);
+  }
+
+ private:
+  const int height_;
+};
+
+BEGIN_METADATA(FixedHeightRow)
+END_METADATA
 
 class WorkspaceIconChoiceButton final : public views::LabelButton {
   METADATA_HEADER(WorkspaceIconChoiceButton, views::LabelButton)
@@ -98,6 +123,7 @@ class WorkspaceIconChoiceButton final : public views::LabelButton {
       return;
     }
     selected_ = selected;
+    GetViewAccessibility().SetIsSelected(selected);
     UpdateBackground();
     SchedulePaint();
   }
@@ -246,8 +272,8 @@ class SeoulWorkspaceIconPicker final : public views::View,
     layout->set_cross_axis_alignment(
         views::BoxLayout::CrossAxisAlignment::kStretch);
 
-    auto* switcher = AddChildView(std::make_unique<views::View>());
-    switcher->SetPreferredSize(gfx::Size(0, kPickerHeaderHeight));
+    auto* switcher =
+        AddChildView(std::make_unique<FixedHeightRow>(kPickerHeaderHeight));
     auto* switcher_layout =
         switcher->SetLayoutManager(std::make_unique<views::BoxLayout>(
             views::BoxLayout::Orientation::kHorizontal,
@@ -294,12 +320,20 @@ class SeoulWorkspaceIconPicker final : public views::View,
       button->SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(3, 6)));
       button->SetFocusRingCornerRadius(kChoiceCornerRadius);
       button->SetLabelStyle(views::style::STYLE_EMPHASIZED);
+      // The active page carries the persistent highlight; the other one
+      // still answers hover, or it reads as a caption instead of a control.
+      views::InkDrop::Get(button)->SetMode(views::InkDropHost::InkDropMode::ON);
+      views::InkDrop::UseInkDropForFloodFillRipple(views::InkDrop::Get(button),
+                                                   /*highlight_on_hover=*/true,
+                                                   /*highlight_on_focus=*/false);
+      views::InkDrop::Get(button)->SetBaseColor(kColorToolbarButtonIcon);
+      views::InkDrop::Get(button)->SetVisibleOpacity(0.12f);
+      views::InkDrop::Get(button)->SetHighlightOpacity(0.12f);
     }
 
-    auto search_row = std::make_unique<views::View>();
+    auto search_row = std::make_unique<FixedHeightRow>(kEmojiSearchHeight);
     search_row_ = search_row.get();
     AddChildView(std::move(search_row));
-    search_row_->SetPreferredSize(gfx::Size(0, kEmojiSearchHeight));
     auto* search_layout =
         search_row_->SetLayoutManager(std::make_unique<views::BoxLayout>(
             views::BoxLayout::Orientation::kHorizontal,
@@ -403,6 +437,10 @@ class SeoulWorkspaceIconPicker final : public views::View,
               ? views::CreateRoundedRectBackground(
                     kColorToolbarBackgroundSubtleEmphasis, kChoiceCornerRadius)
               : nullptr);
+      emoji_page_button_->GetViewAccessibility().SetIsSelected(
+          page == PickerPage::kEmoji);
+      builtin_page_button_->GetViewAccessibility().SetIsSelected(
+          page == PickerPage::kBuiltin);
     }
     ApplyFilter(page == PickerPage::kEmoji && search_
                     ? base::ToLowerASCII(base::UTF16ToUTF8(search_->GetText()))
@@ -462,8 +500,13 @@ class SeoulWorkspaceIconPicker final : public views::View,
       choice.button->SetSelected(choice.icon_ref == current_icon_);
     }
     if (none_button_) {
-      none_button_->SetEnabled(!current_icon_.empty());
-      none_button_->layer()->SetOpacity(current_icon_.empty() ? 0.0f : 1.0f);
+      // Kept in the layout at opacity zero so the header stays balanced
+      // against the leading placeholder, but removed from what assistive
+      // tech and the keyboard can reach while it is invisible.
+      const bool removable = !current_icon_.empty();
+      none_button_->SetEnabled(removable);
+      none_button_->layer()->SetOpacity(removable ? 1.0f : 0.0f);
+      none_button_->GetViewAccessibility().SetIsIgnored(!removable);
     }
   }
 

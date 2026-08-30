@@ -27,7 +27,6 @@ class ShellController;
 class SeoulShellFooterView;
 class SeoulShellHeaderView;
 class SeoulShellRegionHost;
-class SeoulShellSpaceView;
 
 class ShellService : public OrganizationModelObserver {
  public:
@@ -93,7 +92,6 @@ class ShellService : public OrganizationModelObserver {
 
   SeoulShellHeaderView* GetHeaderForTesting(ShellWindowKey window);
   SeoulShellFooterView* GetFooterForTesting(ShellWindowKey window);
-  SeoulShellSpaceView* GetSpaceForTesting(ShellWindowKey window);
 
   void OnOrganizationChanged(const OrganizationChange& change) override;
 

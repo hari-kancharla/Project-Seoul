@@ -574,6 +574,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       StudioWorkflowEdgeDoc['kind'] = 'sequence';
   protected accessor studioWorkflowArgsDrafts_: Record<string, string> = {};
   protected accessor boosts_: SiteLayerSnapshotDoc = {};
+  protected accessor optionSelections_: Record<string, string> = {};
   protected accessor boostsError_ = '';
   protected accessor boostsMessage_ = '';
   protected accessor boostsBusy_ = false;
@@ -673,6 +674,9 @@ export class SeoulCanvasAppElement extends CrLitElement {
     // library or boards view refreshes it lazily on demand.
     if (this.selectedView_ === 'library' || this.selectedView_ === 'boards') {
       void this.refreshLibrary_();
+    }
+    if (this.selectedView_ === 'library') {
+      void this.refreshSiteLayers_();
     }
   }
 
@@ -987,7 +991,10 @@ export class SeoulCanvasAppElement extends CrLitElement {
     });
     if (view === 'library' || view === 'boards') void this.refreshLibrary_();
     if (view === 'chat') void this.refreshThread_();
-    if (view === 'boosts') void this.refreshSiteLayers_();
+    // The Library's Boosts shelf reads the same snapshot the Boosts view
+    // does, so entering either view refreshes it - otherwise the shelf shows
+    // "No Boosts yet" until the user happens to visit the Boosts view.
+    if (view === 'boosts' || view === 'library') void this.refreshSiteLayers_();
     if (view === 'studio') void this.refreshStudio_();
   }
 
@@ -1514,6 +1521,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
             <span><strong>Font family</strong>
               <small>Override the site's typography</small></span></span>
           <input list="boost-font-families" maxlength="64"
+              aria-label="Font family name"
               ?disabled="${!this.boostFontEnabled_}"
               .value="${this.boostFontFamily_}"
               @input="${(event: Event) => this.boostFontFamily_ =
@@ -1569,7 +1577,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
         <div>${this.boostZapActive_ ? html`
             <button class="danger-button" type="button"
                 @click="${this.cancelZap_}">Cancel Zap</button>` : html`
-            <button class="boost-zap-button" type="button"
+            <button type="button"
                 ?disabled="${this.boostsBusy_ || !canSave}"
                 @click="${() => void this.zapElement_()}">Zap an element</button>`}
           <button type="button" @click="${this.closeBoostEditor_}">Cancel</button>
@@ -1591,6 +1599,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
         <span><strong>${label}</strong><small>${detail}</small></span>
         <output>${value}${unit}</output></span>
       <input type="range" min="${min}" max="${max}" step="${step}"
+          aria-label="${label} value"
           .value="${String(value)}" ?disabled="${!enabled}"
           @input="${onInput}"></label>`;
   }
@@ -1601,7 +1610,8 @@ export class SeoulCanvasAppElement extends CrLitElement {
       onInput: (event: Event) => void): unknown {
     return html`<label class="boost-color" data-enabled="${enabled}">
       <input type="checkbox" .checked="${enabled}" @change="${onToggle}">
-      <span>${label}</span><input type="color" .value="${value}"
+      <span>${label}</span><input type="color" aria-label="${label} color"
+          .value="${value}"
           ?disabled="${!enabled}" @input="${onInput}">
       <code>${value}</code></label>`;
   }
@@ -1924,6 +1934,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
           @input="${(event: Event) => this.updateThemeColor_(
             key, (event.target as HTMLInputElement).value)}">
       <input required pattern="#[0-9a-fA-F]{3}([0-9a-fA-F]{3}([0-9a-fA-F]{2})?)?"
+          aria-label="${label} hex value"
           .value="${value}" @input="${(event: Event) => this.updateThemeColor_(
             key, (event.target as HTMLInputElement).value)}">
     </span></label>`;
@@ -2516,9 +2527,18 @@ export class SeoulCanvasAppElement extends CrLitElement {
             <span class="library-boost-name">${layer.name || layer.origin_pattern}</span>
             <span class="library-boost-origin">${layer.origin_pattern}</span>
             ${layer.enabled ? nothing : html`<span class="saui-badge">Off</span>`}
-            <button type="button" class="danger"
-                aria-label="Delete the Boost for ${layer.origin_pattern}"
-                @click="${() => void this.deleteBoost_(layer)}">Delete</button>
+            ${this.pendingDeleteBoostId_ === layer.id ?
+              html`<span class="provider-clear-confirm">
+                <button class="danger-button confirmed" type="button"
+                    ?disabled="${this.boostsBusy_}"
+                    @click="${() => void this.deleteBoost_(layer)}">Delete permanently</button>
+                <button type="button" @click="${() =>
+                  this.pendingDeleteBoostId_ = ''}">Cancel</button></span>` :
+              html`<button type="button" class="danger-button"
+                  ?disabled="${this.boostsBusy_}"
+                  aria-label="Delete the Boost for ${layer.origin_pattern}"
+                  @click="${() =>
+                    this.pendingDeleteBoostId_ = layer.id}">Delete</button>`}
           </li>`)}</ul>` : html`<div class="empty-shelf"><h4>No Boosts yet</h4>
             <p>Restyle a site with the paintbrush in the address field and it appears here.</p></div>`}
       </section>
@@ -4496,9 +4516,19 @@ export class SeoulCanvasAppElement extends CrLitElement {
         label: String((option as Record<string, unknown>)['label'] ?? ''),
         value: String((option as Record<string, unknown>)['value'] ?? (option as Record<string, unknown>)['label'] ?? ''),
       }) : [];
+    // A segmented control that cannot show its segment is a row of dead
+    // buttons: the current choice comes from the node itself until the user
+    // picks, then from the pick.
+    const selected =
+        this.optionSelections_[node.id] ?? propString(node.props, 'value');
     return html`<fieldset class="option-group"><legend>${propString(node.props, 'label')}</legend>
       ${options.map(option => html`<button type="button" class="option-chip"
-          @click="${() => this.emitComponentEvent_(node, ComponentEventKind.kSelect, option.value)}">${option.label}</button>`)}
+          aria-pressed="${selected === option.value}"
+          @click="${() => {
+            this.optionSelections_ = {
+              ...this.optionSelections_, [node.id]: option.value};
+            this.emitComponentEvent_(node, ComponentEventKind.kSelect, option.value);
+          }}">${option.label}</button>`)}
     </fieldset>`;
   }
 

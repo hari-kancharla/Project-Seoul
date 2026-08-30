@@ -28,6 +28,7 @@ namespace seoul {
 inline constexpr int kHandsetPickerCommandCustomSize = 1000;
 inline constexpr int kHandsetPickerCommandRotate = 1001;
 inline constexpr int kHandsetPickerCommandTurnOff = 1002;
+inline constexpr int kHandsetPickerCommandMoreDevices = 1003;
 
 // The Handset device picker: every catalogue profile with a check mark on
 // the live one, a custom-size dialog for typing arbitrary dimensions, and -
@@ -73,6 +74,10 @@ class HandsetPickerMenu : public ui::SimpleMenuModel::Delegate {
   raw_ptr<content::WebContents> web_contents_ = nullptr;
   std::map<int, std::string> command_to_profile_id_;
   std::unique_ptr<ui::SimpleMenuModel> model_;
+  // The "All devices" submenu: the full generated catalogue beyond the
+  // featured devices. A SimpleMenuModel does not own its submenus, so this
+  // lives beside model_ with the same lifetime.
+  std::unique_ptr<ui::SimpleMenuModel> more_model_;
   std::unique_ptr<views::MenuRunner> runner_;
 };
 

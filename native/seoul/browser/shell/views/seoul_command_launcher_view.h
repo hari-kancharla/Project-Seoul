@@ -73,9 +73,7 @@ private:
 // dialog; Show() redirects the owning BrowserView into omnibox action mode.
 class SeoulCommandLauncherView {
 public:
-  static void Show(gfx::NativeWindow parent, views::View *anchor,
-                   ShellController *controller,
-                   base::RepeatingClosure show_split_chooser);
+  static void Show(gfx::NativeWindow parent);
 };
 
 } // namespace seoul

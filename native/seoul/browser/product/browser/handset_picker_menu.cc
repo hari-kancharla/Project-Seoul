@@ -3,6 +3,7 @@
 
 #include "seoul/browser/product/browser/handset_picker_menu.h"
 
+#include <algorithm>
 #include <string>
 #include <utility>
 
@@ -34,18 +35,34 @@ void HandsetPickerMenu::BuildModel(content::WebContents* web_contents) {
   // to run a second menu while the first is still alive.
   runner_.reset();
   model_.reset();
+  more_model_.reset();
   command_to_profile_id_.clear();
 
   web_contents_ = web_contents;
   const HandsetProfile* const active = HandsetProfileFor(web_contents_);
 
   model_ = std::make_unique<ui::SimpleMenuModel>(this);
+  more_model_ = std::make_unique<ui::SimpleMenuModel>(this);
+
+  // Top level carries the current device of each family; the full generated
+  // catalogue - every phone Chromium itself knows how to emulate - lives one
+  // level down so fifty devices never bury the six that matter. One command
+  // id per profile either way, so selection, check state, and the tests all
+  // go through the same map regardless of which level an item sits on.
+  const std::vector<std::string>& featured = FeaturedHandsetProfileIds();
+  const auto is_featured = [&featured](const std::string& id) {
+    return std::find(featured.begin(), featured.end(), id) != featured.end();
+  };
   int command = 0;
   for (const HandsetProfile& profile : HandsetProfiles()) {
-    model_->AddCheckItem(command, base::UTF8ToUTF16(profile.label));
+    ui::SimpleMenuModel* const level =
+        is_featured(profile.id) ? model_.get() : more_model_.get();
+    level->AddCheckItem(command, base::UTF8ToUTF16(profile.label));
     command_to_profile_id_[command] = profile.id;
     ++command;
   }
+  model_->AddSubMenu(kHandsetPickerCommandMoreDevices, u"All devices",
+                     more_model_.get());
   model_->AddSeparator(ui::NORMAL_SEPARATOR);
   model_->AddItem(kHandsetPickerCommandCustomSize, u"Custom size…");
   if (active) {
@@ -64,9 +81,12 @@ void HandsetPickerMenu::Show(views::View* anchor,
 
   runner_ = std::make_unique<views::MenuRunner>(
       model_.get(), views::MenuRunner::HAS_MNEMONICS);
+  // The picker opens from a pointer press on the address-bar button; kMouse
+  // is that truth, where kNone makes the menu system guess at positioning
+  // and dismissal behaviour.
   runner_->RunMenuAt(anchor->GetWidget(), nullptr, anchor->GetBoundsInScreen(),
                      views::MenuAnchorPosition::kTopLeft,
-                     ui::mojom::MenuSourceType::kNone);
+                     ui::mojom::MenuSourceType::kMouse);
 }
 
 void HandsetPickerMenu::ExecuteCommandForTesting(

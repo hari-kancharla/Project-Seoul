@@ -242,7 +242,17 @@ update the manifest.
 
 - `native/seoul/browser/handset/` - pure model. The device catalogue, the
   resolved geometry, and the User-Agent and client-hint rules. `//base` only,
-  fully unit tested, no browser required.
+  fully unit tested, no browser required. The catalogue is generated, not
+  curated: `scripts/generate-handset-profiles.mjs` derives it from Chromium's
+  own DevTools emulated-device list (the catalogue Google keeps current with
+  real phones), filtered to devices this mode can honestly present - stock
+  Safari or Chrome UA, a portrait orientation, metrics inside the Handset
+  bounds - and merged with a small overlay
+  (`handset_profiles_overlay.json`) for devices newer than the pinned
+  checkout. `check:handset-profiles` fails CI when the generated list is
+  stale for the checkout, so a Chromium roll that adds a phone adds it to the
+  picker with no hand edit; a computed newest-of-family rule likewise
+  promotes it to the picker's featured tier automatically.
 - `native/seoul/browser/product/browser/` - the WebContents integration:
   applies emulation, the User-Agent override, the touch emulator mode, and the
   web preferences, and reapplies them across navigation and process swap.

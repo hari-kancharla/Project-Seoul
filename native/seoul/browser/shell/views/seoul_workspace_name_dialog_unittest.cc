@@ -14,7 +14,7 @@ namespace {
 TEST(SeoulWorkspaceNameDialogTest,
      ProductionCreateProjectFieldHasAccessibleLabel) {
   std::unique_ptr<ui::DialogModel> model = BuildWorkspaceNameDialogModel(
-      u"Create project", std::u16string(),
+      u"Create project", u"Space name", std::u16string(),
       base::BindOnce([](std::string) {}));
   ASSERT_TRUE(model);
 
@@ -22,7 +22,7 @@ TEST(SeoulWorkspaceNameDialogTest,
   ASSERT_EQ(fields.size(), 1u);
   ui::DialogModelTextfield* textfield = fields.front()->AsTextfield();
   ASSERT_TRUE(textfield);
-  EXPECT_EQ(textfield->label(), u"Project name");
+  EXPECT_EQ(textfield->label(), u"Space name");
   EXPECT_FALSE(textfield->label().empty());
 }
 

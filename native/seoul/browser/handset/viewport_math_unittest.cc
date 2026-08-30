@@ -1,6 +1,8 @@
 // Project Seoul Handset.
 // Unit tests for the resolved geometry a live Handset is programmed with.
 
+#include <algorithm>
+
 #include "seoul/browser/handset/viewport_math.h"
 
 #include "base/check.h"
@@ -143,21 +145,31 @@ TEST(HandsetViewportMathTest, FreeResizeInheritsTheNearestScaleFactor) {
 }
 
 TEST(HandsetViewportMathTest, NearestProfileResolvesExactAndBetweenWidths) {
+  // Several catalogue devices share a portrait width at different scale
+  // factors (375dip covers both a 2x and a 3x iPhone), so an exact-width
+  // query cannot promise any particular device - what it promises is a
+  // device of exactly that width.
   for (const HandsetProfile& profile : HandsetProfiles()) {
-    EXPECT_EQ(profile.device_scale_factor,
+    EXPECT_EQ(profile.portrait_width_dip,
               NearestHandsetProfileForWidth(profile.portrait_width_dip,
                                             HandsetOrientation::kPortrait)
-                  .device_scale_factor)
+                  .portrait_width_dip)
         << profile.id;
   }
-  // Far below every catalogue width resolves to the narrowest profile.
-  EXPECT_EQ(360, NearestHandsetProfileForWidth(
-                     0, HandsetOrientation::kPortrait)
-                     .portrait_width_dip);
-  // Far above resolves to the widest.
-  EXPECT_EQ(834, NearestHandsetProfileForWidth(
-                     99999, HandsetOrientation::kPortrait)
-                     .portrait_width_dip);
+  // Far outside the catalogue resolves to its true extremes, whatever the
+  // generated catalogue's extremes currently are.
+  int narrowest = HandsetProfiles().front().portrait_width_dip;
+  int widest = narrowest;
+  for (const HandsetProfile& profile : HandsetProfiles()) {
+    narrowest = std::min(narrowest, profile.portrait_width_dip);
+    widest = std::max(widest, profile.portrait_width_dip);
+  }
+  EXPECT_EQ(narrowest, NearestHandsetProfileForWidth(
+                           0, HandsetOrientation::kPortrait)
+                           .portrait_width_dip);
+  EXPECT_EQ(widest, NearestHandsetProfileForWidth(
+                        99999, HandsetOrientation::kPortrait)
+                        .portrait_width_dip);
 }
 
 TEST(HandsetViewportMathTest, NearestProfileIsOrientationAware) {

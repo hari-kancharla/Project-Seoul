@@ -19,8 +19,6 @@
 
 namespace seoul {
 
-inline constexpr int kHandsetSchemaVersion = 1;
-
 // A Handset window is chrome-less, so the page is the whole window. These
 // bounds keep a caller from asking for a "phone" that is neither.
 inline constexpr int kMinHandsetWidthDip = 240;
@@ -118,8 +116,17 @@ struct HandsetMetrics {
 };
 
 // Returns the profiles this build can emulate, in picker order. The list is
-// immutable and shared; it holds no mutable product state.
+// immutable and shared; it holds no mutable product state. It is generated
+// from Chromium's own emulated-device catalogue plus a small overlay for
+// newer devices (scripts/generate-handset-profiles.mjs), so it tracks real
+// phones across Chromium rolls instead of being curated by hand.
 const std::vector<HandsetProfile>& HandsetProfiles();
+
+// Ids of the profiles the picker offers at top level - the current device of
+// each major family. Everything else lives under "All devices". Computed at
+// generation time by a newest-of-family rule, so a Chromium roll that adds a
+// newer phone promotes it with no edit anywhere.
+const std::vector<std::string>& FeaturedHandsetProfileIds();
 
 // Looks up a profile by id. Returns nullptr when the id is unknown, so a
 // stale persisted id fails closed instead of silently selecting a default.

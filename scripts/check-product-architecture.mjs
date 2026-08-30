@@ -1033,18 +1033,14 @@ const shellHeaderViewPath = path.join(
   seoulRoot, 'browser/shell/views/seoul_shell_header_view.cc');
 const shellFooterViewPath = path.join(
   seoulRoot, 'browser/shell/views/seoul_shell_footer_view.cc');
-const shellSpaceViewPath = path.join(
-  seoulRoot, 'browser/shell/views/seoul_shell_space_view.cc');
 const commandLauncherCatalogPath = path.join(
   seoulRoot, 'browser/shell/command_launcher_catalog.cc');
 if (fs.existsSync(shellHeaderViewPath) &&
     fs.existsSync(shellFooterViewPath) &&
-    fs.existsSync(shellSpaceViewPath) &&
     fs.existsSync(commandLauncherCatalogPath) &&
     fs.existsSync(launcherViewPath)) {
   const compactShell = fs.readFileSync(shellHeaderViewPath, 'utf8') +
       fs.readFileSync(shellFooterViewPath, 'utf8') +
-      fs.readFileSync(shellSpaceViewPath, 'utf8') +
       fs.readFileSync(commandLauncherCatalogPath, 'utf8') +
       fs.readFileSync(launcherViewPath, 'utf8');
   const shellHeaderView = fs.readFileSync(shellHeaderViewPath, 'utf8');
@@ -1055,7 +1051,7 @@ if (fs.existsSync(shellHeaderViewPath) &&
     'presentation_collapsed_',
     'Orientation::kVertical',
     'workspace.icon',
-    'SetVisible(!presentation_collapsed_)',
+    'SetVisible(!presentation_collapsed_',
     'ShellUtilityAction::kOpenBoost',
     'ShowSplitChooser',
     'weak_factory_.GetWeakPtr()',

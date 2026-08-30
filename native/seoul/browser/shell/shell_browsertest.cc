@@ -88,7 +88,6 @@
 #include "seoul/browser/shell/views/seoul_command_launcher_view.h"
 #include "seoul/browser/shell/views/seoul_shell_footer_view.h"
 #include "seoul/browser/shell/views/seoul_shell_header_view.h"
-#include "seoul/browser/shell/views/seoul_shell_space_view.h"
 #include "seoul/browser/shell/views/seoul_workspace_name_dialog.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -295,9 +294,8 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
 IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest, SpaceIsNamedOnceInTheFooter) {
   SeoulOrganizationService* svc = service();
   ASSERT_TRUE(svc);
-  EXPECT_EQ(nullptr, svc->shell_service()->GetSpaceForTesting(WindowKey()))
-      << "the top-of-rail Space indicator must not be installed";
-
+  // The old top-of-rail indicator class is deleted outright, so the only
+  // thing left to hold is that the footer pill actually carries the name.
   SeoulShellFooterView* footer =
       svc->shell_service()->GetFooterForTesting(WindowKey());
   ASSERT_TRUE(footer);
@@ -2575,7 +2573,7 @@ IN_PROC_BROWSER_TEST_F(SeoulShellBrowserTest,
   ASSERT_TRUE(browser()->window());
   views::Widget* dialog = ShowWorkspaceNameDialog(
       browser()->window()->GetNativeWindow(), u"Create project",
-      std::u16string(), base::BindOnce([](std::string) {}));
+      u"Space name", std::u16string(), base::BindOnce([](std::string) {}));
   ASSERT_TRUE(dialog);
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(dialog->IsVisible());

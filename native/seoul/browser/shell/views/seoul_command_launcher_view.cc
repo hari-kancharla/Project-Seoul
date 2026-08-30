@@ -3,7 +3,6 @@
 #include "seoul/browser/shell/views/seoul_command_launcher_view.h"
 
 #include <algorithm>
-#include <limits>
 #include <memory>
 #include <utility>
 
@@ -16,6 +15,7 @@
 #include "seoul/browser/shell/shell_controller.h"
 #include "ui/base/models/image_model.h"
 #include "ui/gfx/font.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
@@ -34,8 +34,12 @@ constexpr int kResultsTopInset = 8;
 constexpr int kResultsBottomInset = 10;
 constexpr int kResultsHorizontalInset = 10;
 constexpr int kResultHeight = 52;
-constexpr int kResultsViewportHeight = 252;
 constexpr int kRowsPerPage = 4;
+// Whole rows plus half a row of peek: the cut row is the scroll affordance,
+// and half a row reads as "more below" where 44/52 of a row read as a
+// rendering mistake.
+constexpr int kResultsViewportHeight =
+    kRowsPerPage * kResultHeight + kResultHeight / 2;
 
 const gfx::VectorIcon &EntryIcon(const CommandLauncherEntry &entry) {
   if (entry.kind == CommandLauncherEntryKind::kWorkspace) {
@@ -70,7 +74,6 @@ public:
             std::move(execute_callback), index)),
         icon_(EntryIcon(entry)) {
     SetFocusBehavior(FocusBehavior::NEVER);
-    SetPreferredSize(gfx::Size(0, kResultHeight));
     SetBorder(views::CreateEmptyBorder(gfx::Insets::TLBR(10, 8, 10, 8)));
     GetViewAccessibility().SetName(base::UTF8ToUTF16(entry.label));
 
@@ -115,11 +118,24 @@ public:
   ActionRowView &operator=(const ActionRowView &) = delete;
   ~ActionRowView() override = default;
 
+  // Fixed row height, honest content width. A zero preferred width here is
+  // the same trap that collapsed the Boost panel to nothing.
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds &available_size) const override {
+    return gfx::Size(
+        views::Button::CalculatePreferredSize(available_size).width(),
+        kResultHeight);
+  }
+
   void SetSelected(bool selected) {
     if (selected_ == selected) {
       return;
     }
     selected_ = selected;
+    GetViewAccessibility().SetIsSelected(selected);
+    if (selected) {
+      NotifyAccessibilityEventDeprecated(ax::mojom::Event::kSelection, true);
+    }
     UpdateStyle();
   }
 
@@ -326,13 +342,7 @@ void SeoulOmniboxActionView::ExecuteIndex(size_t index) {
   execute_callback_.Run(visible_entries_[index]);
 }
 
-void SeoulCommandLauncherView::Show(gfx::NativeWindow parent,
-                                    views::View *anchor,
-                                    ShellController *controller,
-                                    base::RepeatingClosure show_split_chooser) {
-  (void)anchor;
-  (void)controller;
-  (void)show_split_chooser;
+void SeoulCommandLauncherView::Show(gfx::NativeWindow parent) {
   if (BrowserView *browser_view =
           BrowserView::GetBrowserViewForNativeWindow(parent)) {
     browser_view->ShowSeoulOmniboxActions();

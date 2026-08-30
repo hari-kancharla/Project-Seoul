@@ -17,7 +17,6 @@ namespace seoul {
 
 class SeoulShellFooterView;
 class SeoulShellHeaderView;
-class SeoulShellSpaceView;
 class ShellController;
 
 // Owns the shell header/footer child views attached to one initialized vertical
@@ -46,12 +45,10 @@ public:
   VerticalTabStripRegionView *region() const { return region_; }
   SeoulShellHeaderView* header_for_testing() const { return header_; }
   SeoulShellFooterView* footer_for_testing() const { return footer_; }
-  SeoulShellSpaceView* space_for_testing() const { return space_; }
 
 private:
   raw_ptr<VerticalTabStripRegionView> region_ = nullptr;
   raw_ptr<SeoulShellHeaderView> header_ = nullptr;
-  raw_ptr<SeoulShellSpaceView> space_ = nullptr;
   raw_ptr<views::View> footer_spacer_ = nullptr;
   raw_ptr<SeoulShellFooterView> footer_ = nullptr;
 };

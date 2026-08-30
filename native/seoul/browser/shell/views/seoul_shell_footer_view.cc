@@ -48,11 +48,26 @@ constexpr int kFooterButtonSize = 34;
 constexpr base::TimeDelta kSpaceVisualTransition = base::Milliseconds(200);
 constexpr base::TimeDelta kCreateNewRotationDuration = base::Milliseconds(200);
 
+// Wider side insets than the header's essential chips (VH(4, 4)) on
+// purpose: these are square icon targets on the rail's edge, not text chips
+// in a row, and the extra 3px keeps the 34px hit target.
+constexpr int kFooterCornerRadius = 8;
+
 void StyleFooterButton(views::LabelButton* button) {
   button->SetHorizontalAlignment(gfx::ALIGN_CENTER);
   button->SetMinSize(gfx::Size(kFooterButtonSize, kFooterButtonSize));
   button->SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(4, 7)));
   button->SetEnabledTextColors(kColorToolbarText);
+  button->SetFocusRingCornerRadius(kFooterCornerRadius);
+  // Hovering a footer control answers the same way hovering an essential
+  // does; an icon-swap alone reads as nothing on Recover, which has no icon.
+  views::InkDrop::Get(button)->SetMode(views::InkDropHost::InkDropMode::ON);
+  views::InkDrop::UseInkDropForFloodFillRipple(views::InkDrop::Get(button),
+                                               /*highlight_on_hover=*/true,
+                                               /*highlight_on_focus=*/false);
+  views::InkDrop::Get(button)->SetBaseColor(kColorToolbarButtonIcon);
+  views::InkDrop::Get(button)->SetVisibleOpacity(0.12f);
+  views::InkDrop::Get(button)->SetHighlightOpacity(0.12f);
 }
 
 void SetFooterIcon(views::LabelButton* button, const gfx::VectorIcon& icon) {
@@ -71,7 +86,6 @@ void SetFooterIcon(views::LabelButton* button, const gfx::VectorIcon& icon) {
 }
 
 class CreateNewButton final : public views::LabelButton {
- public:
   METADATA_HEADER(CreateNewButton, views::LabelButton)
 
  public:
@@ -200,6 +214,8 @@ BEGIN_METADATA(SpaceStripView)
 END_METADATA
 
 class SpaceSwitcherButton final : public views::LabelButton {
+  METADATA_HEADER(SpaceSwitcherButton, views::LabelButton)
+
  public:
   SpaceSwitcherButton(views::Button::PressedCallback callback,
                       const ShellSpaceItem& space)
@@ -449,6 +465,9 @@ class SpaceSwitcherButton final : public views::LabelButton {
   std::string builtin_icon_ref_;
 };
 
+BEGIN_METADATA(SpaceSwitcherButton)
+END_METADATA
+
 }  // namespace
 
 SeoulShellFooterView::SeoulShellFooterView(ShellController* controller) {
@@ -517,6 +536,7 @@ SeoulShellFooterView::SeoulShellFooterView(ShellController* controller) {
                           base::Unretained(this)),
       u"Recover"));
   StyleFooterButton(reconcile_button_);
+  reconcile_button_->SetTooltipText(u"Run reconciliation");
   reconcile_button_->GetViewAccessibility().SetName(u"Run reconciliation");
 
   status_label_ = AddChildView(std::make_unique<views::Label>(
@@ -603,15 +623,16 @@ void SeoulShellFooterView::RebuildFromSnapshot(const ShellSnapshot& snapshot) {
   }
 
   spaces_container_->SetVisible(!snapshot.spaces.empty());
-  create_new_button_->SetVisible(true);
 
   if (snapshot.status == ShellStatus::kRecoveryRequired) {
     reconcile_button_->SetVisible(true);
     reconcile_button_->SetText(
         presentation_collapsed_ ? u"!" : u"Acknowledge Recovery");
+    reconcile_button_->SetTooltipText(u"Acknowledge Recovery");
     reconcile_button_->GetViewAccessibility().SetName(u"Acknowledge recovery");
   } else {
     reconcile_button_->SetText(u"Recover");
+    reconcile_button_->SetTooltipText(u"Run reconciliation");
     reconcile_button_->GetViewAccessibility().SetName(u"Run reconciliation");
     reconcile_button_->SetVisible(!presentation_collapsed_ &&
                                   snapshot.show_status_banner);
@@ -701,10 +722,7 @@ bool SeoulShellFooterView::ShowCommandLauncher() {
   if (!controller_ || !GetWidget()) {
     return false;
   }
-  SeoulCommandLauncherView::Show(
-      GetWidget()->GetNativeWindow(), this, controller_,
-      base::BindRepeating(&SeoulShellFooterView::ShowSplitChooser,
-                          weak_factory_.GetWeakPtr()));
+  SeoulCommandLauncherView::Show(GetWidget()->GetNativeWindow());
   return true;
 }
 

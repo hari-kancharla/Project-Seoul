@@ -7,6 +7,7 @@
 
 #include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
+#include "base/third_party/icu/icu_utf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "ui/base/interaction/element_identifier.h"
@@ -42,6 +43,11 @@ class WorkspaceNameDelegate : public ui::DialogModelDelegate {
     }
     if (value.size() > kMaxWorkspaceNameLength) {
       value.resize(kMaxWorkspaceNameLength);
+      // Never cut a surrogate pair in half: a name of emoji trimmed
+      // mid-pair ends in a lone surrogate that is invalid UTF-16.
+      if (CBU16_IS_LEAD(value.back())) {
+        value.pop_back();
+      }
     }
     std::move(on_accept_).Run(base::UTF16ToUTF8(value));
   }
@@ -54,6 +60,7 @@ class WorkspaceNameDelegate : public ui::DialogModelDelegate {
 
 std::unique_ptr<ui::DialogModel> BuildWorkspaceNameDialogModel(
     const std::u16string& title,
+    const std::u16string& field_label,
     const std::u16string& initial_name,
     base::OnceCallback<void(std::string)> on_accept) {
   auto delegate = std::make_unique<WorkspaceNameDelegate>(std::move(on_accept));
@@ -62,8 +69,10 @@ std::unique_ptr<ui::DialogModel> BuildWorkspaceNameDialogModel(
       .SetTitle(title)
       // DialogModel requires every text field to have either a visible label
       // or an accessible name. An empty label makes Chromium abort as soon as
-      // the create/rename dialog is constructed.
-      .AddTextfield(kWorkspaceNameFieldId, u"Project name", initial_name)
+      // the create/rename dialog is constructed - and the label names what is
+      // being named, which is the caller's to say: a Space here, a Boost in
+      // the Boost panel.
+      .AddTextfield(kWorkspaceNameFieldId, field_label, initial_name)
       .AddOkButton(base::BindOnce(&WorkspaceNameDelegate::OnAccepted,
                                   base::Unretained(delegate_ptr)))
       .AddCancelButton(base::DoNothing())
@@ -73,10 +82,12 @@ std::unique_ptr<ui::DialogModel> BuildWorkspaceNameDialogModel(
 views::Widget* ShowWorkspaceNameDialog(
     gfx::NativeWindow parent,
     const std::u16string& title,
+    const std::u16string& field_label,
     const std::u16string& initial_name,
     base::OnceCallback<void(std::string)> on_accept) {
   return constrained_window::ShowBrowserModal(
-      BuildWorkspaceNameDialogModel(title, initial_name, std::move(on_accept)),
+      BuildWorkspaceNameDialogModel(title, field_label, initial_name,
+                                    std::move(on_accept)),
       parent);
 }
 

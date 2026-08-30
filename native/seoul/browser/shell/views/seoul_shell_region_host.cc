@@ -13,7 +13,6 @@
 #include "seoul/browser/shell/views/seoul_shell_footer_view.h"
 #include "ui/views/layout/flex_layout_types.h"
 #include "seoul/browser/shell/views/seoul_shell_header_view.h"
-#include "seoul/browser/shell/views/seoul_shell_space_view.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/view.h"
 #include "ui/views/view_class_properties.h"
@@ -108,9 +107,6 @@ void SeoulShellRegionHost::SetPresentationCollapsed(bool collapsed) {
   if (footer_) {
     footer_->SetPresentationCollapsed(collapsed);
   }
-  if (space_) {
-    space_->SetPresentationCollapsed(collapsed);
-  }
 }
 
 bool SeoulShellRegionHost::ShowCommandLauncher() {
@@ -124,16 +120,17 @@ void SeoulShellRegionHost::SetCommandLauncherVisible(bool visible) {
 }
 
 void SeoulShellRegionHost::Detach() {
-  if (region_ && space_) {
-    if (VerticalTabStripView* tab_strip = region_->GetSeoulTabStripView()) {
-      tab_strip->ClearSeoulSpaceIndicator();
-    }
-  }
-  space_ = nullptr;
   if (region_ && header_) {
     region_->RemoveChildViewT(header_.get());
   }
   header_ = nullptr;
+  // The spacer detaches with the footer it positions. Leaving it behind
+  // stacks a second unbounded-flex spacer into the rail on the next
+  // Attach(), whose `if (!footer_)` path builds both again.
+  if (region_ && footer_spacer_) {
+    region_->RemoveChildViewT(footer_spacer_.get());
+  }
+  footer_spacer_ = nullptr;
   if (region_ && footer_) {
     region_->RemoveChildViewT(footer_.get());
   }

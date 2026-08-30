@@ -10,6 +10,8 @@ import("//testing/test.gni")
 
 source_set("handset_core") {
   sources = [
+    "handset_profiles_generated.cc",
+    "handset_profiles_generated.h",
     "handset_types.cc",
     "handset_types.h",
     "user_agent_profile.cc",
@@ -24,6 +26,7 @@ source_set("handset_core") {
 test("seoul_handset_unittests") {
   testonly = true
   sources = [
+    "handset_catalog_unittest.cc",
     "user_agent_profile_unittest.cc",
     "viewport_math_unittest.cc",
   ]

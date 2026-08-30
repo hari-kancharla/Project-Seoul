@@ -2,7 +2,7 @@
 
 #include <utility>
 
-#include "base/no_destructor.h"
+#include "seoul/browser/handset/handset_profiles_generated.h"
 
 namespace seoul {
 
@@ -31,43 +31,20 @@ HandsetProfile::HandsetProfile(const HandsetProfile&) = default;
 HandsetProfile& HandsetProfile::operator=(const HandsetProfile&) = default;
 HandsetProfile::~HandsetProfile() = default;
 
-namespace {
-
-// CSS-pixel portrait sizes and device pixel ratios for the emulated classes.
-// These are the layout viewport sizes the real devices report, not their
-// physical panel sizes; a site's breakpoints see exactly what they would see
-// on the device. Widths drive the whole product experience, so a wrong number
-// here is a visible bug rather than a cosmetic one.
-//
-// The list spans the breakpoints that actually differ in the wild: a small
-// phone, a standard phone, a large phone, the two dominant Android widths, and
-// two tablet widths. It is deliberately short. Every extra near-duplicate
-// costs picker clarity and buys no additional layout coverage.
-const std::vector<HandsetProfile>& BuildProfiles() {
-  static const base::NoDestructor<const std::vector<HandsetProfile>> profiles(
-      std::vector<HandsetProfile>{
-          {"iphone-compact", "iPhone SE", HandsetPlatform::kIOS,
-           HandsetFormFactor::kPhone, 375, 667, 2.0f, "17_6_1", ""},
-          {"iphone", "iPhone 15", HandsetPlatform::kIOS,
-           HandsetFormFactor::kPhone, 393, 852, 3.0f, "18_0", ""},
-          {"iphone-max", "iPhone 15 Pro Max", HandsetPlatform::kIOS,
-           HandsetFormFactor::kPhone, 430, 932, 3.0f, "18_0", ""},
-          {"android-compact", "Galaxy S23", HandsetPlatform::kAndroid,
-           HandsetFormFactor::kPhone, 360, 780, 3.0f, "15", "SM-S911B"},
-          {"android", "Pixel 8", HandsetPlatform::kAndroid,
-           HandsetFormFactor::kPhone, 412, 915, 2.625f, "15", "Pixel 8"},
-          {"tablet-compact", "iPad mini", HandsetPlatform::kIOS,
-           HandsetFormFactor::kTablet, 744, 1133, 2.0f, "18_0", ""},
-          {"tablet", "iPad Pro 11\"", HandsetPlatform::kIOS,
-           HandsetFormFactor::kTablet, 834, 1194, 2.0f, "18_0", ""},
-      });
-  return *profiles;
+// The device catalogue is generated, not curated: Chromium's own DevTools
+// emulated-device list (which Google keeps current with real phones) merged
+// with a small overlay for devices newer than the pinned checkout. See
+// scripts/generate-handset-profiles.mjs; check:handset-profiles fails CI when
+// the generated list is stale for the checkout, so a Chromium roll that adds
+// a phone adds it here too. CSS-pixel portrait sizes and device pixel ratios
+// are the layout viewport the real device reports - a site's breakpoints see
+// exactly what they would see on the device.
+const std::vector<HandsetProfile>& HandsetProfiles() {
+  return GeneratedHandsetProfiles();
 }
 
-}  // namespace
-
-const std::vector<HandsetProfile>& HandsetProfiles() {
-  return BuildProfiles();
+const std::vector<std::string>& FeaturedHandsetProfileIds() {
+  return GeneratedFeaturedHandsetProfileIds();
 }
 
 const HandsetProfile* FindHandsetProfile(const std::string& id) {

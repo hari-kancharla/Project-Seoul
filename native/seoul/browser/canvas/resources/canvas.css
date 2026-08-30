@@ -14,6 +14,11 @@
   --accent-soft: light-dark(#dfe7d4, #34402c);
   --danger: light-dark(#a33b34, #ff938b);
   --shadow: light-dark(0 18px 50px rgba(42, 40, 29, .1), 0 18px 60px rgba(0, 0, 0, .28));
+  --viz-1: light-dark(#8e7b63, #b5a48c);
+  --viz-2: light-dark(#657c8d, #92aabb);
+  --viz-3: light-dark(#9a6875, #c095a2);
+  --viz-4: light-dark(#887e42, #b3a86b);
+  --viz-5: light-dark(#6d7192, #9a9ec2);
   color-scheme: light dark;
   position: relative;
   display: grid;
@@ -389,7 +394,11 @@ button { color: inherit; }
  margin-top: 12px; }
 
 .collection-actions button,
-.collection-card li button { min-height: 29px;
+.collection-card li button,
+.library-section-heading button,
+.library-boost button,
+.collection-editor > header button,
+.collection-editor > footer button { min-height: 29px;
  padding: 4px 9px;
  border: 1px solid var(--rule);
  border-radius: 8px;
@@ -399,12 +408,28 @@ button { color: inherit; }
  font-size: 11px; }
 
 .collection-actions button:hover:not(:disabled),
-.collection-card li button:hover:not(:disabled) { border-color: var(--accent);
+.collection-card li button:hover:not(:disabled),
+.library-section-heading button:hover:not(:disabled),
+.library-boost button:hover:not(:disabled),
+.collection-editor > header button:hover:not(:disabled),
+.collection-editor > footer button:hover:not(:disabled) { border-color: var(--accent);
  background: var(--accent-soft); }
 
 .collection-actions button:disabled,
-.collection-card li button:disabled { cursor: default;
+.collection-card li button:disabled,
+.library-section-heading button:disabled,
+.library-boost button:disabled,
+.collection-editor > header button:disabled,
+.collection-editor > footer button:disabled { cursor: default;
  opacity: .48; }
+
+/* One default danger treatment wherever a .danger-button appears; scoped
+   rules refine placement, not the color language. */
+.danger-button { color: var(--danger); }
+
+.danger-button.confirmed { border-color: var(--danger);
+ background: var(--danger);
+ color: var(--canvas); }
 
 .collection-warning,
 .collection-empty { margin-top: 11px;
@@ -750,7 +775,7 @@ button { color: inherit; }
 .board-stage-empty {
  position: absolute;
  top: 50%;
- left: min(50vw, 520px);
+ left: 50%;
  width: 300px;
  transform: translate(-50%, -50%);
  color: var(--muted);
@@ -1154,6 +1179,17 @@ button { color: inherit; }
  height: 14px;
  accent-color: var(--accent); }
 
+.switch-row { display: inline-flex;
+ align-items: center;
+ gap: 7px;
+ margin-right: auto;
+ color: var(--muted);
+ font-size: 11px; }
+
+.switch-row input { width: 14px;
+ height: 14px;
+ accent-color: var(--accent); }
+
 .studio-list { display: grid;
  gap: 8px; }
 
@@ -1298,8 +1334,13 @@ button { color: inherit; }
  gap: 10px;
  padding: 12px; }
 
+.theme-meta > div { min-width: 0; }
+
 .theme-meta h4 { margin: 0;
- font-size: 13px; }
+ overflow: hidden;
+ font-size: 13px;
+ text-overflow: ellipsis;
+ white-space: nowrap; }
 
 .theme-meta p { margin: 2px 0 0;
  color: var(--muted);
@@ -1825,20 +1866,20 @@ hr { width: 100%;
 .viz-series-0 { fill: var(--accent);
  stroke: var(--accent); }
 
-.viz-series-1 { fill: #8e7b63;
- stroke: #8e7b63; }
+.viz-series-1 { fill: var(--viz-1);
+ stroke: var(--viz-1); }
 
-.viz-series-2 { fill: #657c8d;
- stroke: #657c8d; }
+.viz-series-2 { fill: var(--viz-2);
+ stroke: var(--viz-2); }
 
-.viz-series-3 { fill: #9a6875;
- stroke: #9a6875; }
+.viz-series-3 { fill: var(--viz-3);
+ stroke: var(--viz-3); }
 
-.viz-series-4 { fill: #887e42;
- stroke: #887e42; }
+.viz-series-4 { fill: var(--viz-4);
+ stroke: var(--viz-4); }
 
-.viz-series-5 { fill: #6d7192;
- stroke: #6d7192; }
+.viz-series-5 { fill: var(--viz-5);
+ stroke: var(--viz-5); }
 
 .viz-pie-track { fill: none;
  stroke: var(--rule);
@@ -1932,6 +1973,9 @@ hr { width: 100%;
 .saui-button:hover,
  .task-controls button:hover,
  .option-chip:hover { border-color: var(--accent); }
+
+.option-chip[aria-pressed='true'] { border-color: var(--accent);
+ background: var(--accent-soft); }
 
 .primary { border-color: transparent !important;
  background: var(--accent) !important;
@@ -2640,7 +2684,7 @@ progress { width: 100%;
  margin: 22px auto 0; }
 
 .thread-item { padding: 18px 20px;
- border: 1px solid var(--line);
+ border: 1px solid var(--rule);
  border-radius: 18px;
  background: var(--panel); }
 
@@ -2671,7 +2715,7 @@ progress { width: 100%;
 .thread-empty { width: min(720px, 100%);
  margin: 80px auto 0;
  padding: 34px;
- border: 1px solid var(--line);
+ border: 1px solid var(--rule);
  border-radius: 24px;
  background: var(--panel); }
 
@@ -2803,9 +2847,9 @@ button:focus-visible,
 
 .library-boost {
   align-items: center;
-  background: var(--panel-solid);
+  background: var(--panel);
   border: 1px solid var(--rule);
-  border-radius: 10px;
+  border-radius: 15px;
   display: flex;
   gap: 10px;
   padding: 8px 12px;
@@ -2822,3 +2866,30 @@ button:focus-visible,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Interactive means responsive: every pressable pill shifts on hover the
+   same way the collection pills always have, instead of sitting inert under
+   a pointer cursor. */
+.page-context-actions button:hover,
+.board-actions button:hover:not(:disabled),
+.board-back:hover,
+.board-history-actions button:hover:not(:disabled),
+.board-rename button:hover,
+.board-toolbar button:hover:not(:disabled),
+.board-archived-banner button:hover,
+.board-element-form > footer button:hover:not(:disabled),
+.provider-edit-button:hover,
+.provider-editor > footer button:hover:not(:disabled),
+.boosts-heading button:hover:not(:disabled),
+.boost-page-actions button:hover:not(:disabled),
+.boost-editor button:hover:not(:disabled),
+.boost-card button:hover:not(:disabled) { border-color: var(--accent);
+ background: var(--accent-soft); }
+
+.view-switcher button:hover:not([aria-current='page']) { background: var(--panel);
+ color: var(--ink); }
+
+.voice-button:hover:not([aria-pressed='true']) { background: var(--panel);
+ color: var(--ink); }
+
+.send-button:hover:not(:disabled) { opacity: .85; }

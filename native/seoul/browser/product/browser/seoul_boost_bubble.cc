@@ -39,7 +39,11 @@
 #include "ui/base/mojom/dialog_button.mojom.h"
 #include "ui/menus/simple_menu_model.h"
 #include "ui/base/mojom/menu_source_type.mojom.h"
+#include "ui/color/color_id.h"
 #include "ui/color/color_provider.h"
+#include "ui/events/event.h"
+#include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/gfx/font_list.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/image/image_skia.h"
@@ -205,8 +209,13 @@ class BoostColorWheel final : public views::View {
   explicit BoostColorWheel(ColorCallback on_color)
       : on_color_(std::move(on_color)) {
     SetPreferredSize(gfx::Size(kWheelSize, kWheelSize));
-    GetViewAccessibility().SetRole(ax::mojom::Role::kGroup);
-    GetViewAccessibility().SetName(u"Page colours");
+    // Focusable and arrow-driven, not mouse-only: the wheel is the panel's
+    // primary control, so it has to be reachable and operable without a
+    // pointer like every other control here.
+    SetFocusBehavior(FocusBehavior::ALWAYS);
+    GetViewAccessibility().SetRole(ax::mojom::Role::kColorWell);
+    GetViewAccessibility().SetName(u"Page colors");
+    UpdateAccessibleValue();
   }
   BoostColorWheel(const BoostColorWheel&) = delete;
   BoostColorWheel& operator=(const BoostColorWheel&) = delete;
@@ -216,6 +225,7 @@ class BoostColorWheel final : public views::View {
   // cannot loop into another write.
   void SetDot(Dot dot, std::optional<SkColor> color) {
     (dot == Dot::kBackground ? background_ : text_) = color;
+    UpdateAccessibleValue();
     SchedulePaint();
   }
 
@@ -233,13 +243,14 @@ class BoostColorWheel final : public views::View {
     canvas->DrawImageInt(gfx::ImageSkia::CreateFrom1xBitmap(disc_), bounds.x(),
                          bounds.y());
 
-    PaintDot(canvas, centre, radius, background_, u"BG");
-    PaintDot(canvas, centre, radius, text_, u"A");
+    PaintDot(canvas, centre, radius, Dot::kBackground, u"BG");
+    PaintDot(canvas, centre, radius, Dot::kText, u"A");
   }
 
   bool OnMousePressed(const ui::MouseEvent& event) override {
     // Whichever dot is nearer to the press is the one being dragged, which is
     // how a two-handle control stays predictable.
+    RequestFocus();
     dragging_ = NearestDot(event.location());
     return UpdateFromPoint(event.location());
   }
@@ -248,12 +259,58 @@ class BoostColorWheel final : public views::View {
     return UpdateFromPoint(event.location());
   }
 
+  bool OnKeyPressed(const ui::KeyEvent& event) override {
+    // Space or Tab-adjacent switching: Space flips which dot the arrows move,
+    // arrows nudge that dot across the disc. The same UpdateFromPoint path a
+    // drag uses, so the keyboard writes exactly what the mouse writes.
+    if (event.key_code() == ui::VKEY_SPACE) {
+      dragging_ =
+          dragging_ == Dot::kBackground ? Dot::kText : Dot::kBackground;
+      UpdateAccessibleValue();
+      SchedulePaint();
+      return true;
+    }
+    int dx = 0;
+    int dy = 0;
+    switch (event.key_code()) {
+      case ui::VKEY_LEFT:  dx = -kKeyStepPx; break;
+      case ui::VKEY_RIGHT: dx = kKeyStepPx;  break;
+      case ui::VKEY_UP:    dy = -kKeyStepPx; break;
+      case ui::VKEY_DOWN:  dy = kKeyStepPx;  break;
+      default:
+        return false;
+    }
+    const gfx::Rect bounds = GetContentsBounds();
+    const float radius = std::min(bounds.width(), bounds.height()) / 2.0f;
+    const gfx::PointF centre(bounds.x() + radius, bounds.y() + radius);
+    const std::optional<SkColor>& active =
+        dragging_ == Dot::kBackground ? background_ : text_;
+    const gfx::PointF at = DotPosition(dragging_, active, centre, radius);
+    return UpdateFromPoint(
+        gfx::Point(static_cast<int>(at.x()) + dx,
+                   static_cast<int>(at.y()) + dy));
+  }
+
+  void OnFocus() override {
+    views::View::OnFocus();
+    SchedulePaint();
+  }
+
+  void OnBlur() override {
+    views::View::OnBlur();
+    SchedulePaint();
+  }
+
  private:
   static constexpr int kWheelSize = 132;
-  static constexpr float kDotRadius = 7.0f;
+  static constexpr float kDotRadius = 9.0f;
   // Fixed value keeps every reachable colour usable as a page colour rather
   // than letting a drag to the rim produce something unreadable.
   static constexpr float kValue = 0.92f;
+  // One arrow press moves the active dot this many pixels across the disc -
+  // fine enough to land on a colour, coarse enough that crossing the disc is
+  // not forty presses.
+  static constexpr int kKeyStepPx = 4;
 
   void PaintDisc(int size) {
     if (size <= 0) {
@@ -296,11 +353,17 @@ class BoostColorWheel final : public views::View {
                          static_cast<uint8_t>((b + match) * 255));
   }
 
-  gfx::PointF DotPosition(std::optional<SkColor> color,
+  gfx::PointF DotPosition(Dot dot,
+                          std::optional<SkColor> color,
                           const gfx::PointF& centre,
                           float radius) const {
     if (!color) {
-      return centre;
+      // Unset dots rest apart, not stacked at the centre: stacked, they are
+      // indistinguishable and only one of them can ever be grabbed first.
+      const float offset = kDotRadius * 1.6f;
+      return gfx::PointF(
+          centre.x() + (dot == Dot::kBackground ? -offset : offset),
+          centre.y());
     }
     SkScalar hsv[3];
     SkColorToHSV(*color, hsv);
@@ -313,13 +376,21 @@ class BoostColorWheel final : public views::View {
   void PaintDot(gfx::Canvas* canvas,
                 const gfx::PointF& centre,
                 float radius,
-                std::optional<SkColor> color,
+                Dot dot,
                 const std::u16string& label) {
-    const gfx::PointF at = DotPosition(color, centre, radius);
+    const std::optional<SkColor>& color =
+        dot == Dot::kBackground ? background_ : text_;
+    const gfx::PointF at = DotPosition(dot, color, centre, radius);
+    // An unset dot takes the dialog's own background so it reads as "empty"
+    // against the near-white disc centre instead of vanishing into it.
+    const SkColor fill_color =
+        color.value_or(GetColorProvider()
+                           ? GetColorProvider()->GetColor(ui::kColorDialogBackground)
+                           : SK_ColorWHITE);
     cc::PaintFlags fill;
     fill.setAntiAlias(true);
     fill.setStyle(cc::PaintFlags::kFill_Style);
-    fill.setColor(color.value_or(SK_ColorWHITE));
+    fill.setColor(fill_color);
     canvas->DrawCircle(at, kDotRadius, fill);
     cc::PaintFlags ring;
     ring.setAntiAlias(true);
@@ -328,22 +399,52 @@ class BoostColorWheel final : public views::View {
     ring.setColor(SK_ColorWHITE);
     canvas->DrawCircle(at, kDotRadius, ring);
     ring.setStrokeWidth(1.0f);
-    ring.setColor(SkColorSetA(SK_ColorBLACK, 0x55));
+    // The dot the keyboard moves carries the heavier outer ring while the
+    // wheel has focus, so "which dot am I about to move" has an answer.
+    const bool is_active = HasFocus() && dragging_ == dot;
+    ring.setColor(SkColorSetA(SK_ColorBLACK, is_active ? 0xAA : 0x55));
     canvas->DrawCircle(at, kDotRadius + 1.0f, ring);
+
+    // Which dot is which: BG recolors the page background, A recolors text.
+    // Painted inside the dot in whichever of black/white reads against it.
+    canvas->DrawStringRectWithFlags(
+        label,
+        gfx::FontList().DeriveWithSizeDelta(-3).DeriveWithWeight(
+            gfx::Font::Weight::BOLD),
+        color_utils::GetColorWithMaxContrast(fill_color),
+        gfx::Rect(static_cast<int>(at.x() - kDotRadius),
+                  static_cast<int>(at.y() - kDotRadius),
+                  static_cast<int>(kDotRadius * 2),
+                  static_cast<int>(kDotRadius * 2)),
+        gfx::Canvas::TEXT_ALIGN_CENTER);
   }
 
   Dot NearestDot(const gfx::Point& point) const {
     const gfx::Rect bounds = GetContentsBounds();
     const float radius = std::min(bounds.width(), bounds.height()) / 2.0f;
     const gfx::PointF centre(bounds.x() + radius, bounds.y() + radius);
-    const gfx::PointF background = DotPosition(background_, centre, radius);
-    const gfx::PointF text = DotPosition(text_, centre, radius);
+    const gfx::PointF background =
+        DotPosition(Dot::kBackground, background_, centre, radius);
+    const gfx::PointF text = DotPosition(Dot::kText, text_, centre, radius);
     const auto squared = [&point](const gfx::PointF& at) {
       const float dx = at.x() - point.x();
       const float dy = at.y() - point.y();
       return dx * dx + dy * dy;
     };
     return squared(background) <= squared(text) ? Dot::kBackground : Dot::kText;
+  }
+
+  void UpdateAccessibleValue() {
+    const std::optional<SkColor>& active =
+        dragging_ == Dot::kBackground ? background_ : text_;
+    const std::u16string which =
+        dragging_ == Dot::kBackground ? u"background" : u"text";
+    GetViewAccessibility().SetValue(
+        active ? which + u" " +
+                     base::ASCIIToUTF16(base::StringPrintf(
+                         "#%02x%02x%02x", SkColorGetR(*active),
+                         SkColorGetG(*active), SkColorGetB(*active)))
+               : which + u" not set");
   }
 
   bool UpdateFromPoint(const gfx::Point& point) {
@@ -539,15 +640,17 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
     // Arc titles the editor with the Boost's own name and hangs a caret menu
     // off it: "Click the current Boost name with the caret icon next to it
     // (v). Select 'Rename this Boost...' or 'Reset all Edits'."
-    name_button_ = identity->AddChildView(std::make_unique<views::LabelButton>(
+    name_button_ = identity->AddChildView(std::make_unique<BoostChipButton>(
         base::BindRepeating(&SeoulBoostBubble::OnNameMenu,
                             base::Unretained(this)),
-        u"Boost"));
+        u"Boost ▾"));
     name_button_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-    name_button_->SetTextColor(views::Button::STATE_NORMAL,
-                               kColorOmniboxText);
-    name_button_->SetBorder(views::CreateEmptyBorder(gfx::Insets()));
+    // Tighter than a row chip so the header still reads as a title, but with
+    // the same hover highlight, because it IS a button - it opens the
+    // rename/reset menu, and Arc marks the same affordance with a caret.
+    name_button_->SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(2, 4)));
     name_button_->GetViewAccessibility().SetHasPopup(ax::mojom::HasPopup::kMenu);
+    name_button_->GetViewAccessibility().SetName(u"Boost");
     auto* host = identity->AddChildView(std::make_unique<views::Label>(
         base::UTF8ToUTF16(origin_.host()), views::style::CONTEXT_LABEL,
         views::style::STYLE_SECONDARY));
@@ -601,14 +704,17 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
           base::UTF8ToUTF16(std::string(kFilters[i].label))));
       label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
       row->SetFlexForView(label, 1);
-      AddChip(row, u"\u2212",
-              base::BindRepeating(&SeoulBoostBubble::OnFilterStep,
-                                  base::Unretained(this), i, -1));
+      filter_minus_[i] =
+          AddChip(row, u"\u2212",
+                  base::BindRepeating(&SeoulBoostBubble::OnFilterStep,
+                                      base::Unretained(this), i, -1));
       filter_values_[i] =
           row->AddChildView(std::make_unique<views::Label>(u"100%"));
-      AddChip(row, u"+",
-              base::BindRepeating(&SeoulBoostBubble::OnFilterStep,
-                                  base::Unretained(this), i, 1));
+      FixReadoutWidth(filter_values_[i]);
+      filter_plus_[i] =
+          AddChip(row, u"+",
+                  base::BindRepeating(&SeoulBoostBubble::OnFilterStep,
+                                      base::Unretained(this), i, 1));
     }
 
     // Arc's "Reset to original colors".
@@ -643,6 +749,7 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
                                            base::Unretained(this), -1));
     size_value_ =
         size_row->AddChildView(std::make_unique<views::Label>(u"100%"));
+    FixReadoutWidth(size_value_);
     larger_ = AddChip(size_row, u"A+",
                       base::BindRepeating(&SeoulBoostBubble::OnSizeStep,
                                           base::Unretained(this), 1));
@@ -668,10 +775,9 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
     undo_zap_ = AddChip(footer, u"Undo Zap",
                         base::BindRepeating(&SeoulBoostBubble::OnUndoZap,
                                             base::Unretained(this)));
-    auto* zap = AddChip(footer, u"Zap element…",
-                        base::BindRepeating(&SeoulBoostBubble::OnZap,
-                                            base::Unretained(this)));
-    footer->SetFlexForView(zap, 0);
+    AddChip(footer, u"Zap element…",
+            base::BindRepeating(&SeoulBoostBubble::OnZap,
+                                base::Unretained(this)));
     auto* spacer = footer->AddChildView(std::make_unique<views::View>());
     footer->SetFlexForView(spacer, 1);
     delete_button_ =
@@ -700,6 +806,17 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
                            views::Button::PressedCallback callback) {
     return row->AddChildView(
         std::make_unique<BoostChipButton>(std::move(callback), text));
+  }
+
+  // Pins a numeric readout to the width of its widest value, so stepping
+  // between "90%" and "150%" cannot reflow the row and slide the chip out
+  // from under the pointer mid-click.
+  void FixReadoutWidth(views::Label* readout) {
+    const std::u16string current(readout->GetText());
+    readout->SetText(u"150%");
+    readout->SetPreferredSize(readout->GetPreferredSize({}));
+    readout->SetText(current);
+    readout->SetHorizontalAlignment(gfx::ALIGN_CENTER);
   }
 
   // --- Handlers, all through the one write path -----------------------------
@@ -744,7 +861,7 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
       const SiteLayer* const layer = FindLayer();
       ShowWorkspaceNameDialog(
           GetWidget() ? GetWidget()->GetNativeWindow() : gfx::NativeWindow(),
-          u"Rename this Boost",
+          u"Rename this Boost", u"Boost name",
           base::UTF8ToUTF16(layer ? layer->name : std::string()),
           base::BindOnce(&SeoulBoostBubble::OnRenamed,
                          weak_factory_.GetWeakPtr()));
@@ -832,6 +949,14 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
   }
 
   void OnCasePicked(size_t index) {
+    const SiteAdjustment* current =
+        FindAdjustment(FindLayer(), SiteAdjustmentKind::kTextCase);
+    const TextCase active = current ? current->text_case : TextCase::kOriginal;
+    if (kCases[index].value == active) {
+      // The highlighted chip stays clickable (it must not look disabled),
+      // but re-picking it writes nothing.
+      return;
+    }
     if (kCases[index].value == TextCase::kOriginal) {
       ClearAdjustment(SiteAdjustmentKind::kTextCase);
       return;
@@ -943,9 +1068,13 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
     if (name_button_) {
       // The panel shows the Boost's own name once it has one, so the caret
       // menu is renaming the thing the header names.
-      name_button_->SetText(exists && !layer->name.empty()
-                                ? base::UTF8ToUTF16(layer->name)
-                                : u"Boost");
+      const std::u16string display_name = exists && !layer->name.empty()
+                                              ? base::UTF8ToUTF16(layer->name)
+                                              : u"Boost";
+      // The caret is visual only - part of the label, not part of the name
+      // assistive tech reads out.
+      name_button_->SetText(display_name + u" ▾");
+      name_button_->GetViewAccessibility().SetName(display_name);
     }
     enabled_toggle_->SetIsOn(!exists || layer->enabled);
     enabled_toggle_->SetEnabled(exists);
@@ -962,6 +1091,10 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
     const double scale = size ? size->numeric_value : 1.0;
     size_value_->SetText(base::UTF8ToUTF16(
         std::to_string(static_cast<int>(scale * 100 + 0.5)) + "%"));
+    // At either end of Arc's 90-150% range the stepper that cannot step is
+    // disabled, instead of silently swallowing clicks.
+    smaller_->SetEnabled(scale > kSizeScales.front() + 0.001);
+    larger_->SetEnabled(scale < kSizeScales.back() - 0.001);
 
     // Each colour slider reads back from the registry, so the number shown is
     // the number stored rather than one the panel is remembering separately.
@@ -970,6 +1103,8 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
       const double value = level ? level->numeric_value : 1.0;
       filter_values_[i]->SetText(base::UTF8ToUTF16(
           std::to_string(static_cast<int>(value * 100 + 0.5)) + "%"));
+      filter_minus_[i]->SetEnabled(value > kFilterMin + 0.001);
+      filter_plus_[i]->SetEnabled(value < kFilterMax - 0.001);
     }
 
     if (color_wheel_) {
@@ -1003,11 +1138,10 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
     const TextCase active =
         text_case ? text_case->text_case : TextCase::kOriginal;
     for (size_t i = 0; i < kCases.size(); ++i) {
-      const bool is_active = kCases[i].value == active;
-      case_chips_[i]->SetSelected(is_active);
-      // Still block re-picking the case you're already on, same as before -
-      // SetSelected only adds the highlight that says which one that is.
-      case_chips_[i]->SetEnabled(!is_active);
+      // Selected, not disabled: the current choice keeps normal text on its
+      // highlight exactly like the font row above it, and OnCasePicked
+      // ignores a click on the already-active case instead.
+      case_chips_[i]->SetSelected(kCases[i].value == active);
     }
   }
 
@@ -1018,17 +1152,19 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
   static constexpr int kCommandRename = 1;
   static constexpr int kCommandResetAllEdits = 2;
 
-  raw_ptr<views::LabelButton> name_button_ = nullptr;
+  raw_ptr<BoostChipButton> name_button_ = nullptr;
   std::unique_ptr<ui::SimpleMenuModel> menu_model_;
   std::unique_ptr<views::MenuRunner> menu_runner_;
   raw_ptr<views::ToggleButton> enabled_toggle_ = nullptr;
   raw_ptr<views::ToggleButton> dark_toggle_ = nullptr;
   raw_ptr<BoostColorWheel> color_wheel_ = nullptr;
   std::array<raw_ptr<views::Label>, kFilters.size()> filter_values_ = {};
+  std::array<raw_ptr<BoostChipButton>, kFilters.size()> filter_minus_ = {};
+  std::array<raw_ptr<BoostChipButton>, kFilters.size()> filter_plus_ = {};
   std::array<raw_ptr<BoostChipButton>, kCases.size()> case_chips_ = {};
-  std::array<BoostChipButton*, kFonts.size()> font_chips_ = {};
-  raw_ptr<views::LabelButton> smaller_ = nullptr;
-  raw_ptr<views::LabelButton> larger_ = nullptr;
+  std::array<raw_ptr<BoostChipButton>, kFonts.size()> font_chips_ = {};
+  raw_ptr<BoostChipButton> smaller_ = nullptr;
+  raw_ptr<BoostChipButton> larger_ = nullptr;
   raw_ptr<views::Label> size_value_ = nullptr;
   raw_ptr<views::LabelButton> undo_zap_ = nullptr;
   raw_ptr<views::LabelButton> delete_button_ = nullptr;

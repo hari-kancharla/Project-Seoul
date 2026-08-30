@@ -337,6 +337,14 @@ h1 {
   background: linear-gradient(90deg, transparent, var(--accent));
 }
 
+.t2 {
+  top: 34%;
+}
+
+.t3 {
+  top: 66%;
+}
+
 /* -------------------------------------------------------------- choices -- */
 
 .choices {
@@ -548,19 +556,25 @@ button:focus-visible {
   }
 
   .t2 {
-    top: 34%;
     animation-delay: 0.55s;
   }
 
   .t3 {
-    top: 66%;
     animation-delay: 1.15s;
   }
 
   .t4 {
-    top: 50%;
     animation-delay: 1.7s;
     animation-name: fly-through;
+  }
+}
+
+/* Static, .t4 rests exactly where .t1 rests; two identical streaks on one
+   line read as a rendering mistake, so the fly-through accent only exists
+   in motion. */
+@media (prefers-reduced-motion: reduce) {
+  .t4 {
+    display: none;
   }
 }
 

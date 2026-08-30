@@ -1,0 +1,89 @@
+{
+  "comment": "Devices newer than the pinned Chromium's DevTools catalog. Entries here win title collisions with the catalog so their ids (persisted in prefs) stay stable when upstream catches up; the generator prints a note when that happens so an entry is retired deliberately. Adding tomorrow's phone is one entry here - metrics in CSS pixels, portrait. iOS platform_version is underscored; model is the Android client-hint model and empty for iOS.",
+  "devices": [
+    {
+      "id": "iphone-compact",
+      "label": "iPhone SE",
+      "platform": "iOS",
+      "form_factor": "phone",
+      "width": 375,
+      "height": 667,
+      "dpr": 2.0,
+      "platform_version": "17_6_1",
+      "model": "",
+      "featured": true
+    },
+    {
+      "id": "iphone",
+      "label": "iPhone 15",
+      "platform": "iOS",
+      "form_factor": "phone",
+      "width": 393,
+      "height": 852,
+      "dpr": 3.0,
+      "platform_version": "18_0",
+      "model": "",
+      "featured": true
+    },
+    {
+      "id": "iphone-max",
+      "label": "iPhone 15 Pro Max",
+      "platform": "iOS",
+      "form_factor": "phone",
+      "width": 430,
+      "height": 932,
+      "dpr": 3.0,
+      "platform_version": "18_0",
+      "model": "",
+      "featured": true
+    },
+    {
+      "id": "android-compact",
+      "label": "Galaxy S23",
+      "platform": "Android",
+      "form_factor": "phone",
+      "width": 360,
+      "height": 780,
+      "dpr": 3.0,
+      "platform_version": "15",
+      "model": "SM-S911B",
+      "featured": true
+    },
+    {
+      "id": "android",
+      "label": "Pixel 8",
+      "platform": "Android",
+      "form_factor": "phone",
+      "width": 412,
+      "height": 915,
+      "dpr": 2.625,
+      "platform_version": "15",
+      "model": "Pixel 8",
+      "featured": true
+    },
+    {
+      "id": "tablet-compact",
+      "label": "iPad mini",
+      "platform": "iOS",
+      "form_factor": "tablet",
+      "width": 744,
+      "height": 1133,
+      "dpr": 2.0,
+      "platform_version": "18_0",
+      "model": "",
+      "featured": true
+    },
+    {
+      "id": "tablet",
+      "label": "iPad Pro 11\"",
+      "platform": "iOS",
+      "form_factor": "tablet",
+      "width": 834,
+      "height": 1194,
+      "dpr": 2.0,
+      "platform_version": "18_0",
+      "model": "",
+      "featured": true
+    }
+  ]
+}

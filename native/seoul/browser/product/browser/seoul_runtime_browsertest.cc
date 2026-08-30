@@ -2046,7 +2046,7 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest, BoostColorWheelDragWritesBothDot
     while (!queue.empty()) {
       views::View* view = queue.front();
       queue.pop_front();
-      if (view->GetViewAccessibility().GetCachedName() == u"Page colours") {
+      if (view->GetViewAccessibility().GetCachedName() == u"Page colors") {
         return view;
       }
       for (views::View* child : view->children()) {

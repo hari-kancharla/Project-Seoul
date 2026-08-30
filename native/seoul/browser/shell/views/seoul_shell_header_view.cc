@@ -24,6 +24,7 @@
 #include "components/favicon/core/favicon_service.h"
 #include "components/favicon_base/favicon_types.h"
 #include "components/keyed_service/core/service_access_type.h"
+#include "chrome/app/vector_icons/vector_icons.h"
 #include "components/vector_icons/vector_icons.h"
 #include "seoul/browser/lifecycle/tab_strip_bridge.h"
 #include "seoul/browser/shell/essential_grid_layout.h"
@@ -40,7 +41,6 @@
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/label_button.h"
-#include "ui/views/controls/label.h"
 #include "ui/views/controls/menu/menu_runner.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/widget/widget.h"
@@ -516,12 +516,20 @@ void SeoulShellHeaderView::RebuildFromSnapshot(const ShellSnapshot &snapshot) {
               base::BindRepeating(
                   &SeoulShellHeaderView::OnEssentialsOverflowPressed,
                   base::Unretained(this)),
-              u"＋"));
+              std::u16string()));
+      // The same plus the footer's Create New draws, not a fullwidth text
+      // glyph that renders at whatever weight the label font has.
+      essentials_overflow_button_->SetImageModel(
+          views::Button::STATE_NORMAL,
+          ui::ImageModel::FromVectorIcon(kSeoulPlusIcon,
+                                         kColorToolbarButtonIcon, 16));
       ConfigureEssentialButton(essentials_overflow_button_);
       SetEssentialButtonActive(essentials_overflow_button_, false);
       row_layout->SetFlexForView(essentials_overflow_button_, 1);
       essentials_overflow_button_->GetViewAccessibility().SetName(
           count + u" more Essentials");
+      essentials_overflow_button_->SetTooltipText(count +
+                                                  u" more Essentials");
       essentials_overflow_button_->SetTooltipText(u"Show more Essentials");
     }
   }
