@@ -27,6 +27,7 @@
 #include "content/public/browser/web_contents.h"
 #include "seoul/browser/lifecycle/lifecycle_identity.h"
 #include "seoul/browser/product/browser/boost_entry_points.h"
+#include "seoul/browser/product/browser/seoul_chip_button.h"
 #include "seoul/browser/product/browser/seoul_runtime_service.h"
 #include "seoul/browser/product/browser/seoul_runtime_service_factory.h"
 #include "seoul/browser/site_layers/site_layer_registry.h"
@@ -49,6 +50,7 @@
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/accessibility/view_accessibility.h"
+#include "ui/views/animation/ink_drop.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/button/toggle_button.h"
@@ -71,10 +73,6 @@ namespace {
 // reading as a pile of unrelated controls.
 constexpr int kBubbleWidth = 288;
 
-// Radius for every chip in the panel - the font/case pickers, the +/- and
-// A-/A+ steppers, the footer actions. One constant so they all round the
-// same amount instead of drifting into slightly different shapes.
-constexpr int kChipCornerRadius = 6;
 
 struct FontChoice {
   const char* label;
@@ -135,60 +133,6 @@ bool ParseHexColor(const std::string& value, SkColor* out) {
   *out = SkColorSetRGB(r, g, b);
   return true;
 }
-
-// A rounded highlight on hover and press, plus a persistent one while
-// selected - every "pick one of these" or "press this" control in the panel
-// reads as a real button instead of plain text. Mirrors the choice-button
-// treatment already used in the workspace icon picker, so Seoul's chips look
-// the same wherever they show up.
-class BoostChipButton final : public views::LabelButton {
-  METADATA_HEADER(BoostChipButton, views::LabelButton)
-
- public:
-  BoostChipButton(views::Button::PressedCallback callback,
-                  std::u16string text)
-      : views::LabelButton(std::move(callback), std::move(text)) {
-    SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(4, 10)));
-    SetFocusRingCornerRadius(kChipCornerRadius);
-    UpdateBackground();
-  }
-  BoostChipButton(const BoostChipButton&) = delete;
-  BoostChipButton& operator=(const BoostChipButton&) = delete;
-  ~BoostChipButton() override = default;
-
-  // Set once from the registry read-back, not on every click, so a chip
-  // whose adjustment write fails silently does not claim to be selected.
-  void SetSelected(bool selected) {
-    if (selected_ == selected) {
-      return;
-    }
-    selected_ = selected;
-    UpdateBackground();
-    SchedulePaint();
-  }
-
- private:
-  void StateChanged(ButtonState old_state) override {
-    views::LabelButton::StateChanged(old_state);
-    UpdateBackground();
-  }
-
-  void UpdateBackground() {
-    const bool highlighted = selected_ ||
-                             GetState() == views::Button::STATE_HOVERED ||
-                             GetState() == views::Button::STATE_PRESSED;
-    SetBackground(highlighted
-                      ? views::CreateRoundedRectBackground(
-                            kColorToolbarBackgroundSubtleEmphasis,
-                            kChipCornerRadius)
-                      : nullptr);
-  }
-
-  bool selected_ = false;
-};
-
-BEGIN_METADATA(BoostChipButton)
-END_METADATA
 
 // Arc's colour wheel: "drag the colored dots in different configurations to
 // change the color of webpages". Two dots - page background and page text -
@@ -324,14 +268,19 @@ class BoostColorWheel final : public views::View {
         const float dx = (x + 0.5f) - radius;
         const float dy = (y + 0.5f) - radius;
         const float distance = std::sqrt(dx * dx + dy * dy);
-        if (distance > radius) {
+        // Feathered rim: full colour inside, one pixel of alpha ramp at the
+        // edge. A binary in/out test draws a staircase around the disc.
+        const float coverage =
+            std::clamp(radius - distance + 0.5f, 0.0f, 1.0f);
+        if (coverage <= 0.0f) {
           continue;
         }
         const float hue =
             static_cast<float>(std::atan2(dy, dx) * 180.0 / M_PI) + 180.0f;
         const float saturation = std::min(1.0f, distance / radius);
-        *disc_.getAddr32(x, y) =
-            SkPreMultiplyColor(HsvToRgb(hue, saturation, kValue));
+        const SkColor rgb = HsvToRgb(hue, saturation, kValue);
+        *disc_.getAddr32(x, y) = SkPreMultiplyColor(
+            SkColorSetA(rgb, static_cast<uint8_t>(coverage * 255.0f)));
       }
     }
   }
@@ -640,7 +589,7 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
     // Arc titles the editor with the Boost's own name and hangs a caret menu
     // off it: "Click the current Boost name with the caret icon next to it
     // (v). Select 'Rename this Boost...' or 'Reset all Edits'."
-    name_button_ = identity->AddChildView(std::make_unique<BoostChipButton>(
+    name_button_ = identity->AddChildView(std::make_unique<SeoulChipButton>(
         base::BindRepeating(&SeoulBoostBubble::OnNameMenu,
                             base::Unretained(this)),
         u"Boost ▾"));
@@ -651,11 +600,11 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
     name_button_->SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(2, 4)));
     name_button_->GetViewAccessibility().SetHasPopup(ax::mojom::HasPopup::kMenu);
     name_button_->GetViewAccessibility().SetName(u"Boost");
-    auto* host = identity->AddChildView(std::make_unique<views::Label>(
+    host_label_ = identity->AddChildView(std::make_unique<views::Label>(
         base::UTF8ToUTF16(origin_.host()), views::style::CONTEXT_LABEL,
         views::style::STYLE_SECONDARY));
-    host->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-    host->SetElideBehavior(gfx::ELIDE_HEAD);
+    host_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+    host_label_->SetElideBehavior(gfx::ELIDE_HEAD);
     header->SetFlexForView(identity, 1);
 
     enabled_toggle_ =
@@ -715,6 +664,8 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
           AddChip(row, u"+",
                   base::BindRepeating(&SeoulBoostBubble::OnFilterStep,
                                       base::Unretained(this), i, 1));
+      filter_minus_[i]->SetProminent(true);
+      filter_plus_[i]->SetProminent(true);
     }
 
     // Arc's "Reset to original colors".
@@ -723,7 +674,8 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
     reset_row->SetFlexForView(reset_spacer, 1);
     AddChip(reset_row, u"Reset to original colors",
             base::BindRepeating(&SeoulBoostBubble::OnResetColors,
-                                base::Unretained(this)));
+                                base::Unretained(this)))
+        ->SetProminent(true);
 
     // Font row.
     AddSectionLabel(u"Font");
@@ -753,6 +705,8 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
     larger_ = AddChip(size_row, u"A+",
                       base::BindRepeating(&SeoulBoostBubble::OnSizeStep,
                                           base::Unretained(this), 1));
+    smaller_->SetProminent(true);
+    larger_->SetProminent(true);
 
     // Arc's "Case".
     AddSectionLabel(u"Case");
@@ -775,15 +729,19 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
     undo_zap_ = AddChip(footer, u"Undo Zap",
                         base::BindRepeating(&SeoulBoostBubble::OnUndoZap,
                                             base::Unretained(this)));
+    undo_zap_->SetProminent(true);
     AddChip(footer, u"Zap element…",
             base::BindRepeating(&SeoulBoostBubble::OnZap,
-                                base::Unretained(this)));
+                                base::Unretained(this)))
+        ->SetProminent(true);
     auto* spacer = footer->AddChildView(std::make_unique<views::View>());
     footer->SetFlexForView(spacer, 1);
-    delete_button_ =
+    SeoulChipButton* const remove_chip =
         AddChip(footer, u"Remove Boost",
                 base::BindRepeating(&SeoulBoostBubble::OnDelete,
                                     base::Unretained(this)));
+    remove_chip->SetProminent(true);
+    delete_button_ = remove_chip;
   }
 
   // A label-left, control-right row. Shared so the rows cannot drift apart.
@@ -799,13 +757,16 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
     auto* label = AddChildView(std::make_unique<views::Label>(
         text, views::style::CONTEXT_LABEL, views::style::STYLE_SECONDARY));
     label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+    // A step down from the rows it introduces - the muted colour alone was
+    // not separating "Color" the heading from "Contrast" the control.
+    label->SetFontList(label->font_list().DeriveWithSizeDelta(-1));
   }
 
-  BoostChipButton* AddChip(views::BoxLayoutView* row,
+  SeoulChipButton* AddChip(views::BoxLayoutView* row,
                            const std::u16string& text,
                            views::Button::PressedCallback callback) {
     return row->AddChildView(
-        std::make_unique<BoostChipButton>(std::move(callback), text));
+        std::make_unique<SeoulChipButton>(std::move(callback), text));
   }
 
   // Pins a numeric readout to the width of its widest value, so stepping
@@ -1075,6 +1036,17 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
       // assistive tech reads out.
       name_button_->SetText(display_name + u" ▾");
       name_button_->GetViewAccessibility().SetName(display_name);
+      // The default name is "<host> Boost", and a subtitle repeating the
+      // host straight under it reads as a stutter. The subtitle earns its
+      // row only when a custom name stops naming the site - but the decision
+      // is made once, when the panel opens: the first edit of a session
+      // creates the layer and would otherwise flip this mid-interaction,
+      // resizing the panel under the pointer in the middle of a wheel drag.
+      if (host_label_ && !host_visibility_decided_) {
+        host_visibility_decided_ = true;
+        host_label_->SetVisible(display_name.find(base::UTF8ToUTF16(
+                                    origin_.host())) == std::u16string::npos);
+      }
     }
     enabled_toggle_->SetIsOn(!exists || layer->enabled);
     enabled_toggle_->SetEnabled(exists);
@@ -1152,21 +1124,23 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
   static constexpr int kCommandRename = 1;
   static constexpr int kCommandResetAllEdits = 2;
 
-  raw_ptr<BoostChipButton> name_button_ = nullptr;
+  raw_ptr<SeoulChipButton> name_button_ = nullptr;
+  raw_ptr<views::Label> host_label_ = nullptr;
+  bool host_visibility_decided_ = false;
   std::unique_ptr<ui::SimpleMenuModel> menu_model_;
   std::unique_ptr<views::MenuRunner> menu_runner_;
   raw_ptr<views::ToggleButton> enabled_toggle_ = nullptr;
   raw_ptr<views::ToggleButton> dark_toggle_ = nullptr;
   raw_ptr<BoostColorWheel> color_wheel_ = nullptr;
   std::array<raw_ptr<views::Label>, kFilters.size()> filter_values_ = {};
-  std::array<raw_ptr<BoostChipButton>, kFilters.size()> filter_minus_ = {};
-  std::array<raw_ptr<BoostChipButton>, kFilters.size()> filter_plus_ = {};
-  std::array<raw_ptr<BoostChipButton>, kCases.size()> case_chips_ = {};
-  std::array<raw_ptr<BoostChipButton>, kFonts.size()> font_chips_ = {};
-  raw_ptr<BoostChipButton> smaller_ = nullptr;
-  raw_ptr<BoostChipButton> larger_ = nullptr;
+  std::array<raw_ptr<SeoulChipButton>, kFilters.size()> filter_minus_ = {};
+  std::array<raw_ptr<SeoulChipButton>, kFilters.size()> filter_plus_ = {};
+  std::array<raw_ptr<SeoulChipButton>, kCases.size()> case_chips_ = {};
+  std::array<raw_ptr<SeoulChipButton>, kFonts.size()> font_chips_ = {};
+  raw_ptr<SeoulChipButton> smaller_ = nullptr;
+  raw_ptr<SeoulChipButton> larger_ = nullptr;
   raw_ptr<views::Label> size_value_ = nullptr;
-  raw_ptr<views::LabelButton> undo_zap_ = nullptr;
+  raw_ptr<SeoulChipButton> undo_zap_ = nullptr;
   raw_ptr<views::LabelButton> delete_button_ = nullptr;
 
   base::WeakPtrFactory<SeoulBoostBubble> weak_factory_{this};

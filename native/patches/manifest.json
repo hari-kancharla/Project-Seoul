@@ -267,8 +267,8 @@
     },
     {
       "id": "seoul-neutral-address-prompt",
-      "description": "Replace the default-search-provider advertising in Seoul's resting address pill with the neutral localized prompt \u201cSearch or enter an address,\u201d while preserving keyword, AI-mode, and contextual-task placeholders.",
-      "rationale": "The integrated rail must not display \u201cSearch Google\u201d as product chrome. A dedicated localized Seoul string keeps the command/address field provider-neutral without changing the user's configured search engine or URL/search behavior.",
+      "description": "Replace the default-search-provider advertising in Seoul's resting address pill with the neutral localized prompt “Search or enter an address,” while preserving keyword, AI-mode, and contextual-task placeholders.",
+      "rationale": "The integrated rail must not display “Search Google” as product chrome. A dedicated localized Seoul string keeps the command/address field provider-neutral without changing the user's configured search engine or URL/search behavior.",
       "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
       "order": 11,
       "file": "0011-seoul-neutral-address-prompt.patch",
@@ -957,6 +957,27 @@
       ],
       "dependencies": [],
       "sha256": "33a9216a92e405f6ff56a069a46790784b53adc099ac3f4686043e1ba55f5880",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-shields-site-control",
+      "description": "Add the Shields button to the address field's site-control row - the per-site face of the native blocker, opening the panel that holds the site on/off switch, the Standard/Aggressive mode choice, and the page's blocked-request count.",
+      "rationale": "The blocker has carried per-site modes, temporary disables, and per-frame blocked counts since it landed, and nothing outside the adblock directory called any of it - a complete backend with no user-facing switch, which is the largest felt gap against Brave Shields. The button follows the exact affordance convention patches 0033 and 0035 established: one ImageButton per site control at the trailing edge of the address field, visible only for real http(s) pages while the field is not floating, opening a panel anchored to the field that writes through the owning service and re-reads its state. The panel itself lives in Seoul-owned source (seoul_shields_bubble.cc); this patch is only the discoverability seam Chromium must carry - the button, its icon (Chromium's own shield glyph), its visibility rule, and the pressed handler.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 38,
+      "file": "0038-seoul-shields-site-control.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/views/location_bar/location_bar_view.cc",
+        "chrome/browser/ui/views/location_bar/location_bar_view.h"
+      ],
+      "dependencies": [
+        "seoul-native-core",
+        "seoul-boost-site-control-affordance",
+        "seoul-handset-site-control"
+      ],
+      "sha256": "b1d83fd5f229fc3f6b9688f435a9ebd0fd92274c57275500ae8dacc50feeeb1a",
       "applyVerify": "git apply --check",
       "reverseVerify": "git apply -R --check",
       "reviewable": true

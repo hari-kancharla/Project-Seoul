@@ -97,12 +97,20 @@ std::vector<AdBlockCatalogEntry> BuildCatalog() {
   // repository is MPL-2.0 and states that individual lists may carry their own
   // upstream licences, so only Brave's own unbreak list is catalogued here
   // rather than the aggregated feeds that repository republishes.
+  //
+  // Enabled by default, exactly as Brave ships it: this list is exceptions
+  // that repair sites the blocking lists break, so leaving it off means
+  // shipping the breakage without the repair - and the catalogue subscriber
+  // only ever downloads default-enabled entries, so `false` here made the
+  // entry dead configuration. It stays in the additional engine, whose
+  // exceptions suppress default-engine blocks (the evaluator feeds the
+  // default engine's match into the additional pass).
   catalog.push_back(MakeEntry(
       "brave-unbreak", "Brave site compatibility", "Brave Software",
       "https://raw.githubusercontent.com/brave/adblock-lists/master/"
       "brave-lists/brave-unbreak.txt",
       "MPL-2.0", "Brave Software", AdBlockListDelivery::kRuntimeDownload,
-      /*enabled_by_default=*/false, AdBlockEngineGroup::kAdditional,
+      /*enabled_by_default=*/true, AdBlockEngineGroup::kAdditional,
       4u * kMiB, 24));
 
   return catalog;

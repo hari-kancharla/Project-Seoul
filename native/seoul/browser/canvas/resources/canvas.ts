@@ -519,6 +519,9 @@ export class SeoulCanvasAppElement extends CrLitElement {
   protected accessor library_: LibrarySnapshotDoc = {};
   protected accessor libraryError_ = '';
   protected accessor libraryBusy_ = false;
+  // True only while a board mutation is in flight - reads also set
+  // libraryBusy_ (to hold the controls), but only a write may say "Saving".
+  protected accessor librarySaving_ = false;
   protected accessor boardName_ = '';
   protected accessor pendingDeleteBoardId_ = '';
   protected accessor pendingDeleteElementId_ = '';
@@ -2709,13 +2712,14 @@ export class SeoulCanvasAppElement extends CrLitElement {
       <form class="board-create" @submit="${(event: Event) => {
         event.preventDefault(); void this.createBoard_();
       }}"><input aria-label="New board name" placeholder="Name a new board"
-          .value="${this.boardName_}" @input="${this.onBoardNameInput_}">
+          maxlength="200" .value="${this.boardName_}"
+          @input="${this.onBoardNameInput_}">
         <button class="saui-button primary" type="submit"
             ?disabled="${this.libraryBusy_ || !this.boardName_.trim()}">Create board</button></form>
       ${this.libraryError_ ? html`<div class="saui-error" role="alert">${this.libraryError_}</div>` : nothing}
       ${boards.length ? html`<div class="board-grid">${boards.map(board => this.renderBoardCard_(board))}</div>` :
         html`<div class="empty-shelf"><h4>Your first board starts empty</h4>
-          <p>Create one to arrange text, links, captures, images, and live result surfaces without duplicating their underlying data.</p></div>`}
+          <p>Create one to arrange notes and links spatially - each element keeps a position you drag, not a copy of the thing it points to.</p></div>`}
     </section>`;
   }
 
@@ -2752,7 +2756,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
         </form>
         <div class="board-history-actions" aria-label="Board history">
           <span class="board-layout-status" aria-hidden="true">
-            ${this.libraryBusy_ ? 'Saving…' : `${elements.length} item${elements.length === 1 ? '' : 's'}`}
+            ${this.librarySaving_ ? 'Saving…' : `${elements.length} item${elements.length === 1 ? '' : 's'}`}
           </span>
           <button type="button" data-history-action="undo"
               ?disabled="${board.archived || this.libraryBusy_ ||
@@ -3244,6 +3248,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
     const name = this.boardRenameValue_.trim();
     if (!name || name === board.name || this.libraryBusy_) return;
     this.libraryBusy_ = true;
+    this.librarySaving_ = true;
     const before = board.name;
     const success = await this.callRenameBoard_(board.id, name);
     if (success) {
@@ -3253,6 +3258,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       });
     }
     this.libraryBusy_ = false;
+    this.librarySaving_ = false;
   }
 
   private async submitBoardElement_(
@@ -3290,6 +3296,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
     };
 
     this.libraryBusy_ = true;
+    this.librarySaving_ = true;
     if (editing) {
       const before = {...editing};
       if (await this.callUpdateBoardElement_(board.id, next)) {
@@ -3312,12 +3319,14 @@ export class SeoulCanvasAppElement extends CrLitElement {
       }
     }
     this.libraryBusy_ = false;
+    this.librarySaving_ = false;
   }
 
   private async removeBoardElement_(
       board: LibraryBoardDoc, element: LibraryBoardElementDoc) {
     if (this.libraryBusy_) return;
     this.libraryBusy_ = true;
+    this.librarySaving_ = true;
     if (await this.callRemoveBoardElement_(board.id, element.id)) {
       this.recordBoardHistory_({
         kind: 'remove', boardId: board.id, element: {...element},
@@ -3328,6 +3337,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       }
     }
     this.libraryBusy_ = false;
+    this.librarySaving_ = false;
   }
 
   private startBoardPointer_(
@@ -3551,6 +3561,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       return false;
     }
     this.libraryBusy_ = true;
+    this.librarySaving_ = true;
     if (await this.callUpdateBoardElement_(boardId, after)) {
       this.recordBoardHistory_({
         kind: 'update', boardId, before: {...before}, after: {...after},
@@ -3558,6 +3569,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       this.boardAnnouncement_ =
           `${after.title || 'Board item'} layout saved.`;
       this.libraryBusy_ = false;
+    this.librarySaving_ = false;
       return true;
     } else {
       this.replaceLocalBoardElement_(boardId, before);
@@ -3565,6 +3577,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
           `${before.title || 'Board item'} returned to its last saved layout.`;
     }
     this.libraryBusy_ = false;
+    this.librarySaving_ = false;
     return false;
   }
 
@@ -3594,6 +3607,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
     const entry = this.boardUndo_.at(-1);
     if (!entry || this.libraryBusy_) return;
     this.libraryBusy_ = true;
+    this.librarySaving_ = true;
     if (await this.applyBoardHistory_(entry, true)) {
       this.boardUndo_.pop();
       this.boardRedo_.push(entry);
@@ -3605,6 +3619,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       this.boardAnnouncement_ = 'Board change undone.';
     }
     this.libraryBusy_ = false;
+    this.librarySaving_ = false;
   }
 
   private async redoBoard_() {
@@ -3613,6 +3628,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
     const entry = this.boardRedo_.at(-1);
     if (!entry || this.libraryBusy_) return;
     this.libraryBusy_ = true;
+    this.librarySaving_ = true;
     if (await this.applyBoardHistory_(entry, false)) {
       this.boardRedo_.pop();
       this.boardUndo_.push(entry);
@@ -3624,6 +3640,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       this.boardAnnouncement_ = 'Board change redone.';
     }
     this.libraryBusy_ = false;
+    this.librarySaving_ = false;
   }
 
   private applyLibrarySnapshot_(snapshotJson: string): boolean {
@@ -3677,7 +3694,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
   }
 
   private async refreshLibrary_() {
-    if (!this.pageHandler_) return;
+    if (!this.pageHandler_ || this.libraryBusy_) return;
     this.libraryBusy_ = true;
     try {
       const response = await this.pageHandler_.getLibrarySnapshot();
@@ -4448,6 +4465,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
     const name = this.boardName_.trim();
     if (!this.pageHandler_ || !name || this.libraryBusy_) return;
     this.libraryBusy_ = true;
+    this.librarySaving_ = true;
     try {
       const response = await this.pageHandler_.createBoard(name);
       this.applyLibrarySnapshot_(response.snapshotJson);
@@ -4456,12 +4474,14 @@ export class SeoulCanvasAppElement extends CrLitElement {
       this.libraryError_ = 'The board could not be created.';
     } finally {
       this.libraryBusy_ = false;
+    this.librarySaving_ = false;
     }
   }
 
   private async setBoardArchived_(board: LibraryBoardDoc, archived: boolean) {
     if (!this.pageHandler_ || this.libraryBusy_) return;
     this.libraryBusy_ = true;
+    this.librarySaving_ = true;
     try {
       const response = await this.pageHandler_.setBoardArchived(board.id, archived);
       this.applyLibrarySnapshot_(response.snapshotJson);
@@ -4469,12 +4489,14 @@ export class SeoulCanvasAppElement extends CrLitElement {
       this.libraryError_ = 'The board could not be updated.';
     } finally {
       this.libraryBusy_ = false;
+    this.librarySaving_ = false;
     }
   }
 
   private async deleteBoard_(board: LibraryBoardDoc) {
     if (!this.pageHandler_ || this.libraryBusy_) return;
     this.libraryBusy_ = true;
+    this.librarySaving_ = true;
     try {
       const response = await this.pageHandler_.deleteBoard(board.id);
       this.applyLibrarySnapshot_(response.snapshotJson);
@@ -4483,6 +4505,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       this.libraryError_ = 'The board could not be deleted.';
     } finally {
       this.libraryBusy_ = false;
+    this.librarySaving_ = false;
     }
   }
 

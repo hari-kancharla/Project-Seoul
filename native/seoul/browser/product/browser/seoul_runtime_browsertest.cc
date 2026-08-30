@@ -13,6 +13,19 @@
 #include <string_view>
 #include <vector>
 
+#include "base/process/launch.h"
+#include "base/process/process.h"
+#include "seoul/browser/product/browser/seoul_capture_util.h"
+#include "base/environment.h"
+#include "base/files/file_path.h"
+#include "base/files/file_util.h"
+#include "base/containers/span.h"
+#include "base/threading/thread_restrictions.h"
+#include "ui/gfx/codec/png_codec.h"
+#include "ui/compositor/canvas_painter.h"
+#include "ui/views/paint_info.h"
+#include "ui/snapshot/snapshot.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "base/command_line.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
@@ -66,6 +79,11 @@
 #include "seoul/browser/product/browser/boost_entry_points.h"
 #include "seoul/browser/product/browser/boost_web_preferences.h"
 #include "seoul/browser/product/browser/page_agent.h"
+#include "seoul/browser/product/browser/seoul_shields_bubble.h"
+#include "seoul/browser/adblock/ad_block_service.h"
+#include "seoul/browser/adblock/ad_block_service_factory.h"
+#include "seoul/browser/adblock/ad_block_settings.h"
+#include "seoul/browser/product/browser/seoul_handset_size_dialog.h"
 #include "seoul/browser/product/browser/seoul_runtime_service.h"
 #include "seoul/browser/product/browser/seoul_runtime_service_factory.h"
 #include "seoul/browser/product/capability_executor.h"
@@ -4050,6 +4068,241 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest, FreshProfileDefaultsToBraveSearc
   ASSERT_TRUE(default_provider);
   EXPECT_EQ(u"Brave", default_provider->short_name());
   EXPECT_NE(std::string::npos, default_provider->url().find("search.brave.com"));
+}
+
+// Brave's Shields, Seoul's panel: the switch and both mode chips must write
+// the blocker's real per-site state - the panel owns no state of its own.
+IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest, ShieldsBubbleWritesSiteMode) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  const GURL url = embedded_test_server()->GetURL("/empty.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+
+  ASSERT_TRUE(seoul::ShowShieldsBubbleForWebContents(contents));
+  views::Widget* bubble = nullptr;
+  for (views::Widget* widget : views::test::WidgetTest::GetAllWidgets()) {
+    if (widget->widget_delegate() &&
+        widget->widget_delegate()->GetAccessibleWindowTitle() ==
+            u"Shields for this site") {
+      bubble = widget;
+      break;
+    }
+  }
+  ASSERT_TRUE(bubble) << "the Shields panel must actually appear";
+
+  seoul::adblock::AdBlockService* service =
+      seoul::adblock::AdBlockServiceFactory::GetForProfile(
+          browser()->profile());
+  ASSERT_TRUE(service);
+  EXPECT_FALSE(service->GetSiteSettings(url).site_mode.has_value())
+      << "a fresh site follows the profile default";
+
+  auto find_by_name = [&](const std::u16string& name) -> views::View* {
+    base::circular_deque<views::View*> queue;
+    queue.push_back(bubble->GetContentsView());
+    while (!queue.empty()) {
+      views::View* view = queue.front();
+      queue.pop_front();
+      if (views::IsViewClass<views::Button>(view) &&
+          view->GetViewAccessibility().GetCachedName() == name) {
+        return view;
+      }
+      for (views::View* child : view->children()) {
+        queue.push_back(child);
+      }
+    }
+    return nullptr;
+  };
+
+  // Aggressive is a real write, not a highlight.
+  views::View* aggressive = find_by_name(u"Aggressive");
+  ASSERT_TRUE(aggressive);
+  views::test::ButtonTestApi(static_cast<views::Button*>(aggressive))
+      .NotifyClick(ui::test::TestEvent());
+  EXPECT_EQ(seoul::adblock::AdBlockMode::kAggressive,
+            service->GetSiteSettings(url).effective_mode);
+
+  // The switch turns the blocker off for this site only.
+  views::View* toggle = find_by_name(u"Shields for this site");
+  ASSERT_TRUE(toggle);
+  views::test::ButtonTestApi(static_cast<views::Button*>(toggle))
+      .NotifyClick(ui::test::TestEvent());
+  EXPECT_EQ(seoul::adblock::AdBlockMode::kOff,
+            service->GetSiteSettings(url).effective_mode);
+
+  // And the reset chip returns the site to the profile default.
+  views::View* reset = find_by_name(u"Use default for this site");
+  ASSERT_TRUE(reset);
+  ASSERT_TRUE(reset->GetVisible());
+  views::test::ButtonTestApi(static_cast<views::Button*>(reset))
+      .NotifyClick(ui::test::TestEvent());
+  EXPECT_FALSE(service->GetSiteSettings(url).site_mode.has_value());
+  EXPECT_EQ(seoul::adblock::AdBlockMode::kStandard,
+            service->GetSiteSettings(url).effective_mode);
+}
+
+// Design review, not regression: renders each Seoul surface in a real
+// compositor and writes widget-scoped PNGs for a human (or agent) to judge
+// against the polish bar. Captures only the widget's own window - never the
+// desktop - and runs only when SEOUL_CAPTURE_DIR is set, so ordinary test
+// runs skip it in milliseconds. Run without --headless: the headless
+// compositor never paints these widgets, which is how a blank white capture
+// happens.
+class SeoulVisualCaptureTest : public SeoulRuntimeBrowserTest {
+ protected:
+  bool CaptureWanted() {
+    return base::Environment::Create()->HasVar("SEOUL_CAPTURE_DIR");
+  }
+
+  base::FilePath OutDir() {
+    return base::FilePath(
+        base::Environment::Create()->GetVar("SEOUL_CAPTURE_DIR").value_or(""));
+  }
+
+  // Window-sized snapshot at origin: sharp and correctly scoped, with one
+  // known artifact - the Mac frame shadow displaces the content ~70dip, so
+  // the top carries a dead band and the last ~70dip fall outside. The
+  // second, negative-offset grab recovers that bottom strip best-effort.
+  void GrabOnce(views::Widget* widget,
+                const gfx::Rect& rect,
+                const std::string& name,
+                bool required) {
+    SkBitmap bitmap;
+    const bool painted = base::test::RunUntil([&]() {
+      base::test::TestFuture<gfx::Image> frame;
+      ui::GrabWindowSnapshot(widget->GetNativeWindow(), rect,
+                             frame.GetCallback());
+      const gfx::Image image = frame.Take();
+      if (image.IsEmpty()) {
+        return false;
+      }
+      bitmap = image.AsBitmap();
+      SkColor first = bitmap.getColor(0, 0);
+      for (int y = 0; y < bitmap.height(); y += 16) {
+        for (int x = 0; x < bitmap.width(); x += 16) {
+          if (bitmap.getColor(x, y) != first) {
+            return true;
+          }
+        }
+      }
+      return false;
+    });
+    if (!painted) {
+      ASSERT_FALSE(required) << name << ": no painted frame arrived";
+      return;
+    }
+    std::optional<std::vector<uint8_t>> png =
+        gfx::PNGCodec::EncodeBGRASkBitmap(bitmap,
+                                          /*discard_transparency=*/true);
+    ASSERT_TRUE(png.has_value());
+    base::ScopedAllowBlockingForTesting allow_io;
+    ASSERT_TRUE(base::WriteFile(OutDir().AppendASCII(name + ".png"),
+                                base::span<const uint8_t>(*png)));
+    LOG(INFO) << "captured " << name << " " << bitmap.width() << "x"
+              << bitmap.height();
+  }
+
+  void CaptureWidget(views::Widget* widget, const std::string& name) {
+    ASSERT_TRUE(widget);
+    base::RunLoop().RunUntilIdle();
+    const gfx::Size window = widget->GetWindowBoundsInScreen().size();
+    GrabOnce(widget, gfx::Rect(window), name, /*required=*/true);
+    GrabOnce(widget, gfx::Rect(0, -70, window.width(), window.height()),
+             name + "-bottom", /*required=*/false);
+  }
+
+  views::Widget* FindBubble(const std::u16string& title) {
+    for (views::Widget* widget : views::test::WidgetTest::GetAllWidgets()) {
+      if (widget->widget_delegate() &&
+          widget->widget_delegate()->GetAccessibleWindowTitle() == title) {
+        return widget;
+      }
+    }
+    return nullptr;
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(SeoulVisualCaptureTest, DesignReviewCaptures) {
+  if (!CaptureWanted()) {
+    GTEST_SKIP() << "SEOUL_CAPTURE_DIR not set";
+  }
+  ASSERT_TRUE(embedded_test_server()->Start());
+  const GURL url = embedded_test_server()->GetURL("/empty.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+  BrowserView* const browser_view =
+      BrowserView::GetBrowserViewForBrowser(browser());
+  ASSERT_TRUE(browser_view);
+
+  // 1. The whole window: shell rail, header, footer, toolbar.
+  CaptureWidget(browser_view->GetWidget(), "01-browser-window");
+
+  // 2. The Boost panel, untouched state.
+  ASSERT_TRUE(seoul::OpenBoostEditorForWebContents(contents));
+  views::Widget* bubble = FindBubble(u"Boost this site");
+  ASSERT_TRUE(bubble);
+  CaptureWidget(bubble, "02-boost-panel-clean");
+
+  // 3. The Boost panel with live state: a colour on the wheel and dark mode
+  // on, so selected chips, filled dots, and enabled steppers all show.
+  views::View* wheel = nullptr;
+  views::View* dark = nullptr;
+  base::circular_deque<views::View*> queue;
+  queue.push_back(bubble->GetContentsView());
+  while (!queue.empty()) {
+    views::View* view = queue.front();
+    queue.pop_front();
+    if (view->GetViewAccessibility().GetCachedName() == u"Page colors") {
+      wheel = view;
+    }
+    if (views::IsViewClass<views::ToggleButton>(view) &&
+        view->GetViewAccessibility().GetCachedName() ==
+            u"Dark mode for this site") {
+      dark = view;
+    }
+    for (views::View* child : view->children()) {
+      queue.push_back(child);
+    }
+  }
+  ASSERT_TRUE(wheel);
+  ASSERT_TRUE(dark);
+  const gfx::Rect wheel_bounds = wheel->GetBoundsInScreen();
+  const gfx::Point centre = wheel_bounds.CenterPoint();
+  ui::test::EventGenerator event_generator(views::GetRootWindow(bubble));
+  event_generator.MoveMouseTo(centre);
+  event_generator.PressLeftButton();
+  event_generator.MoveMouseTo(
+      gfx::Point(centre.x() - wheel_bounds.width() / 3, centre.y()));
+  event_generator.ReleaseLeftButton();
+  views::test::ButtonTestApi(static_cast<views::Button*>(dark))
+      .NotifyClick(ui::test::TestEvent());
+  CaptureWidget(bubble, "03-boost-panel-live");
+  bubble->CloseNow();
+
+  // 4. The Handset custom-size dialog - the shown widget, no title guessing.
+  views::Widget* dialog = seoul::ShowHandsetSizeDialog(
+      browser_view->GetNativeWindow(), 393, 852, base::DoNothing());
+  ASSERT_TRUE(dialog);
+  // A browser-modal on Mac is a sheet composited into the parent window, so
+  // the parent is the window that actually has the pixels.
+  CaptureWidget(browser_view->GetWidget(), "04-handset-size-dialog");
+  dialog->CloseNow();
+
+  // 5. The command launcher / omnibox actions surface, open in the window.
+  browser_view->ShowSeoulOmniboxActions();
+  base::RunLoop().RunUntilIdle();
+  CaptureWidget(browser_view->GetWidget(), "05-launcher-open");
+
+  // 6. The Shields panel.
+  ASSERT_TRUE(seoul::ShowShieldsBubbleForWebContents(contents));
+  views::Widget* shields = FindBubble(u"Shields for this site");
+  ASSERT_TRUE(shields);
+  CaptureWidget(shields, "06-shields-panel");
+  shields->CloseNow();
 }
 
 } // namespace seoul

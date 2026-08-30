@@ -133,6 +133,9 @@ run_browser_tests() {
   filter="SeoulRuntimeSessionRestoreBrowserTest.*"
   filter="${filter}:SeoulRuntimeBrowserTest.*"
   filter="${filter}:SeoulBoostDarkBrowserTest.*"
+  # Design-review capture fixture: runs as a skip unless SEOUL_CAPTURE_DIR is
+  # set, so CI pays milliseconds and a design pass gets real pixels.
+  filter="${filter}:SeoulVisualCaptureTest.*"
   filter="${filter}:HandsetBrowserTest.*"
   filter="${filter}:SeoulHandsetSizeDialogTest.*"
   filter="${filter}:ChromiumMutationAdapterBrowserTest.*"

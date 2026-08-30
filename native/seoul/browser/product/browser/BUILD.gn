@@ -33,6 +33,10 @@ source_set("product_chromium") {
     "seoul_capture.cc",
     "seoul_capture.h",
     "seoul_boost_bubble.h",
+    "seoul_chip_button.cc",
+    "seoul_chip_button.h",
+    "seoul_shields_bubble.cc",
+    "seoul_shields_bubble.h",
     "seoul_handset_size_dialog.cc",
     "seoul_handset_size_dialog.h",
     "space_partition_resolver.cc",
@@ -79,6 +83,7 @@ source_set("product_chromium") {
     "//components/tabs:public",
     "//content/public/browser",
     "//net/traffic_annotation",
+    "//seoul/browser/adblock:adblock",
     "//seoul/browser/commands:command_chromium",
     "//seoul/browser/handset:handset_core",
     "//seoul/browser/connectors:connectors_core",
@@ -116,9 +121,17 @@ source_set("product_browser_tests") {
     "seoul_handset_size_dialog_unittest.cc",
     "seoul_runtime_browsertest.cc",
   ]
+  if (is_mac) {
+    sources += [
+      "seoul_capture_util.h",
+      "seoul_capture_util.mm",
+    ]
+    frameworks = [ "AppKit.framework" ]
+  }
   deps = [
     ":product_chromium",
     "//base/test:test_support",
+    "//seoul/browser/adblock:adblock",
     "//chrome/browser:browser_public_dependencies",
     "//chrome/test:test_support",
     "//content/public/browser",
@@ -131,7 +144,10 @@ source_set("product_browser_tests") {
     "//seoul/browser/product:product_core",
     "//seoul/browser/tools:tools_core",
     "//testing/gtest",
+    "//ui/compositor",
+    "//ui/gfx/codec",
     "//ui/native_theme",
+    "//ui/snapshot",
     "//url",
   ]
 }

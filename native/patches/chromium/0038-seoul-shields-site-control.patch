@@ -1,0 +1,105 @@
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.cc b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.cc
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+@@ -193,6 +193,7 @@
+ #include "ui/views/button_drag_utils.h"
+ #include "seoul/browser/product/browser/boost_entry_points.h"  // nogncheck
+ #include "seoul/browser/product/browser/handset_mode.h"  // nogncheck
++#include "seoul/browser/product/browser/seoul_shields_bubble.h"  // nogncheck
+ #include "ui/views/controls/button/image_button.h"
+ #include "ui/views/controls/button/image_button_factory.h"
+ #include "ui/views/controls/focus_ring.h"
+@@ -405,6 +406,24 @@ void LocationBarView::Init() {
+   seoul_handset_button->SetVisible(false);
+   seoul_handset_button_ = AddChildView(std::move(seoul_handset_button));
+ 
++  // Shields completes the site-control row: restyle it (Boost), reshape it
++  // (Handset), and decide what it may load (Shields). Brave puts this switch
++  // on the same edge of its address bar for the same reason - what the
++  // blocker does to a page is a per-site decision, made where the site is
++  // named.
++  auto seoul_shields_button = std::make_unique<views::ImageButton>(
++      base::BindRepeating(&LocationBarView::OnSeoulShieldsButtonPressed,
++                          base::Unretained(this)));
++  seoul_shields_button->SetImageHorizontalAlignment(
++      views::ImageButton::ALIGN_CENTER);
++  seoul_shields_button->SetImageVerticalAlignment(
++      views::ImageButton::ALIGN_MIDDLE);
++  seoul_shields_button->SetTooltipText(u"Shields for this site");
++  seoul_shields_button->GetViewAccessibility().SetName(
++      u"Shields for this site");
++  seoul_shields_button->SetVisible(false);
++  seoul_shields_button_ = AddChildView(std::move(seoul_shields_button));
++
+   if (page_info::IsMerchantTrustFeatureEnabled() &&
+       page_info::kMerchantTrustEnableOmniboxChip.Get()) {
+     merchant_trust_chip_ = AddChildView(std::make_unique<OmniboxChipButton>());
+@@ -1225,6 +1244,26 @@ void LocationBarView::Layout(PassKey) {
+     }
+   }
+ 
++  // Shields shares the paintbrush's visibility rule: a real http(s) page,
++  // not a floating query - the blocker's per-site decisions are scoped to a
++  // web origin exactly as a Boost is.
++  if (seoul_shields_button_) {
++    content::WebContents* const contents = GetWebContents();
++    const GURL page = contents ? contents->GetLastCommittedURL() : GURL();
++    const bool shieldable =
++        !seoul_floating_mode_ && page.SchemeIsHTTPOrHTTPS();
++    seoul_shields_button_->SetVisible(shieldable);
++    if (shieldable) {
++      seoul_shields_button_->SetImageModel(
++          views::Button::STATE_NORMAL,
++          ui::ImageModel::FromVectorIcon(
++              vector_icons::kShieldIcon, kColorOmniboxText,
++              GetLayoutConstant(LayoutConstant::kLocationBarTrailingIconSize)));
++      add_trailing_decoration(seoul_shields_button_, /*intra_item_padding=*/0,
++                              /*edge_padding=*/icon_left);
++    }
++  }
++
+   // When the AIM page action is shown as the right-most page action in the
+   // location bar, it should be positioned flush against the right edge of the
+   // location bar.
+@@ -2563,6 +2602,12 @@ void LocationBarView::OnSeoulBoostButtonPressed() {
+   }
+ }
+ 
++void LocationBarView::OnSeoulShieldsButtonPressed() {
++  if (content::WebContents* const contents = GetWebContents()) {
++    seoul::ShowShieldsBubbleForWebContents(contents);
++  }
++}
++
+ void LocationBarView::OnSeoulHandsetButtonPressed() {
+   content::WebContents* const contents = GetWebContents();
+   if (!contents || !seoul_handset_button_) {
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.h b/chrome/browser/ui/views/location_bar/location_bar_view.h
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.h
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.h
+@@ -315,6 +315,9 @@ class LocationBarView
+   views::ImageButton* seoul_handset_button_for_testing() {
+     return seoul_handset_button_;
+   }
++  views::ImageButton* seoul_shields_button_for_testing() {
++    return seoul_shields_button_;
++  }
+   // Expands the docked Single Toolbar field into the floating command surface
+   // on the keystroke that begins editing, before that keystroke reaches the
+   // textfield. Zen floats on typing rather than on click, and the transition
+@@ -396,6 +399,7 @@ class LocationBarView
+   void UpdateSeoulSidebarChromeOpacity();
+   void OnSeoulBoostButtonPressed();
+   void OnSeoulHandsetButtonPressed();
++  void OnSeoulShieldsButtonPressed();
+   void HideSeoulSidebarChromeAfterFade();
+ 
+   // Updates the visibility state of the Content Blocked icons to reflect what
+@@ -630,6 +634,7 @@ class LocationBarView
+   // The Handset control, beside it: presents the page in the address field as
+   // a phone. Same panel, same rules, one action apart.
+   raw_ptr<views::ImageButton> seoul_handset_button_ = nullptr;
++  raw_ptr<views::ImageButton> seoul_shields_button_ = nullptr;
+   // Owns the device-picker menu's model and runner across the
+   // asynchronous show/click round trip. See handset_picker_menu.h for why
+   // this cannot be a call-scoped local.
