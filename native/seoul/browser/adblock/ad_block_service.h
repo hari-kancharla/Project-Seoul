@@ -78,6 +78,7 @@ class AdBlockService : public KeyedService {
   AdBlockSiteSettings GetSiteSettings(const GURL& site_url) const;
   void SetDefaultMode(AdBlockMode mode);
   void SetSiteMode(const GURL& site_url, std::optional<AdBlockMode> mode);
+  void SetCanvasFingerprintBlocked(const GURL& site_url, bool blocked);
   void TemporarilyDisable(const GURL& site_url, base::TimeDelta duration);
   void ClearTemporaryDisable(const GURL& site_url);
 

@@ -981,6 +981,25 @@
       "applyVerify": "git apply --check",
       "reverseVerify": "git apply -R --check",
       "reviewable": true
+    },
+    {
+      "id": "seoul-canvas-fingerprint-shield",
+      "description": "Hook Seoul's per-site canvas-fingerprint protection into ChromeContentBrowserClient's WebPreferences recomputation, beside the Boost and Handset overrides.",
+      "rationale": "Fingerprinting protection v1 blocks the read a canvas fingerprinter needs instead of farbling it: Blink already carries disable_reading_from_canvas, which taints every canvas so toDataURL/getImageData/toBlob throw SecurityError. The decision is per-site state on the blocker (stored in the same SEOUL_AD_BLOCK_MODE website setting as the shield mode, toggled from the Shields panel, standing down when the site's shields are Off), and WebPreferences are recomputed by the content layer on every navigation - so the enforcement must be applied at the same two seams patch 0034 established: once in the override pass, and once in the prefs-changed accounting so a navigation cannot quietly drop it. The override never forces the field off, because headless and embedder policies set the same field for their own reasons. Farbling per Brave's model needs Blink-level patches and is the planned v2; this seam is where its browser-side decision will keep arriving from either way.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 39,
+      "file": "0039-seoul-canvas-fingerprint-shield.patch",
+      "affectedPaths": [
+        "chrome/browser/chrome_content_browser_client.cc"
+      ],
+      "dependencies": [
+        "seoul-boost-entry-points",
+        "seoul-handset-web-preferences"
+      ],
+      "sha256": "bbe1de7b48fa708055b98b701d90b1515e65438ace2d2a60297d4b297ea2d50f",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
     }
   ]
 }

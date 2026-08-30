@@ -43,7 +43,7 @@ class AdBlockCatalogueSubscriberTest : public testing::Test {
 TEST_F(AdBlockCatalogueSubscriberTest, ProductionCatalogSubscribesToRealLists) {
   const std::vector<AdBlockCatalogEntry> selected =
       AdBlockCatalogueSubscriber::SelectSubscribedEntries(
-          GetAdBlockFilterCatalog());
+          GetAdBlockFilterCatalog(), /*normalized_languages=*/{});
   ASSERT_FALSE(selected.empty())
       << "the shipped catalog must subscribe to at least one upstream list";
   for (const AdBlockCatalogEntry& entry : selected) {
@@ -80,9 +80,53 @@ TEST_F(AdBlockCatalogueSubscriberTest, SelectionSkipsWhatItMustSkip) {
                 AdBlockListDelivery::kRuntimeDownload),
   };
   const std::vector<AdBlockCatalogEntry> selected =
-      AdBlockCatalogueSubscriber::SelectSubscribedEntries(catalog);
+      AdBlockCatalogueSubscriber::SelectSubscribedEntries(
+          catalog, /*normalized_languages=*/{});
   ASSERT_EQ(1u, selected.size());
   EXPECT_EQ("good", selected.front().id);
+}
+
+// Regional lists ride on the profile's languages, not on a toggle. A German
+// profile also gets EasyList Germany; an English profile gets exactly the
+// global set; a multilingual profile gets every one of its communities'
+// lists; and the region subtag never matters.
+TEST_F(AdBlockCatalogueSubscriberTest, RegionalListsFollowProfileLanguages) {
+  const std::vector<AdBlockCatalogEntry> catalog = GetAdBlockFilterCatalog();
+  auto ids = [&catalog](const std::vector<std::string>& raw) {
+    std::vector<std::string> out;
+    for (const AdBlockCatalogEntry& e :
+         AdBlockCatalogueSubscriber::SelectSubscribedEntries(
+             catalog, NormalizeCatalogLanguages(raw))) {
+      out.push_back(e.id);
+    }
+    return out;
+  };
+  auto has = [](const std::vector<std::string>& v, std::string_view id) {
+    return std::ranges::find(v, id) != v.end();
+  };
+
+  const std::vector<std::string> english = ids({"en-US", "en"});
+  EXPECT_FALSE(has(english, "easylist-germany"));
+  EXPECT_TRUE(has(english, "easylist"));
+
+  const std::vector<std::string> german = ids({"de-AT"});
+  EXPECT_TRUE(has(german, "easylist-germany"))
+      << "the region subtag must not defeat the language match";
+  EXPECT_TRUE(has(german, "easylist"))
+      << "regional lists add to the global set, never replace it";
+
+  const std::vector<std::string> multilingual = ids({"pt-BR", "uk", "zh-TW"});
+  EXPECT_TRUE(has(multilingual, "easylist-portuguese"));
+  EXPECT_TRUE(has(multilingual, "ruadlist"));
+  EXPECT_TRUE(has(multilingual, "easylist-china"));
+  EXPECT_FALSE(has(multilingual, "easylist-germany"));
+}
+
+// Garbage in the language prefs must select nothing extra.
+TEST_F(AdBlockCatalogueSubscriberTest, MalformedLanguageTagsSelectNothing) {
+  const std::vector<std::string> normalized = NormalizeCatalogLanguages(
+      {"", "-", "x", "toolong", "DE-de", "de", "de", "12"});
+  EXPECT_EQ((std::vector<std::string>{"de"}), normalized);
 }
 
 TEST_F(AdBlockCatalogueSubscriberTest, ConcatenatesEveryListWithASeparator) {
@@ -104,7 +148,8 @@ TEST_F(AdBlockCatalogueSubscriberTest, ConcatenatesEveryListWithASeparator) {
             ++*count;
             std::move(done).Run();
           },
-          &installed, &installs));
+          &installed, &installs),
+      /*profile_languages=*/{});
 
   subscriber.Start();
   task_environment_.RunUntilIdle();
@@ -135,7 +180,8 @@ TEST_F(AdBlockCatalogueSubscriberTest, OneFailedListAbandonsTheWholeRound) {
             ++*count;
             std::move(done).Run();
           },
-          &installs));
+          &installs),
+      /*profile_languages=*/{});
 
   subscriber.Start();
   task_environment_.RunUntilIdle();
@@ -168,7 +214,8 @@ TEST_F(AdBlockCatalogueSubscriberTest, RetriesOnTheNextIntervalAfterFailure) {
             ++*count;
             std::move(done).Run();
           },
-          &installs));
+          &installs),
+      /*profile_languages=*/{});
 
   subscriber.Start();
   task_environment_.RunUntilIdle();

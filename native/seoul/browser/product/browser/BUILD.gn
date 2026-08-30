@@ -33,6 +33,8 @@ source_set("product_chromium") {
     "seoul_capture.cc",
     "seoul_capture.h",
     "seoul_boost_bubble.h",
+    "fingerprint_web_preferences.cc",
+    "fingerprint_web_preferences.h",
     "seoul_chip_button.cc",
     "seoul_chip_button.h",
     "seoul_shields_bubble.cc",

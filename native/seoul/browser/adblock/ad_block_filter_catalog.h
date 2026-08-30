@@ -49,6 +49,12 @@ struct AdBlockCatalogEntry {
   // before parsing, so a hostile or corrupt source cannot exhaust memory.
   size_t max_bytes = 0;
   int update_interval_hours = 24;
+  // ISO 639-1 language codes this list serves. Empty means the list is
+  // global. A non-empty set makes the entry a regional list: not enabled by
+  // default, but auto-selected when any of the profile's languages match -
+  // Brave's regional-catalog behaviour, driven by language rather than by a
+  // toggle nobody finds.
+  std::vector<std::string> languages;
 };
 
 // The full production catalog, in stable order.
@@ -59,6 +65,11 @@ std::optional<AdBlockCatalogEntry> FindAdBlockCatalogEntry(
 
 // Ids enabled on a fresh profile, in catalog order.
 std::vector<std::string> GetDefaultEnabledCatalogIds();
+
+// Lowercases and strips region subtags: {"de-AT", "PT_BR"} -> {"de", "pt"}.
+// Empty and malformed tags drop out rather than matching anything.
+std::vector<std::string> NormalizeCatalogLanguages(
+    const std::vector<std::string>& raw);
 
 }  // namespace seoul::adblock
 

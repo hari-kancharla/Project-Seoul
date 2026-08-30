@@ -15,6 +15,8 @@
 #include <algorithm>
 #include <utility>
 
+#include "base/strings/string_util.h"
+
 namespace seoul::adblock {
 namespace {
 
@@ -113,6 +115,59 @@ std::vector<AdBlockCatalogEntry> BuildCatalog() {
       /*enabled_by_default=*/true, AdBlockEngineGroup::kAdditional,
       4u * kMiB, 24));
 
+  // Regional lists, auto-selected by profile language rather than by a
+  // buried toggle - Brave's regional-catalog behaviour. Every entry is the
+  // language community's own canonical EasyList-family list from the
+  // project's canonical host, under the same GPL-3.0-or-later OR CC-BY-SA-3.0
+  // terms as EasyList itself (EasyList Hebrew is served from the EasyList
+  // organisation's own repository). They join the default engine because they
+  // are the same vetted blocking tier as EasyList - only their activation is
+  // conditional, never their trust.
+  const auto regional = [&catalog](std::string id, std::string name,
+                                   std::string url,
+                                   std::vector<std::string> languages) {
+    AdBlockCatalogEntry entry = MakeEntry(
+        std::move(id), std::move(name), "EasyList", std::move(url),
+        "GPL-3.0-or-later OR CC-BY-SA-3.0", "The EasyList authors",
+        AdBlockListDelivery::kRuntimeDownload, /*enabled_by_default=*/false,
+        AdBlockEngineGroup::kDefault, 8u * kMiB, 24);
+    entry.languages = std::move(languages);
+    catalog.push_back(std::move(entry));
+  };
+  regional("easylist-germany", "EasyList Germany",
+           "https://easylist.to/easylistgermany/easylistgermany.txt", {"de"});
+  regional("liste-fr", "Liste FR",
+           "https://easylist-downloads.adblockplus.org/liste_fr.txt", {"fr"});
+  regional("easylist-italy", "EasyList Italy",
+           "https://easylist-downloads.adblockplus.org/easylistitaly.txt",
+           {"it"});
+  regional("easylist-spanish", "EasyList Spanish",
+           "https://easylist-downloads.adblockplus.org/easylistspanish.txt",
+           {"es"});
+  regional("easylist-dutch", "EasyList Dutch",
+           "https://easylist-downloads.adblockplus.org/easylistdutch.txt",
+           {"nl"});
+  regional("easylist-portuguese", "EasyList Portuguese",
+           "https://easylist-downloads.adblockplus.org/easylistportuguese.txt",
+           {"pt"});
+  regional("easylist-polish", "EasyList Polish",
+           "https://easylist-downloads.adblockplus.org/easylistpolish.txt",
+           {"pl"});
+  regional("ruadlist", "RU AdList",
+           "https://easylist-downloads.adblockplus.org/advblock.txt",
+           {"ru", "uk", "be"});
+  regional("easylist-china", "EasyList China",
+           "https://easylist-downloads.adblockplus.org/easylistchina.txt",
+           {"zh"});
+  regional("abpindo", "ABPindo",
+           "https://easylist-downloads.adblockplus.org/abpindo.txt", {"id"});
+  regional("liste-ar", "Liste AR",
+           "https://easylist-downloads.adblockplus.org/Liste_AR.txt", {"ar"});
+  regional("easylist-hebrew", "EasyList Hebrew",
+           "https://raw.githubusercontent.com/easylist/EasyListHebrew/master/"
+           "EasyListHebrew.txt",
+           {"he"});
+
   return catalog;
 }
 
@@ -141,6 +196,30 @@ std::optional<AdBlockCatalogEntry> FindAdBlockCatalogEntry(std::string_view id) 
     return std::nullopt;
   }
   return *it;
+}
+
+std::vector<std::string> NormalizeCatalogLanguages(
+    const std::vector<std::string>& raw) {
+  std::vector<std::string> out;
+  for (const std::string& tag : raw) {
+    std::string language;
+    for (char c : tag) {
+      if (c == '-' || c == '_') {
+        break;
+      }
+      language.push_back(base::ToLowerASCII(c));
+    }
+    // Two- or three-letter primary subtags only; anything else is not a
+    // language and must not accidentally match a catalog entry.
+    if (language.size() < 2 || language.size() > 3 ||
+        !std::ranges::all_of(language, base::IsAsciiLower<char>)) {
+      continue;
+    }
+    if (std::ranges::find(out, language) == out.end()) {
+      out.push_back(language);
+    }
+  }
+  return out;
 }
 
 std::vector<std::string> GetDefaultEnabledCatalogIds() {

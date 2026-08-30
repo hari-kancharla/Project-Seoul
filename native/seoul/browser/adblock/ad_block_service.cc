@@ -1,5 +1,9 @@
 // Project Seoul profile-aware native blocker coordinator.
 
+#include "base/strings/string_split.h"
+#include "chrome/browser/browser_process.h"
+#include "components/language/core/browser/pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "seoul/browser/adblock/ad_block_service.h"
 
 #include "base/logging.h"
@@ -53,11 +57,19 @@ AdBlockService::AdBlockService(Profile* profile)
     // normally. Started after the manager so a first run serves the cache or
     // the baseline immediately and upgrades when the fetch lands, rather than
     // blocking startup on the network.
+    // Regional lists follow the person, not a hidden toggle: the profile's
+    // accept-languages plus the application locale decide which language
+    // communities' lists ride along with the global ones.
+    std::vector<std::string> languages = base::SplitString(
+        profile_->GetPrefs()->GetString(language::prefs::kAcceptLanguages),
+        ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+    languages.push_back(g_browser_process->GetApplicationLocale());
     catalogue_subscriber_ = std::make_unique<AdBlockCatalogueSubscriber>(
         base::BindRepeating(&AdBlockService::FetchCatalogueEntry,
                             weak_factory_.GetWeakPtr()),
         base::BindRepeating(&AdBlockService::InstallCatalogueLists,
-                            weak_factory_.GetWeakPtr()));
+                            weak_factory_.GetWeakPtr()),
+        std::move(languages));
     catalogue_subscriber_->Start();
   }
 }
@@ -277,6 +289,11 @@ void AdBlockService::SetDefaultMode(AdBlockMode mode) {
 void AdBlockService::SetSiteMode(const GURL& site_url,
                                  std::optional<AdBlockMode> mode) {
   settings_.SetSiteMode(site_url, mode);
+}
+
+void AdBlockService::SetCanvasFingerprintBlocked(const GURL& site_url,
+                                                 bool blocked) {
+  settings_.SetCanvasFingerprintBlocked(site_url, blocked);
 }
 
 void AdBlockService::TemporarilyDisable(const GURL& site_url,

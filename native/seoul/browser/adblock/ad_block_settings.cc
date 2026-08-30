@@ -18,6 +18,7 @@ namespace {
 constexpr base::TimeDelta kMaximumTemporaryDisable = base::Days(30);
 constexpr char kModeKey[] = "mode";
 constexpr char kTemporarilyDisabledKey[] = "disabled";
+constexpr char kCanvasFingerprintKey[] = "canvas_fingerprint_blocked";
 
 std::optional<int> ReadIntegerWebsiteSetting(
     HostContentSettingsMap* settings_map,
@@ -86,14 +87,20 @@ void AdBlockSettings::SetSiteMode(const GURL& site_url,
   if (!host_content_settings_map_ || !IsEligibleSite(site_url)) {
     return;
   }
-  base::Value value;
+  // The mode shares its dict with the canvas-fingerprint bit; writing one
+  // must never wipe the other.
+  base::Value existing = host_content_settings_map_->GetWebsiteSetting(
+      site_url, site_url, ContentSettingsType::SEOUL_AD_BLOCK_MODE);
+  base::DictValue dict =
+      existing.is_dict() ? std::move(existing.GetDict()) : base::DictValue();
   if (mode && IsValidModeValue(static_cast<int>(*mode))) {
-    value =
-        base::Value(base::DictValue().Set(kModeKey, static_cast<int>(*mode)));
+    dict.Set(kModeKey, static_cast<int>(*mode));
+  } else {
+    dict.Remove(kModeKey);
   }
   host_content_settings_map_->SetWebsiteSettingDefaultScope(
       site_url, site_url, ContentSettingsType::SEOUL_AD_BLOCK_MODE,
-      std::move(value));
+      dict.empty() ? base::Value() : base::Value(std::move(dict)));
 }
 
 bool AdBlockSettings::IsTemporarilyDisabled(const GURL& site_url) const {
@@ -149,6 +156,36 @@ void AdBlockSettings::ClearTemporaryDisable(const GURL& site_url) {
       base::Value());
 }
 
+bool AdBlockSettings::GetCanvasFingerprintBlocked(
+    const GURL& site_url) const {
+  if (!host_content_settings_map_ || !IsEligibleSite(site_url)) {
+    return false;
+  }
+  const base::Value value = host_content_settings_map_->GetWebsiteSetting(
+      site_url, site_url, ContentSettingsType::SEOUL_AD_BLOCK_MODE);
+  return value.is_dict() &&
+         value.GetDict().FindBool(kCanvasFingerprintKey).value_or(false);
+}
+
+void AdBlockSettings::SetCanvasFingerprintBlocked(const GURL& site_url,
+                                                  bool blocked) {
+  if (!host_content_settings_map_ || !IsEligibleSite(site_url)) {
+    return;
+  }
+  base::Value existing = host_content_settings_map_->GetWebsiteSetting(
+      site_url, site_url, ContentSettingsType::SEOUL_AD_BLOCK_MODE);
+  base::DictValue dict =
+      existing.is_dict() ? std::move(existing.GetDict()) : base::DictValue();
+  if (blocked) {
+    dict.Set(kCanvasFingerprintKey, true);
+  } else {
+    dict.Remove(kCanvasFingerprintKey);
+  }
+  host_content_settings_map_->SetWebsiteSettingDefaultScope(
+      site_url, site_url, ContentSettingsType::SEOUL_AD_BLOCK_MODE,
+      dict.empty() ? base::Value() : base::Value(std::move(dict)));
+}
+
 AdBlockSiteSettings AdBlockSettings::GetSiteSettings(
     const GURL& site_url) const {
   AdBlockSiteSettings result;
@@ -162,6 +199,7 @@ AdBlockSiteSettings AdBlockSettings::GetSiteSettings(
   result.effective_mode = result.temporarily_disabled
                               ? AdBlockMode::kOff
                               : result.site_mode.value_or(GetDefaultMode());
+  result.canvas_fingerprint_blocked = GetCanvasFingerprintBlocked(site_url);
   return result;
 }
 

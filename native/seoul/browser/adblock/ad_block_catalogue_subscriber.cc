@@ -22,19 +22,33 @@ constexpr base::TimeDelta kMinimumRefreshInterval = base::Hours(1);
 
 }  // namespace
 
-AdBlockCatalogueSubscriber::AdBlockCatalogueSubscriber(Fetcher fetcher,
-                                                       InstallCallback install)
-    : fetcher_(std::move(fetcher)), install_(std::move(install)) {}
+AdBlockCatalogueSubscriber::AdBlockCatalogueSubscriber(
+    Fetcher fetcher,
+    InstallCallback install,
+    std::vector<std::string> profile_languages)
+    : fetcher_(std::move(fetcher)),
+      languages_(NormalizeCatalogLanguages(profile_languages)),
+      install_(std::move(install)) {}
 
 AdBlockCatalogueSubscriber::~AdBlockCatalogueSubscriber() = default;
 
 // static
 std::vector<AdBlockCatalogEntry>
 AdBlockCatalogueSubscriber::SelectSubscribedEntries(
-    const std::vector<AdBlockCatalogEntry>& catalog) {
+    const std::vector<AdBlockCatalogEntry>& catalog,
+    const std::vector<std::string>& normalized_languages) {
   std::vector<AdBlockCatalogEntry> selected;
   for (const AdBlockCatalogEntry& entry : catalog) {
-    if (!entry.enabled_by_default) {
+    // A regional list is selected by language match; everything else by its
+    // default flag. Language never widens a global list's selection and a
+    // default-enabled list never needs a language.
+    const bool language_selected =
+        !entry.languages.empty() &&
+        std::ranges::any_of(entry.languages, [&](const std::string& lang) {
+          return std::ranges::find(normalized_languages, lang) !=
+                 normalized_languages.end();
+        });
+    if (!entry.enabled_by_default && !language_selected) {
       continue;
     }
     if (entry.delivery != AdBlockListDelivery::kRuntimeDownload) {
@@ -71,7 +85,7 @@ void AdBlockCatalogueSubscriber::Start() {
 }
 
 void AdBlockCatalogueSubscriber::RunRound() {
-  entries_ = SelectSubscribedEntries(GetAdBlockFilterCatalog());
+  entries_ = SelectSubscribedEntries(GetAdBlockFilterCatalog(), languages_);
   if (entries_.empty()) {
     // Nothing catalogued for runtime delivery. Not an error: the bundled
     // baseline is a complete, valid ruleset on its own.

@@ -86,13 +86,40 @@ TEST(AdBlockFilterCatalogTest, BundledBaselineIsDefaultEnabled) {
 }
 
 // Opt-in lists land in the additional engine so they cannot silently change
-// the vetted default protection.
+// the vetted default protection. Regional lists are the deliberate
+// exception: they are the same vetted EasyList-family blocking tier as
+// EasyList itself - only their activation is conditional on the profile's
+// languages - so they join the default engine when selected.
 TEST(AdBlockFilterCatalogTest, OptionalListsUseTheAdditionalEngine) {
   for (const AdBlockCatalogEntry& entry : GetAdBlockFilterCatalog()) {
-    if (!entry.enabled_by_default) {
+    if (!entry.enabled_by_default && entry.languages.empty()) {
       EXPECT_EQ(entry.group, AdBlockEngineGroup::kAdditional) << entry.id;
     }
   }
+}
+
+// Every regional entry is well-formed: language-tagged, never default-on,
+// fetched over HTTPS from its canonical host, and bounded.
+TEST(AdBlockFilterCatalogTest, RegionalEntriesAreWellFormed) {
+  size_t regional = 0;
+  for (const AdBlockCatalogEntry& entry : GetAdBlockFilterCatalog()) {
+    if (entry.languages.empty()) {
+      continue;
+    }
+    ++regional;
+    EXPECT_FALSE(entry.enabled_by_default) << entry.id;
+    EXPECT_EQ(AdBlockListDelivery::kRuntimeDownload, entry.delivery)
+        << entry.id;
+    EXPECT_EQ(0u, entry.url.rfind("https://", 0)) << entry.id;
+    EXPECT_GT(entry.max_bytes, 0u) << entry.id;
+    for (const std::string& lang : entry.languages) {
+      EXPECT_GE(lang.size(), 2u) << entry.id;
+      EXPECT_LE(lang.size(), 3u) << entry.id;
+    }
+  }
+  EXPECT_GE(regional, 10u)
+      << "the regional catalog must actually cover the major language "
+         "communities";
 }
 
 TEST(AdBlockFilterCatalogTest, LookupResolvesKnownAndRejectsUnknown) {

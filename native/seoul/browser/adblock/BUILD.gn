@@ -98,6 +98,7 @@ source_set("adblock") {
     "//components/content_settings/core/common",
     "//components/component_updater",
     "//components/keyed_service/core",
+    "//components/language/core/browser",
     "//components/pref_registry",
     "//components/prefs",
     "//content/public/browser",

@@ -26,6 +26,10 @@ struct AdBlockSiteSettings {
   std::optional<AdBlockMode> site_mode;
   bool temporarily_disabled = false;
   base::Time temporary_disable_expiration;
+  // Canvas fingerprinting protection for this site: when true (and shields
+  // are not Off), every canvas is tainted so pixel readbacks -
+  // toDataURL/getImageData/toBlob - throw instead of yielding a fingerprint.
+  bool canvas_fingerprint_blocked = false;
 };
 
 // Owns no profile state. All persistent settings are stored through PrefService
@@ -46,6 +50,8 @@ class AdBlockSettings {
 
   std::optional<AdBlockMode> GetSiteMode(const GURL& site_url) const;
   void SetSiteMode(const GURL& site_url, std::optional<AdBlockMode> mode);
+  bool GetCanvasFingerprintBlocked(const GURL& site_url) const;
+  void SetCanvasFingerprintBlocked(const GURL& site_url, bool blocked);
 
   bool IsTemporarilyDisabled(const GURL& site_url) const;
   base::Time GetTemporaryDisableExpiration(const GURL& site_url) const;

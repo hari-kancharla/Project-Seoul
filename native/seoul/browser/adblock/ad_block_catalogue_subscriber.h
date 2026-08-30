@@ -53,7 +53,12 @@ class AdBlockCatalogueSubscriber {
   using InstallCallback =
       base::RepeatingCallback<void(std::string rules, base::OnceClosure done)>;
 
-  AdBlockCatalogueSubscriber(Fetcher fetcher, InstallCallback install);
+  // `profile_languages` are the profile's languages (application locale plus
+  // accept-languages), used to auto-select regional lists. Normalized here,
+  // so callers pass raw tags.
+  AdBlockCatalogueSubscriber(Fetcher fetcher,
+                             InstallCallback install,
+                             std::vector<std::string> profile_languages);
   ~AdBlockCatalogueSubscriber();
 
   AdBlockCatalogueSubscriber(const AdBlockCatalogueSubscriber&) = delete;
@@ -68,7 +73,8 @@ class AdBlockCatalogueSubscriber {
   // by runtime download, and carrying a usable HTTPS url. Static so the
   // selection rule can be tested on its own.
   static std::vector<AdBlockCatalogEntry> SelectSubscribedEntries(
-      const std::vector<AdBlockCatalogEntry>& catalog);
+      const std::vector<AdBlockCatalogEntry>& catalog,
+      const std::vector<std::string>& normalized_languages);
 
   // Shortest update interval among `entries`, which is how often a round has to
   // run for every entry to meet its own freshness requirement.
@@ -87,6 +93,7 @@ class AdBlockCatalogueSubscriber {
   void ScheduleNextRound();
 
   const Fetcher fetcher_;
+  const std::vector<std::string> languages_;
   const InstallCallback install_;
 
   std::vector<AdBlockCatalogEntry> entries_;

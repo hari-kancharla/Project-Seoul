@@ -4143,6 +4143,93 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest, ShieldsBubbleWritesSiteMode) {
             service->GetSiteSettings(url).effective_mode);
 }
 
+// Fingerprinting protection v1 must be enforcement, not a label: with the
+// per-site setting on, canvas readbacks throw; with shields Off the
+// protection stands down; and the panel's toggle is what writes it.
+IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
+                       CanvasFingerprintBlockIsRealEnforcement) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  const GURL url = embedded_test_server()->GetURL("/empty.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+  constexpr char kProbe[] = R"((() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 8; canvas.height = 8;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#123456';
+    context.fillRect(0, 0, 8, 8);
+    try {
+      canvas.toDataURL();
+      return 'readable';
+    } catch (e) {
+      return e.name;
+    }
+  })())";
+
+  EXPECT_EQ("readable", content::EvalJs(contents, kProbe).ExtractString())
+      << "a site with the protection off reads its own canvas";
+
+  seoul::adblock::AdBlockService* service =
+      seoul::adblock::AdBlockServiceFactory::GetForProfile(
+          browser()->profile());
+  ASSERT_TRUE(service);
+  service->SetCanvasFingerprintBlocked(url, true);
+  contents->OnWebPreferencesChanged();
+  EXPECT_EQ("SecurityError", content::EvalJs(contents, kProbe).ExtractString())
+      << "with the protection on, the readback a fingerprinter needs throws";
+
+  // Reload: the override must survive preference recomputation.
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  EXPECT_EQ("SecurityError", content::EvalJs(contents, kProbe).ExtractString())
+      << "the protection must survive navigation";
+
+  // Shields Off stands the protection down - one switch means one thing.
+  service->SetSiteMode(url, seoul::adblock::AdBlockMode::kOff);
+  contents->OnWebPreferencesChanged();
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  EXPECT_EQ("readable", content::EvalJs(contents, kProbe).ExtractString());
+
+  // And the panel's toggle is the user-facing writer of the same state.
+  service->SetSiteMode(url, std::nullopt);
+  service->SetCanvasFingerprintBlocked(url, false);
+  ASSERT_TRUE(seoul::ShowShieldsBubbleForWebContents(contents));
+  views::Widget* bubble = nullptr;
+  for (views::Widget* widget : views::test::WidgetTest::GetAllWidgets()) {
+    if (widget->widget_delegate() &&
+        widget->widget_delegate()->GetAccessibleWindowTitle() ==
+            u"Shields for this site") {
+      bubble = widget;
+      break;
+    }
+  }
+  ASSERT_TRUE(bubble);
+  views::View* toggle = nullptr;
+  base::circular_deque<views::View*> queue;
+  queue.push_back(bubble->GetContentsView());
+  while (!queue.empty()) {
+    views::View* view = queue.front();
+    queue.pop_front();
+    if (views::IsViewClass<views::ToggleButton>(view) &&
+        view->GetViewAccessibility().GetCachedName() ==
+            u"Block canvas fingerprinting") {
+      toggle = view;
+      break;
+    }
+    for (views::View* child : view->children()) {
+      queue.push_back(child);
+    }
+  }
+  ASSERT_TRUE(toggle);
+  views::test::ButtonTestApi(static_cast<views::Button*>(toggle))
+      .NotifyClick(ui::test::TestEvent());
+  EXPECT_TRUE(service->GetSiteSettings(url).canvas_fingerprint_blocked);
+  EXPECT_EQ("SecurityError", content::EvalJs(contents, kProbe).ExtractString())
+      << "the toggle applies to the live page, not just future navigations";
+  bubble->CloseNow();
+}
+
 // Design review, not regression: renders each Seoul surface in a real
 // compositor and writes widget-scoped PNGs for a human (or agent) to judge
 // against the polish bar. Captures only the widget's own window - never the
