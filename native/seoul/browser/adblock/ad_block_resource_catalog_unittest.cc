@@ -16,7 +16,7 @@ namespace {
 
 TEST(AdBlockResourceCatalogTest, HasStableVettedResourcesAndAliases) {
   const std::vector<AdBlockResource> catalog = GetAdBlockResourceCatalog();
-  ASSERT_EQ(4u, catalog.size());
+  ASSERT_EQ(20u, catalog.size());
   EXPECT_EQ("seoul-noop.js", catalog[0].name);
   EXPECT_EQ("application/javascript", catalog[0].mime_type);
   EXPECT_EQ("a6c40a75a40cb29ddd1046bf271a6a5e4480129680f4752de3b1d3f83c25bdf5",
@@ -38,7 +38,7 @@ TEST(AdBlockResourceCatalogTest, SerializesAsAdblockRustResources) {
       SerializeAdBlockResourceCatalog(), base::JSON_PARSE_RFC);
   ASSERT_TRUE(value);
   ASSERT_TRUE(value->is_list());
-  ASSERT_EQ(4u, value->GetList().size());
+  ASSERT_EQ(20u, value->GetList().size());
   EXPECT_EQ("seoul-noop.js", *value->GetList()[0].GetDict().FindString("name"));
   EXPECT_EQ(
       "application/javascript",
