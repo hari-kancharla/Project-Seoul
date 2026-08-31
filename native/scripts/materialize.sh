@@ -100,7 +100,7 @@ case "$CMD" in
     mkdir -p "$SEOUL_OVERLAY_DEST"
     mirror_and_stamp "$SEOUL_SRC_DIR"/ "$SEOUL_OVERLAY_DEST"/ --exclude='/protocol'
     stage "materialize protocol/ -> $SEOUL_OVERLAY_DEST/protocol"
-    rsync -a --omit-dir-times --delete --exclude='.DS_Store' "$SEOUL_PROTOCOL_DIR"/ "$SEOUL_OVERLAY_DEST"/protocol/
+    mirror_and_stamp "$SEOUL_PROTOCOL_DIR"/ "$SEOUL_OVERLAY_DEST"/protocol/
     stage "materialize pinned blocker Rust closure -> $SEOUL_ADBLOCK_RUST_DEST"
     mkdir -p "$SEOUL_ADBLOCK_RUST_DEST"
     rsync -a --omit-dir-times --delete --exclude='.DS_Store' "$SEOUL_ADBLOCK_RUST_DIR"/ "$SEOUL_ADBLOCK_RUST_DEST"/
