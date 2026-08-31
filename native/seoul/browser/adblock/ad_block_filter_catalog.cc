@@ -97,6 +97,57 @@ std::vector<AdBlockCatalogEntry> BuildCatalog() {
       AdBlockListDelivery::kRuntimeDownload, /*enabled_by_default=*/true,
       AdBlockEngineGroup::kDefault, 12u * kMiB, 24));
 
+  // The rest of uBlock Origin's own filter set.
+  //
+  // `filters.txt` above is only the CURRENT working file; uBlock's engine is
+  // the whole uAssets set, and the generic network rules most sites need live
+  // in `filters-general.txt` rather than in the working file. Subscribing to
+  // one of the fourteen and calling it "uBlock Origin filters" overstated the
+  // coverage by roughly five to one by size. Brave ships the equivalent set.
+  //
+  // All of them go in the DEFAULT engine, including the exception files:
+  // `unbreak.txt` and `quick-fixes.txt` exist to cancel blocks made by their
+  // siblings, so separating them into the additional engine would change what
+  // they cancel. Bounds are generous against each file's measured size so a
+  // list that grows between releases is not silently rejected.
+  const auto ublock_file = [&catalog](const char* id_suffix, const char* file,
+                                      const char* what) {
+    catalog.push_back(MakeEntry(
+        base::StrCat({"ublock-", id_suffix}),
+        base::StrCat({"uBlock Origin: ", what}), "uBlock Origin",
+        base::StrCat(
+            {"https://ublockorigin.github.io/uAssetsCDN/filters/", file}),
+        "GPL-3.0-only", "Raymond Hill and uAssets contributors",
+        AdBlockListDelivery::kRuntimeDownload, /*enabled_by_default=*/true,
+        AdBlockEngineGroup::kDefault, 12u * kMiB, 24));
+  };
+  ublock_file("general", "filters-general.txt",
+              "general network and cosmetic rules");
+  ublock_file("unbreak", "unbreak.txt",
+              "exceptions that repair sites the other files break");
+  ublock_file("badware", "badware.txt",
+              "badware and malvertising hosts");
+  ublock_file("quick-fixes", "quick-fixes.txt",
+              "urgent repairs published between releases");
+  ublock_file("resource-abuse", "resource-abuse.txt",
+              "cryptomining and other resource abuse");
+  ublock_file("link-shorteners", "ubo-link-shorteners.txt",
+              "tracking link shorteners");
+  ublock_file("2020", "filters-2020.txt",
+              "rules retired from the working file in 2020");
+  ublock_file("2021", "filters-2021.txt",
+              "rules retired from the working file in 2021");
+  ublock_file("2022", "filters-2022.txt",
+              "rules retired from the working file in 2022");
+  ublock_file("2023", "filters-2023.txt",
+              "rules retired from the working file in 2023");
+  ublock_file("2024", "filters-2024.txt",
+              "rules retired from the working file in 2024");
+  ublock_file("2025", "filters-2025.txt",
+              "rules retired from the working file in 2025");
+  ublock_file("2026", "filters-2026.txt",
+              "rules retired from the working file in 2026");
+
   // Brave's site-compatibility ("unbreak") rules. The brave/adblock-lists
   // repository is MPL-2.0 and states that individual lists may carry their own
   // upstream licences, so only Brave's own unbreak list is catalogued here
