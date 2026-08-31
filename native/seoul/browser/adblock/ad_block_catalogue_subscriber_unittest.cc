@@ -185,6 +185,38 @@ TEST_F(AdBlockCatalogueSubscriberTest, OneFailedListDoesNotDiscardTheOthers) {
             std::move(done).Run(true, "||ok.example^\n", std::string());
           }),
       base::BindRepeating(
+          [](int* count, std::string* out, std::string rules,
+             base::OnceClosure done) {
+            ++*count;
+            *out = std::move(rules);
+            std::move(done).Run();
+          },
+          &installs, &installed),
+      /*profile_languages=*/{});
+
+  subscriber.Start();
+  task_environment_.RunUntilIdle();
+
+  EXPECT_EQ(1, installs) << "the lists that did arrive must still be installed";
+  EXPECT_EQ(1, subscriber.completed_rounds_for_testing());
+  EXPECT_FALSE(installed.empty());
+  EXPECT_NE(subscriber.last_error_for_testing().find("easyprivacy"),
+            std::string::npos)
+      << "a partial install must name the list that failed";
+}
+
+// The one case where installing nothing is right: if every list failed there is
+// nothing to install, and replacing a working engine with an empty ruleset
+// would be a total, silent loss of protection.
+TEST_F(AdBlockCatalogueSubscriberTest, ARoundThatFetchedNothingInstallsNothing) {
+  int installs = 0;
+  AdBlockCatalogueSubscriber subscriber(
+      base::BindRepeating(
+          [](const AdBlockCatalogEntry& entry,
+             AdBlockCatalogueSubscriber::FetchCallback done) {
+            std::move(done).Run(false, std::string(), "network error");
+          }),
+      base::BindRepeating(
           [](int* count, std::string rules, base::OnceClosure done) {
             ++*count;
             std::move(done).Run();
