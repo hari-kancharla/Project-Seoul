@@ -12,6 +12,8 @@
 
 #include "seoul/browser/adblock/ad_block_filter_catalog.h"
 
+#include "base/strings/strcat.h"
+
 #include <algorithm>
 #include <utility>
 
