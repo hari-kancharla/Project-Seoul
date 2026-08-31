@@ -40,6 +40,7 @@ run_unit_tests() {
     seoul_connectors_unittests
     seoul_containers_unittests
     seoul_context_unittests
+    seoul_context_map_unittests
     seoul_data_unittests
     seoul_handset_unittests
     seoul_intelligence_unittests
@@ -75,6 +76,7 @@ run_unit_tests() {
     seoul/browser/connectors:seoul_connectors_unittests
     seoul/browser/containers:seoul_containers_unittests
     seoul/browser/context:seoul_context_unittests
+    seoul/browser/context_map:seoul_context_map_unittests
     seoul/browser/data:seoul_data_unittests
     seoul/browser/handset:seoul_handset_unittests
     seoul/browser/intelligence:seoul_intelligence_unittests
