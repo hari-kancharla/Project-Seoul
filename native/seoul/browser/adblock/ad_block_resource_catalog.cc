@@ -50,7 +50,7 @@ constexpr BundledResource kBundledResources[] = {
     },
     {
         "seoul-empty.css",
-        {"noop.css", "empty.css"},
+        {"noop.css", "empty.css", "noopcss"},
         AdBlockResourceType::kMime,
         "text/css",
         "LyogU2VvdWwgdmV0dGVkIGVtcHR5IHN0eWxlc2hlZXQuICovCg==",
