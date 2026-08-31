@@ -59,7 +59,7 @@ constexpr BundledResource kBundledResources[] = {
     },
     {
         "seoul-transparent.gif",
-        {"1x1.gif", "transparent.gif"},
+        {"1x1.gif", "transparent.gif", "1x1-transparent.gif"},
         AdBlockResourceType::kMime,
         "image/gif",
         "R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
