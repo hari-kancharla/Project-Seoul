@@ -139,7 +139,17 @@ void AdBlockCatalogueSubscriber::OnFetched(bool success,
 void AdBlockCatalogueSubscriber::FinishRound(bool success, std::string error) {
   round_running_ = false;
   last_error_ = std::move(error);
-  if (!success) {
+  if (!failures_.empty()) {
+    last_error_ = base::StrCat(
+        {base::NumberToString(failures_.size()), " of ",
+         base::NumberToString(entries_.size()), " lists failed: ",
+         base::JoinString(failures_, "; ")});
+  }
+  failures_.clear();
+  // A round that fetched nothing at all installs nothing: replacing a working
+  // engine with an empty ruleset would be a silent, total loss of protection.
+  if (!success || collected_.empty()) {
+    collected_.clear();
     ScheduleNextRound();
     return;
   }
