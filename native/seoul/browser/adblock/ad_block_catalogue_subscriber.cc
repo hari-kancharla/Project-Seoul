@@ -132,7 +132,6 @@ void AdBlockCatalogueSubscriber::OnFetched(bool success,
       failures_.push_back(base::StrCat({entries_[next_index_].id, ": ", error}));
     }
   }
-  collected_.push_back(std::move(rules));
   ++next_index_;
   FetchNext();
 }
