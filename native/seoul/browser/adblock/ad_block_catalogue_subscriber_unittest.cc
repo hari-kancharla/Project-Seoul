@@ -163,7 +163,15 @@ TEST_F(AdBlockCatalogueSubscriberTest, ConcatenatesEveryListWithASeparator) {
 
 // A round that loses one list must install nothing. Installing the rest would
 // quietly narrow protection with no way for anyone to notice.
-TEST_F(AdBlockCatalogueSubscriberTest, OneFailedListAbandonsTheWholeRound) {
+// One unreachable list must not cost the user every other list.
+//
+// This test previously asserted the opposite, on the reasoning that installing
+// part of a set narrows protection without saying so. That reasoning inverts
+// once the catalogue is Brave-sized: abandoning the round installs NOTHING and
+// leaves the profile on the bundled baseline, which narrows protection far
+// more than missing one list. The objection is answered instead by naming
+// every failed list in the status, so the narrowing is reported.
+TEST_F(AdBlockCatalogueSubscriberTest, OneFailedListDoesNotDiscardTheOthers) {
   int installs = 0;
   AdBlockCatalogueSubscriber subscriber(
       base::BindRepeating(
