@@ -99,6 +99,11 @@ class AdBlockCatalogueSubscriber {
   std::vector<AdBlockCatalogEntry> entries_;
   size_t next_index_ = 0;
   std::vector<std::string> collected_;
+  // Lists that failed this round, named in the status so a partial install is
+  // reported rather than passing as a complete one. Bounded: the message is for
+  // a person to read, not a log to accumulate.
+  static constexpr size_t kMaxReportedFailures = 8;
+  std::vector<std::string> failures_;
   bool round_running_ = false;
   int completed_rounds_ = 0;
   std::string last_error_;
