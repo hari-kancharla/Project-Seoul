@@ -437,7 +437,15 @@ std::vector<AdBlockResource> BuildCatalog() {
 
     AdBlockResource resource;
     resource.name = bundled.name;
-    resource.aliases.assign(bundled.aliases.begin(), bundled.aliases.end());
+    for (const char* alias : bundled.aliases) {
+      // Defensive rather than trusting the padding: an aggregate initialiser
+      // that names fewer aliases than the array holds leaves the rest null, and
+      // this runs at startup where a stray dereference is a crash rather than a
+      // failed test.
+      if (alias != nullptr && *alias != '\0') {
+        resource.aliases.push_back(alias);
+      }
+    }
     resource.type = bundled.type;
     resource.mime_type = bundled.mime_type;
     resource.body = std::move(body);
