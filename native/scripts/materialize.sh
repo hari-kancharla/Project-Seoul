@@ -128,7 +128,7 @@ case "$CMD" in
       log "blocker Rust closure not present at $SEOUL_ADBLOCK_RUST_DEST (run: materialize.sh apply)"
       exit 1
     fi
-    rust_diff="$(rsync -a --omit-dir-times --delete --dry-run --itemize-changes --exclude='.DS_Store' "$SEOUL_ADBLOCK_RUST_DIR"/ "$SEOUL_ADBLOCK_RUST_DEST"/)"
+    rust_diff="$(rsync "${SEOUL_VERIFY_OPTS[@]}" "$SEOUL_ADBLOCK_RUST_DIR"/ "$SEOUL_ADBLOCK_RUST_DEST"/ | real_changes)"
     if [ -n "$rust_diff" ]; then
       warn "materialized blocker Rust closure differs from repository source:"
       printf '%s\n' "$rust_diff"
