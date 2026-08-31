@@ -19,6 +19,64 @@ set -euo pipefail
 CMD="${1:-apply}"
 need_cmd rsync
 
+# Mirror by CONTENT, and stamp what changes with the time it changed.
+#
+# `rsync -a` preserves the source's modification times, which quietly breaks
+# incremental builds: an edit made before the last compile arrives in the
+# checkout wearing its original timestamp, the build system sees an object file
+# that is newer, decides the source is unchanged, and links a stale object
+# against new sources. That failure is silent and it produces a binary that does
+# not match the tree it claims to be built from.
+#
+# So: decide what to copy from the file's contents (--checksum), never from its
+# timestamp, and touch whatever was actually copied so it is unambiguously newer
+# than anything built before. Files that did not change are not touched, so this
+# does not force needless rebuilds.
+#
+# `verify` correspondingly compares contents and ignores times, because after a
+# touch the mirror's times legitimately differ from the repository's while its
+# contents are identical. Dropping -t (-rlpgoD is -a without -t) is not enough
+# on its own: it stops rsync SETTING the time, but rsync still ITEMIZES the
+# difference as `.f..T....` - a leading `.` meaning "no transfer needed, only a
+# timestamp". Reporting those as staleness made verify fail on exactly the files
+# apply had just written correctly, and that blocked the test runner outright.
+# So the itemized output is filtered to real content differences.
+SEOUL_MIRROR_OPTS=(-a --checksum --omit-dir-times --delete --exclude='.DS_Store')
+SEOUL_VERIFY_OPTS=(-rlpgoD --checksum --omit-dir-times --delete --dry-run
+                   --itemize-changes --exclude='.DS_Store')
+
+# Keep only itemized lines that mean the mirror's CONTENTS are wrong: a transfer
+# (> or <), a creation (c), or a deletion (*deleting). Anything starting with
+# `.` is rsync noting an attribute it would touch on a file whose contents
+# already match - which, after apply's stamping, is the normal state.
+real_changes() {
+  grep -E '^(>|<|c|\*)' || true
+}
+
+# rsync's itemized output names every file it wrote, relative to the
+# destination; touch exactly those.
+mirror_and_stamp() {
+  local source="$1" dest="$2"
+  shift 2
+  local changed
+  changed="$(rsync "${SEOUL_MIRROR_OPTS[@]}" "$@" --itemize-changes \
+    "$source" "$dest")"
+  local line path stamped=0
+  while IFS= read -r line; do
+    # Itemized lines are "<flags> <path>"; only real transfers start with > or c.
+    case "$line" in
+      \>*|c*) path="${line#* }" ;;
+      *) continue ;;
+    esac
+    case "$path" in */) continue ;; esac
+    if [ -f "$dest$path" ]; then
+      touch "$dest$path"
+      stamped=$((stamped + 1))
+    fi
+  done <<< "$changed"
+  log "mirrored $dest ($stamped file(s) changed and stamped)"
+}
+
 [ -d "$SEOUL_SRC_DIR" ] || die "Seoul source dir not found: $SEOUL_SRC_DIR"
 [ -d "$SEOUL_PROTOCOL_DIR" ] || die "Seoul protocol dir not found: $SEOUL_PROTOCOL_DIR"
 [ -d "$SEOUL_ADBLOCK_RUST_DIR" ] ||
