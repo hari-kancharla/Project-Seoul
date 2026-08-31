@@ -531,13 +531,36 @@ bool ValidateAdBlockResourceArguments(std::string_view name_or_alias,
   if (resource->type == AdBlockResourceType::kMime) {
     return arguments.empty();
   }
-  if (resource->name != "seoul-remove-elements.js" ||
-      arguments.size() != 1u) {
-    return false;
+  // Scriptlet arguments are validated per scriptlet, mirroring the guards
+  // each body enforces again at runtime - the vet here keeps an unvettable
+  // rule from ever reaching the engine, the guards there keep a bug here
+  // from becoming an injection.
+  const auto sane = [](const std::string& value, size_t max) {
+    return !value.empty() && value.size() <= max &&
+           value.find('\0') == std::string::npos;
+  };
+  if (resource->name == "seoul-remove-elements.js") {
+    return arguments.size() == 1u && sane(arguments[0], 512);
   }
-  const std::string& selector = arguments.front();
-  return !selector.empty() && selector.size() <= 512 &&
-         selector.find('\0') == std::string::npos;
+  if (resource->name == "seoul-remove-attr.js" ||
+      resource->name == "seoul-remove-class.js") {
+    if (arguments.empty() || arguments.size() > 2u ||
+        !sane(arguments[0], 128)) {
+      return false;
+    }
+    return arguments.size() == 1u || sane(arguments[1], 512);
+  }
+  if (resource->name == "seoul-set-attr.js") {
+    if (arguments.size() < 2u || arguments.size() > 3u ||
+        !sane(arguments[0], 512) || !sane(arguments[1], 128)) {
+      return false;
+    }
+    // The value may legitimately be empty; only bound and NUL-check it.
+    return arguments.size() == 2u ||
+           (arguments[2].size() <= 512 &&
+            arguments[2].find('\0') == std::string::npos);
+  }
+  return false;
 }
 
 }  // namespace seoul::adblock
