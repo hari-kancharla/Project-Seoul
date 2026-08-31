@@ -6,6 +6,9 @@
 #include <vector>
 
 #include "base/json/json_reader.h"
+#include <set>
+#include <string>
+
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace seoul::adblock {
