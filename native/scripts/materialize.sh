@@ -112,13 +112,13 @@ case "$CMD" in
       log "overlay not present at $SEOUL_OVERLAY_DEST (run: materialize.sh apply)"
       exit 1
     fi
-    diff_out="$(rsync -a --omit-dir-times --delete --dry-run --itemize-changes --exclude='.DS_Store' --exclude='/protocol' "$SEOUL_SRC_DIR"/ "$SEOUL_OVERLAY_DEST"/)"
+    diff_out="$(rsync "${SEOUL_VERIFY_OPTS[@]}" --exclude='/protocol' "$SEOUL_SRC_DIR"/ "$SEOUL_OVERLAY_DEST"/ | real_changes)"
     if [ -n "$diff_out" ]; then
       warn "overlay differs from native/seoul/:"
       printf '%s\n' "$diff_out"
       exit 1
     fi
-    proto_diff="$(rsync -a --omit-dir-times --delete --dry-run --itemize-changes --exclude='.DS_Store' "$SEOUL_PROTOCOL_DIR"/ "$SEOUL_OVERLAY_DEST"/protocol/)"
+    proto_diff="$(rsync "${SEOUL_VERIFY_OPTS[@]}" "$SEOUL_PROTOCOL_DIR"/ "$SEOUL_OVERLAY_DEST"/protocol/ | real_changes)"
     if [ -n "$proto_diff" ]; then
       warn "overlay protocol/ differs from repository protocol/:"
       printf '%s\n' "$proto_diff"
