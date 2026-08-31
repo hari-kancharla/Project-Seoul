@@ -115,12 +115,22 @@ void AdBlockCatalogueSubscriber::FetchNext() {
 void AdBlockCatalogueSubscriber::OnFetched(bool success,
                                            std::string rules,
                                            std::string error) {
-  if (!success) {
-    // Abandon the whole round. Installing what did arrive would narrow
-    // protection without saying so.
-    FinishRound(/*success=*/false,
-                base::StrCat({entries_[next_index_].id, ": ", error}));
-    return;
+  if (success) {
+    collected_.push_back(std::move(rules));
+  } else {
+    // Skip this list and keep going.
+    //
+    // Abandoning the round on one failure was defensible when the catalogue
+    // held a handful of lists, on the reasoning that installing part of a set
+    // narrows protection without saying so. With a Brave-sized catalogue that
+    // reasoning inverts: one unreachable host would install NOTHING and leave
+    // the profile on the bundled baseline alone, which narrows protection far
+    // more than missing one list. So the round continues and every list that
+    // failed is named in the status, which answers the original objection -
+    // the narrowing is reported rather than silent.
+    if (failures_.size() < kMaxReportedFailures) {
+      failures_.push_back(base::StrCat({entries_[next_index_].id, ": ", error}));
+    }
   }
   collected_.push_back(std::move(rules));
   ++next_index_;
