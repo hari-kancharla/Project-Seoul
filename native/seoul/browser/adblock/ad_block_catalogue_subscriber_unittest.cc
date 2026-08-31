@@ -173,6 +173,7 @@ TEST_F(AdBlockCatalogueSubscriberTest, ConcatenatesEveryListWithASeparator) {
 // every failed list in the status, so the narrowing is reported.
 TEST_F(AdBlockCatalogueSubscriberTest, OneFailedListDoesNotDiscardTheOthers) {
   int installs = 0;
+  std::string installed;
   AdBlockCatalogueSubscriber subscriber(
       base::BindRepeating(
           [](const AdBlockCatalogEntry& entry,
