@@ -20,7 +20,17 @@ namespace {
 
 struct BundledResource {
   const char* name;
-  std::array<const char*, 2> aliases;
+  // Every name a filter rule may use to reach this resource.
+  //
+  // A rule that names a resource Seoul cannot resolve does not fall back to
+  // doing nothing: the engine still reports the request as matched but with no
+  // redirect, so the request is hard-blocked instead of answered with a stub.
+  // A missing alias therefore turns a designed no-op into exactly the breakage
+  // the stub exists to prevent, which is why the canonical underscore spellings
+  // used by the upstream lists are registered beside the host/path form.
+  //
+  // Unused slots are empty; BuildCatalog skips anything unset.
+  std::array<const char*, 4> aliases;
   AdBlockResourceType type;
   const char* mime_type;
   const char* base64_body;
