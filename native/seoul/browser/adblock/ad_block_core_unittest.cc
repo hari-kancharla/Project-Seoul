@@ -20,6 +20,7 @@
 #include "seoul/browser/adblock/ad_block_filter_list_manager.h"
 #include "seoul/browser/adblock/ad_block_request.h"
 #include "seoul/browser/adblock/ad_block_service.h"
+#include "seoul/browser/adblock/ad_block_url_detracker.h"
 #include "seoul/browser/adblock/ad_block_stats_service.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "testing/gtest/include/gtest/gtest.h"

@@ -68,6 +68,8 @@ source_set("adblock") {
     "ad_block_service.h",
     "ad_block_service_factory.cc",
     "ad_block_service_factory.h",
+    "ad_block_url_detracker.cc",
+    "ad_block_url_detracker.h",
     "ad_block_settings.cc",
     "ad_block_settings.h",
     "ad_block_stats_service.cc",
