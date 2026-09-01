@@ -33,6 +33,8 @@ struct SanitizedProceduralActionSets {
 
   std::vector<std::string> default_actions;
   std::vector<std::string> additional_actions;
+  std::vector<StyledSelector> default_styled;
+  std::vector<StyledSelector> additional_styled;
 };
 
 // Parses list-provided JSON as data, retains only Seoul's fixed supported

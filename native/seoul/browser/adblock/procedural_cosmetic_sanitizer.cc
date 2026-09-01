@@ -256,7 +256,8 @@ std::optional<StyledSelector> TryExtractStyledSelector(
 
 std::vector<std::string> SanitizeActionList(
     const std::vector<std::string>& input,
-    ProceduralBudget* budget) {
+    ProceduralBudget* budget,
+    std::vector<StyledSelector>* styled) {
   std::vector<std::string> output;
   for (const std::string& serialized : input) {
     if (budget->count == kMaxProceduralActions) {
