@@ -14,6 +14,7 @@ struct StyledSelector {
 
 struct CosmeticSelectorSet {
   array<string> selectors;
+  array<StyledSelector> styled_selectors;
   string isolated_script;
   array<string> procedural_actions;
   bool query_generics;
