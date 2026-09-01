@@ -47,6 +47,59 @@ TEST(ProceduralCosmeticSanitizerTest,
 
   EXPECT_TRUE(result.default_actions.empty());
   EXPECT_TRUE(result.additional_actions.empty());
+  EXPECT_TRUE(result.default_styled.empty());
+  EXPECT_TRUE(result.additional_styled.empty());
+}
+
+// `:style()` in its plain form is a stylesheet rule wearing procedural
+// clothing: one selector, one declaration block, nothing to evaluate against
+// the DOM. It used to be dropped, which is what made hiding a consent notice
+// leave the page scroll-locked - the rule that restores scrolling IS a style
+// rule. It is now emitted as CSS rather than as procedural work.
+TEST(ProceduralCosmeticSanitizerTest, AcceptsPlainStyleRulesAsStylesheetRules) {
+  const SanitizedProceduralActionSets result = SanitizeProceduralActionSets(
+      {
+          R"({"selector":[{"type":"css-selector","arg":"html"}],"action":{"type":"style","arg":"overflow:auto!important"}})",
+          // Duplicate of the first: one budget, deduplicated.
+          R"({"selector":[{"type":"css-selector","arg":"html"}],"action":{"type":"style","arg":"overflow:auto!important"}})",
+      },
+      {
+          R"({"selector":[{"type":"css-selector","arg":"body"}],"action":{"type":"style","arg":"position:static"}})",
+      });
+
+  ASSERT_EQ(1u, result.default_styled.size());
+  EXPECT_EQ("html", result.default_styled[0].selector);
+  EXPECT_EQ("overflow:auto!important", result.default_styled[0].declarations);
+  ASSERT_EQ(1u, result.additional_styled.size());
+  EXPECT_EQ("body", result.additional_styled[0].selector);
+  // Nothing procedural was produced: these cost the renderer no DOM work.
+  EXPECT_TRUE(result.default_actions.empty());
+  EXPECT_TRUE(result.additional_actions.empty());
+}
+
+// The declarations are list-controlled CSS injected into the document, so the
+// vocabulary is an allowlist of shapes rather than a hunt for known-bad ones.
+// Rejecting every parenthesis removes url(), image-set(), attr(), var() and the
+// legacy expression() channel in one rule that cannot fall behind new CSS.
+TEST(ProceduralCosmeticSanitizerTest, RejectsStyleDeclarationsThatCouldEscape) {
+  const SanitizedProceduralActionSets result = SanitizeProceduralActionSets(
+      {
+          // Custom delimiter: these payloads embed `)"`, which would close a
+          // plain R"(...)" literal in the middle of the string.
+          R"json({"selector":[{"type":"css-selector","arg":"a"}],"action":{"type":"style","arg":"background:url(https://x/y)"}})json",
+          R"json({"selector":[{"type":"css-selector","arg":"a"}],"action":{"type":"style","arg":"width:expression(alert(1))"}})json",
+          R"({"selector":[{"type":"css-selector","arg":"a"}],"action":{"type":"style","arg":"color:red}html{display:none"}})",
+          R"({"selector":[{"type":"css-selector","arg":"a"}],"action":{"type":"style","arg":"content:'x'"}})",
+          R"({"selector":[{"type":"css-selector","arg":"a"}],"action":{"type":"style","arg":";;; "}})",
+          R"({"selector":[{"type":"css-selector","arg":"a"}],"action":{"type":"style","arg":""}})",
+          // Two operators is not the plain shape; it stays procedural, and the
+          // procedural path does not accept a style action.
+          R"({"selector":[{"type":"css-selector","arg":"a"},{"type":"has-text","arg":"ad"}],"action":{"type":"style","arg":"color:red"}})",
+      },
+      {});
+
+  EXPECT_TRUE(result.default_styled.empty());
+  EXPECT_TRUE(result.default_actions.empty());
 }
 
 TEST(ProceduralCosmeticSanitizerTest,
