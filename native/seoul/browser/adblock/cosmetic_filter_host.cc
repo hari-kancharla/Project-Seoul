@@ -262,6 +262,21 @@ void CosmeticFilterHost::OnGotCosmeticResources(
       std::move(procedural.default_actions);
   result->additional_rules->procedural_actions =
       std::move(procedural.additional_actions);
+  const auto to_mojom_styled = [](std::vector<StyledSelector> styled) {
+    std::vector<mojom::StyledSelectorPtr> out;
+    out.reserve(styled.size());
+    for (StyledSelector& style : styled) {
+      auto entry = mojom::StyledSelector::New();
+      entry->selector = std::move(style.selector);
+      entry->declarations = std::move(style.declarations);
+      out.push_back(std::move(entry));
+    }
+    return out;
+  };
+  result->default_rules->styled_selectors =
+      to_mojom_styled(std::move(procedural.default_styled));
+  result->additional_rules->styled_selectors =
+      to_mojom_styled(std::move(procedural.additional_styled));
   std::move(callback).Run(std::move(result));
 }
 
