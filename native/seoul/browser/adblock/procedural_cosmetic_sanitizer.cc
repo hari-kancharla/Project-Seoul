@@ -49,6 +49,46 @@ bool IsSafeSelector(std::string_view selector) {
          selector.find('}') == std::string_view::npos;
 }
 
+// Declarations from a filter list, injected into the document as CSS.
+//
+// An allowlist of shapes rather than a sanitiser of known-bad ones: every
+// parenthesis is rejected outright, which removes url(), image-set(), attr(),
+// var() and the legacy expression() channel in a single rule that cannot fall
+// behind whatever functional notation CSS adds next. Measured against the
+// catalogued lists this costs almost nothing, because the rules that matter are
+// plain property/value pairs such as restoring overflow or position.
+bool IsSafeStyleDeclarations(std::string_view declarations) {
+  if (declarations.empty() ||
+      declarations.size() > kMaxProceduralTextBytes) {
+    return false;
+  }
+  for (const char character : declarations) {
+    switch (character) {
+      case '(':
+      case ')':
+      case '{':
+      case '}':
+      case '"':
+      case '\'':
+      case '\\':
+      case '<':
+      case '>':
+      case '@':
+      case '\0':
+        return false;
+      default:
+        break;
+    }
+    // Control characters would let a rule break out of the declaration when it
+    // is written into the stylesheet.
+    if (static_cast<unsigned char>(character) < 0x20) {
+      return false;
+    }
+  }
+  // A declaration block that is only separators carries no property at all.
+  return declarations.find_first_not_of("; \t") != std::string_view::npos;
+}
+
 bool IsSafeIdentifier(std::string_view identifier, bool allow_colon_and_dot) {
   if (identifier.empty() || identifier.size() > 128) {
     return false;
