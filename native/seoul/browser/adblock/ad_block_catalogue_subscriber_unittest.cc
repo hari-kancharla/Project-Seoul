@@ -262,6 +262,7 @@ TEST_F(AdBlockCatalogueSubscriberTest, RetriesOnTheNextIntervalAfterFailure) {
   subscriber.Start();
   task_environment_.RunUntilIdle();
   EXPECT_EQ(0, installs);
+  EXPECT_GT(attempts, 0);
 
   task_environment_.FastForwardBy(base::Hours(25));
   EXPECT_EQ(1, installs) << "a later round must recover";
