@@ -36,10 +36,16 @@ class CosmeticFilterAgent final : public content::RenderFrameObserver {
   void DidCreateDocumentElement() override;
   void DidSetPageLifecycleState(
       blink::BFCacheStateChange bfcache_change) override;
+  void DidObserveLoadingBehavior(blink::LoadingBehaviorFlag behavior) override;
+  void WillDetach(blink::DetachReason detach_reason) override;
   void OnDestruct() override;
 
  private:
   void ClearForNewDocument();
+  // Sends the farbled readbacks counted since the last report. Batched,
+  // because a canvas-heavy page reads back many times a second and the
+  // receipt needs counts, not a message per read.
+  void FlushFarbledReads();
   void SuspendForBackForwardCache();
   void BeginForCurrentDocument(bool refresh);
   void RequestResources(uint64_t generation, bool refresh);
