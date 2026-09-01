@@ -24,6 +24,7 @@
 #include "seoul/browser/adblock/ad_block_stats_service.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/privacy/seoul_farbling.h"
 #include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
 #include "url/gurl.h"
 #include "url/origin.h"

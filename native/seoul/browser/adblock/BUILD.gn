@@ -161,6 +161,7 @@ test("seoul_adblock_core_unittests") {
     "//services/network/public/cpp",
     "//services/network:test_support",
     "//testing/gtest",
+    "//third_party/blink/public/common",
     "//url",
   ]
 }
