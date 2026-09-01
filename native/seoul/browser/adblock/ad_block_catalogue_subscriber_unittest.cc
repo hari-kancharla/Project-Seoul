@@ -227,7 +227,7 @@ TEST_F(AdBlockCatalogueSubscriberTest, ARoundThatFetchedNothingInstallsNothing) 
   subscriber.Start();
   task_environment_.RunUntilIdle();
 
-  EXPECT_EQ(0, installs) << "a partial round must not be installed";
+  EXPECT_EQ(0, installs);
   EXPECT_EQ(0, subscriber.completed_rounds_for_testing());
   EXPECT_NE(subscriber.last_error_for_testing().find("easyprivacy"),
             std::string::npos)
