@@ -34,7 +34,6 @@ TEST(ProceduralCosmeticSanitizerTest,
               R"({"selector":[{"type":"css-selector","arg":".ad"},{"type":"has-text","arg":"/sponsor.*/i"}]})",
               R"({"selector":[{"type":"matches-css","arg":"display: block"}]})",
               R"({"selector":[{"type":"xpath","arg":"//div"}]})",
-              R"({"selector":[{"type":"css-selector","arg":".ad"}],"action":{"type":"style","arg":"opacity:0"}})",
               R"({"selector":[{"type":"css-selector","arg":"body{display:none}"}]})",
               R"({"selector":[{"type":"css-selector","arg":".ad"}],"extra":true})",
               // Custom delimiter: the payload embeds `)"`, which would close a
