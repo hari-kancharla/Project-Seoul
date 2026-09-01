@@ -263,6 +263,21 @@ std::vector<std::string> SanitizeActionList(
     if (budget->count == kMaxProceduralActions) {
       break;
     }
+    // Styled selectors share the one budget with procedural actions, so the
+    // single cap still governs everything a page can be handed.
+    if (std::optional<StyledSelector> style =
+            TryExtractStyledSelector(serialized)) {
+      const size_t cost = style->selector.size() + style->declarations.size();
+      const std::string key = "style\x1f" + style->selector + "\x1f" +
+                              style->declarations;
+      if (budget->bytes + cost <= kMaxCombinedProceduralActionBytes &&
+          budget->seen.insert(key).second) {
+        ++budget->count;
+        budget->bytes += cost;
+        styled->push_back(std::move(*style));
+      }
+      continue;
+    }
     std::optional<std::string> sanitized = SanitizeActionRecord(serialized);
     if (!sanitized ||
         budget->bytes + sanitized->size() >
