@@ -217,6 +217,43 @@ std::optional<std::string> SanitizeActionRecord(
   return base::WriteJson(sanitized);
 }
 
+// Recognises the pure-CSS shape: exactly one css-selector operator and a style
+// action. Anything else - an operator that has to look at the DOM, or a second
+// operator - is left to the procedural path.
+std::optional<StyledSelector> TryExtractStyledSelector(
+    std::string_view serialized) {
+  std::optional<base::Value> parsed =
+      base::JSONReader::Read(serialized, base::JSON_PARSE_RFC);
+  if (!parsed || !parsed->is_dict()) {
+    return std::nullopt;
+  }
+  const base::DictValue& record = parsed->GetDict();
+  const base::ListValue* operators = record.FindList("selector");
+  const base::DictValue* action = record.FindDict("action");
+  if (!operators || !action || operators->size() != 1u) {
+    return std::nullopt;
+  }
+  const std::string* action_type = action->FindString("type");
+  const std::string* declarations = action->FindString("arg");
+  if (!action_type || *action_type != "style" || !declarations ||
+      action->size() != 2u) {
+    return std::nullopt;
+  }
+  const base::Value& only = (*operators)[0];
+  if (!only.is_dict()) {
+    return std::nullopt;
+  }
+  const std::string* operator_type = only.GetDict().FindString("type");
+  const std::string* selector = only.GetDict().FindString("arg");
+  if (!operator_type || *operator_type != "css-selector" || !selector) {
+    return std::nullopt;
+  }
+  if (!IsSafeSelector(*selector) || !IsSafeStyleDeclarations(*declarations)) {
+    return std::nullopt;
+  }
+  return StyledSelector{*selector, *declarations};
+}
+
 std::vector<std::string> SanitizeActionList(
     const std::vector<std::string>& input,
     ProceduralBudget* budget) {
