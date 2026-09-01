@@ -299,8 +299,10 @@ SanitizedProceduralActionSets SanitizeProceduralActionSets(
     const std::vector<std::string>& additional_actions) {
   ProceduralBudget budget;
   SanitizedProceduralActionSets result;
-  result.default_actions = SanitizeActionList(default_actions, &budget);
-  result.additional_actions = SanitizeActionList(additional_actions, &budget);
+  result.default_actions =
+      SanitizeActionList(default_actions, &budget, &result.default_styled);
+  result.additional_actions = SanitizeActionList(additional_actions, &budget,
+                                                 &result.additional_styled);
   return result;
 }
 
