@@ -1079,5 +1079,111 @@ TEST(AdBlockStatsServiceTest, BoundsTrackedFrameState) {
   EXPECT_EQ(0u, stats.tracked_frame_count_for_testing());
 }
 
+// The fingerprint receipt is per page: reports add up by surface, another
+// page has its own, a reset empties it, and an empty report leaves no trace.
+TEST(AdBlockStatsServiceTest, FarbledReadsAreAPerPageReceipt) {
+  AdBlockStatsService stats;
+  const content::GlobalRenderFrameHostToken page;
+  const content::GlobalRenderFrameHostToken other;
+  FarbledReadCounts first;
+  first.canvas = 2;
+  first.hardware = 1;
+  stats.RecordFarbledReads(page, first);
+  FarbledReadCounts second;
+  second.canvas = 1;
+  second.webgl = 1;
+  stats.RecordFarbledReads(page, second);
+  const FarbledReadCounts receipt = stats.GetFarbledReads(page);
+  EXPECT_EQ(3u, receipt.canvas);
+  EXPECT_EQ(1u, receipt.webgl);
+  EXPECT_EQ(1u, receipt.hardware);
+  EXPECT_EQ(5u, receipt.total());
+  EXPECT_EQ(0u, stats.GetFarbledReads(other).total())
+      << "another page has its own receipt";
+  stats.ResetFarbledReads(page);
+  EXPECT_EQ(0u, stats.GetFarbledReads(page).total());
+  stats.RecordFarbledReads(other, FarbledReadCounts());
+  EXPECT_EQ(0u, stats.tracked_receipt_count_for_testing())
+      << "an empty report records nothing and tracks nothing";
+}
+
+TEST(AdBlockStatsServiceTest, FarbledReadReceiptsAreBounded) {
+  AdBlockStatsService stats;
+  FarbledReadCounts one_read;
+  one_read.canvas = 1;
+  for (int i = 0; i < 600; ++i) {
+    stats.RecordFarbledReads(content::GlobalRenderFrameHostToken(), one_read);
+  }
+  EXPECT_LE(stats.tracked_receipt_count_for_testing(), 512u);
+}
+
+// The scope a profile's ordinary tabs share. An isolated Space's tabs carry
+// a different one; see IdentityScopesSeparateSpaces below.
+constexpr char kScope[] = "profile-1";
+
+// These construct an AdBlockService, which brings up its engine host and so
+// needs a task environment; AdBlockAsyncTest is the fixture that supplies one.
+// Without it the constructor crashes rather than failing an assertion.
+//
+// "New identity" moves one site's pattern and nothing else's; the pattern is
+// one per registrable domain.
+TEST_F(AdBlockAsyncTest, RotationChangesOneSiteOnly) {
+  AdBlockService service(nullptr);
+  const GURL site_a("https://a.example/page");
+  const GURL site_b("https://b.example/");
+  const uint64_t a_before = service.GetFarblingToken(site_a, kScope);
+  const uint64_t b_before = service.GetFarblingToken(site_b, kScope);
+  EXPECT_NE(0u, a_before);
+  EXPECT_EQ(a_before, service.GetFarblingToken(
+                          GURL("https://sub.a.example/other"), kScope))
+      << "one pattern per registrable domain";
+  service.RotateIdentity(site_a, kScope);
+  EXPECT_NE(a_before, service.GetFarblingToken(site_a, kScope));
+  EXPECT_EQ(b_before, service.GetFarblingToken(site_b, kScope))
+      << "no other site moved";
+}
+
+// Two Spaces in one profile keep separate storage, so they must keep separate
+// identities: a fingerprint that crossed them would re-link exactly what the
+// container separates. Rotating one must not disturb the other.
+TEST_F(AdBlockAsyncTest, IdentityScopesSeparateSpaces) {
+  AdBlockService service(nullptr);
+  const GURL site("https://a.example/");
+  constexpr char kWork[] = "profile-1\x1fseoul\x1fwork";
+  constexpr char kPersonal[] = "profile-1\x1fseoul\x1fpersonal";
+  const uint64_t work = service.GetFarblingToken(site, kWork);
+  const uint64_t personal = service.GetFarblingToken(site, kPersonal);
+  EXPECT_NE(work, personal)
+      << "the same site in two Spaces must not share a fingerprint";
+  EXPECT_NE(work, service.GetFarblingToken(site, kScope));
+  EXPECT_EQ(work, service.GetFarblingToken(site, kWork))
+      << "and each Space is stable for the session";
+  service.RotateIdentity(site, kWork);
+  EXPECT_NE(work, service.GetFarblingToken(site, kWork));
+  EXPECT_EQ(personal, service.GetFarblingToken(site, kPersonal))
+      << "rotating one Space leaves the other alone";
+}
+
+// What the panel says a site sees is the shared generator run on the very
+// token the renderer holds - never a second implementation that can drift.
+TEST_F(AdBlockAsyncTest, DescriptionIsTheSharedGeneratorsAnswer) {
+  AdBlockService service(nullptr);
+  const GURL site("https://a.example/");
+  const SiteIdentity identity = service.DescribeIdentity(site, kScope);
+  EXPECT_TRUE(identity.farbled) << "Balanced is the default";
+  EXPECT_EQ(service.GetFarblingToken(site, kScope), identity.token);
+  EXPECT_EQ(4u, identity.persona.size());
+  EXPECT_GE(identity.real_cores, 1);
+  EXPECT_GT(identity.memory_class_gib, 0.0f);
+  EXPECT_EQ(blink::SeoulFarbleHardwareConcurrency(
+                static_cast<unsigned>(identity.real_cores), identity.token),
+            identity.reported_cores);
+  EXPECT_EQ(blink::SeoulFarbleDeviceMemory(identity.memory_class_gib,
+                                           identity.token),
+            identity.reported_memory_gib);
+  EXPECT_LE(identity.reported_cores, static_cast<unsigned>(identity.real_cores));
+  EXPECT_LE(identity.reported_memory_gib, identity.memory_class_gib);
+}
+
 }  // namespace
 }  // namespace seoul::adblock
