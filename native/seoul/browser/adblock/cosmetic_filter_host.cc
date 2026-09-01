@@ -17,6 +17,7 @@
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "seoul/browser/adblock/ad_block_service.h"
 #include "seoul/browser/adblock/ad_block_service_factory.h"
+#include "seoul/browser/adblock/ad_block_stats_service.h"
 #include "seoul/browser/adblock/procedural_cosmetic_sanitizer.h"
 
 namespace seoul::adblock {
