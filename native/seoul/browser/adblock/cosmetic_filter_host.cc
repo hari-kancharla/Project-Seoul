@@ -124,6 +124,19 @@ void CosmeticFilterHost::BindForFrame(
   if (!render_frame_host) {
     return;
   }
+  // A binding is per document, so a primary main frame binding is a new
+  // page: its fingerprint receipt starts empty. Ordered before any report
+  // on the new pipe can be dispatched.
+  if (render_frame_host->IsInPrimaryMainFrame()) {
+    Profile* profile =
+        Profile::FromBrowserContext(render_frame_host->GetBrowserContext());
+    AdBlockService* service =
+        profile ? AdBlockServiceFactory::GetForProfile(profile) : nullptr;
+    if (service) {
+      service->stats()->ResetFarbledReads(
+          render_frame_host->GetGlobalFrameToken());
+    }
+  }
   mojo::MakeSelfOwnedReceiver(std::make_unique<CosmeticFilterHost>(
                                   render_frame_host->GetWeakDocumentPtr()),
                               std::move(receiver));
