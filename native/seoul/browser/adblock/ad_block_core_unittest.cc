@@ -142,6 +142,62 @@ TEST(AdBlockRequestTest, SupportsOnlyNetworkSchemes) {
   EXPECT_FALSE(IsSupportedRequestScheme(GURL("data:text/plain,hello")));
 }
 
+// Cross-site click identifiers are stripped; everything else is left exactly
+// as the site wrote it, because a page that silently loses state is worse than
+// a tracker that survives.
+TEST(AdBlockUrlDetrackerTest, StripsKnownTrackersAndNothingElse) {
+  const GURL original(
+      "https://shop.example/item?id=42&utm_source=news&fbclid=abc&colour=red");
+  const std::optional<GURL> stripped = RemoveTrackingParameters(original);
+  ASSERT_TRUE(stripped.has_value());
+  EXPECT_EQ("https://shop.example/item?id=42&colour=red", stripped->spec());
+  EXPECT_TRUE(IsSafeAdBlockUrlRewrite(original, *stripped, "GET"))
+      << "the result must satisfy the same invariant an engine rewrite does";
+}
+
+TEST(AdBlockUrlDetrackerTest, LeavesUntrackedUrlsAlone) {
+  EXPECT_FALSE(
+      RemoveTrackingParameters(GURL("https://shop.example/item?id=42"))
+          .has_value());
+  EXPECT_FALSE(RemoveTrackingParameters(GURL("https://shop.example/item"))
+                   .has_value());
+  // A parameter that merely contains a tracker name is not one.
+  EXPECT_FALSE(
+      RemoveTrackingParameters(GURL("https://shop.example/?my_gclid_note=1"))
+          .has_value());
+}
+
+TEST(AdBlockUrlDetrackerTest, ClearsTheQueryWhenEveryParameterWasTracking) {
+  const GURL original("https://shop.example/item?utm_source=n&gclid=x");
+  const std::optional<GURL> stripped = RemoveTrackingParameters(original);
+  ASSERT_TRUE(stripped.has_value());
+  EXPECT_EQ("https://shop.example/item", stripped->spec())
+      << "a bare '?' is not the same as no query to every server";
+  EXPECT_TRUE(IsSafeAdBlockUrlRewrite(original, *stripped, "GET"));
+}
+
+// A kept parameter is copied verbatim rather than re-encoded, so an already
+// escaped payload survives byte for byte.
+TEST(AdBlockUrlDetrackerTest, PreservesTheExactEscapingOfWhatItKeeps) {
+  const GURL original(
+      "https://shop.example/s?q=a%20b%26c&utm_medium=mail&empty=&flag");
+  const std::optional<GURL> stripped = RemoveTrackingParameters(original);
+  ASSERT_TRUE(stripped.has_value());
+  EXPECT_EQ("https://shop.example/s?q=a%20b%26c&empty=&flag", stripped->spec());
+  EXPECT_TRUE(IsSafeAdBlockUrlRewrite(original, *stripped, "GET"));
+}
+
+TEST(AdBlockUrlDetrackerTest, MatchesNamesCaseInsensitivelyAndByFamily) {
+  EXPECT_TRUE(IsTrackingQueryParameter("utm_source"));
+  EXPECT_TRUE(IsTrackingQueryParameter("UTM_Campaign"));
+  EXPECT_TRUE(IsTrackingQueryParameter("FBCLID"));
+  EXPECT_TRUE(IsTrackingQueryParameter("pk_campaign"));
+  EXPECT_TRUE(IsTrackingQueryParameter("mtm_source"));
+  EXPECT_FALSE(IsTrackingQueryParameter("id"));
+  EXPECT_FALSE(IsTrackingQueryParameter("utm"));
+  EXPECT_FALSE(IsTrackingQueryParameter(""));
+}
+
 TEST(AdBlockRequestTest, UrlRewriteCanOnlyRemoveExistingQueryPairs) {
   const GURL original(
       "https://user:pass@news.example:443/article?id=7&utm=a&utm=b#part");
