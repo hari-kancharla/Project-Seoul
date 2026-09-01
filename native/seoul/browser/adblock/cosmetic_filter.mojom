@@ -36,4 +36,10 @@ interface CosmeticFilterHost {
 
   GetDynamicCosmeticSelectors(array<string> classes, array<string> ids) => (
       DynamicCosmeticSelectors selectors);
+
+  // Farbled readbacks the document performed since its last report, by
+  // surface: canvas pixels, WebGL pixels, the hardware profile. The browser
+  // attributes them to the page from the bound frame; the renderer never
+  // says which page it is.
+  ReportFarbledReads(uint32 canvas, uint32 webgl, uint32 hardware);
 };

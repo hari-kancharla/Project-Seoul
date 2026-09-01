@@ -36,6 +36,9 @@ class CosmeticFilterHost final : public mojom::CosmeticFilterHost {
       const std::vector<std::string>& classes,
       const std::vector<std::string>& ids,
       GetDynamicCosmeticSelectorsCallback callback) override;
+  void ReportFarbledReads(uint32_t canvas,
+                          uint32_t webgl,
+                          uint32_t hardware) override;
 
  private:
   void OnGotCosmeticResources(GetCosmeticResourcesCallback callback,
