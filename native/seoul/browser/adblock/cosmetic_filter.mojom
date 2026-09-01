@@ -3,6 +3,15 @@
 
 module seoul.adblock.mojom;
 
+// A `:style()` rule the browser reduced to plain CSS: a selector and the
+// declarations to apply to it. Separate from `selectors`, which are always
+// hidden, because these change appearance rather than remove an element -
+// typically restoring the scrolling a hidden consent modal left locked.
+struct StyledSelector {
+  string selector;
+  string declarations;
+};
+
 struct CosmeticSelectorSet {
   array<string> selectors;
   string isolated_script;
