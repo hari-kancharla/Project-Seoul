@@ -191,6 +191,38 @@ void CosmeticFilterHost::GetDynamicCosmeticSelectors(
                      weak_factory_.GetWeakPtr(), std::move(callback)));
 }
 
+void CosmeticFilterHost::ReportFarbledReads(uint32_t canvas,
+                                            uint32_t webgl,
+                                            uint32_t hardware) {
+  content::RenderFrameHost* frame = document_.AsRenderFrameHostIfValid();
+  if (!frame) {
+    return;
+  }
+  Profile* profile = Profile::FromBrowserContext(frame->GetBrowserContext());
+  AdBlockService* service =
+      profile ? AdBlockServiceFactory::GetForProfile(profile) : nullptr;
+  if (!service) {
+    return;
+  }
+  // The receipt is the page's: a third-party frame's probes count against
+  // the page a person is looking at, which is where they will read it.
+  // The counts come from a renderer, which may be compromised and may say
+  // anything. One batch cannot plausibly hold more reads than this, so a larger
+  // claim is discarded rather than clamped: a receipt is evidence, and evidence
+  // a page can inflate at will is worth nothing.
+  // Clamp each surface rather than discarding the batch. Dropping everything
+  // when one number is implausible let a page erase its own receipt: spin one
+  // cheap property past the cap inside the same batching window as a canvas
+  // probe, and the browser threw away the evidence of both.
+  constexpr uint32_t kMaxReadsPerReport = 4096;
+  FarbledReadCounts counts;
+  counts.canvas = std::min(canvas, kMaxReadsPerReport);
+  counts.webgl = std::min(webgl, kMaxReadsPerReport);
+  counts.hardware = std::min(hardware, kMaxReadsPerReport);
+  service->stats()->RecordFarbledReads(
+      frame->GetOutermostMainFrame()->GetGlobalFrameToken(), counts);
+}
+
 void CosmeticFilterHost::OnGotCosmeticResources(
     GetCosmeticResourcesCallback callback,
     AdBlockCosmeticResources resources) {
