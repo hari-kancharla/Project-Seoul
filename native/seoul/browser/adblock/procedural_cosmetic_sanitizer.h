@@ -9,6 +9,20 @@
 
 namespace seoul::adblock {
 
+// A `:style()` rule reduced to plain CSS.
+//
+// The overwhelming majority of `:style()` rules are one selector and one
+// declaration block with no procedural operator at all - they are a stylesheet
+// rule wearing procedural clothing. Emitting them as CSS costs the renderer
+// nothing per element, where evaluating them procedurally would walk the DOM
+// for no reason. These are the rules that unlock scrolling after a consent
+// modal is hidden, so dropping them is what makes hiding a consent notice leave
+// the page unusable.
+struct StyledSelector {
+  std::string selector;
+  std::string declarations;
+};
+
 struct SanitizedProceduralActionSets {
   SanitizedProceduralActionSets();
   SanitizedProceduralActionSets(const SanitizedProceduralActionSets&);
