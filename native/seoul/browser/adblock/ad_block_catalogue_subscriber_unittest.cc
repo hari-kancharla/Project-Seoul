@@ -235,19 +235,22 @@ TEST_F(AdBlockCatalogueSubscriberTest, ARoundThatFetchedNothingInstallsNothing) 
 // And it must recover on the next interval rather than giving up for the
 // lifetime of the profile.
 TEST_F(AdBlockCatalogueSubscriberTest, RetriesOnTheNextIntervalAfterFailure) {
+  bool fail_round = true;
   int attempts = 0;
   int installs = 0;
   AdBlockCatalogueSubscriber subscriber(
       base::BindRepeating(
-          [](int* attempts, const AdBlockCatalogEntry& entry,
+          [](bool* fail_round, int* attempts, const AdBlockCatalogEntry& entry,
              AdBlockCatalogueSubscriber::FetchCallback done) {
             ++*attempts;
-            // Fail every list on the first round only.
-            const bool fail = *attempts <= 1;
+            // Every list fails in the first round. Failing only the first fetch
+            // would no longer test recovery, because the round would install
+            // the lists that succeeded.
+            const bool fail = *fail_round;
             std::move(done).Run(!fail, fail ? std::string() : "||ok.example^\n",
                                 fail ? "transient" : std::string());
           },
-          &attempts),
+          &fail_round, &attempts),
       base::BindRepeating(
           [](int* count, std::string rules, base::OnceClosure done) {
             ++*count;
