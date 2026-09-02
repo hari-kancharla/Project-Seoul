@@ -256,7 +256,11 @@ AdBlockSiteSettings AdBlockSettings::GetSiteSettings(
   result.effective_mode = result.temporarily_disabled
                               ? AdBlockMode::kOff
                               : result.site_mode.value_or(GetDefaultMode());
-  result.canvas_fingerprint_blocked = GetCanvasFingerprintBlocked(site_url);
+  result.site_fingerprint_mode = GetSiteFingerprintMode(site_url);
+  result.fingerprint_mode =
+      result.site_fingerprint_mode.value_or(GetDefaultFingerprintMode());
+  result.canvas_fingerprint_blocked =
+      result.fingerprint_mode == FingerprintMode::kStrict;
   return result;
 }
 
