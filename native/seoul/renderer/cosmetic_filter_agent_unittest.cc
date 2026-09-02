@@ -69,9 +69,24 @@ class FakeCosmeticFilterHost : public adblock::mojom::CosmeticFilterHost {
     std::move(callback).Run(std::move(selectors));
   }
 
+  void ReportFarbledReads(uint32_t canvas,
+                          uint32_t webgl,
+                          uint32_t hardware) override {
+    farbled_canvas_ += canvas;
+    farbled_webgl_ += webgl;
+    farbled_hardware_ += hardware;
+  }
+
+  uint32_t farbled_canvas() const { return farbled_canvas_; }
+  uint32_t farbled_webgl() const { return farbled_webgl_; }
+  uint32_t farbled_hardware() const { return farbled_hardware_; }
+
  private:
   bool enabled_ = true;
   int dynamic_query_count_ = 0;
+  uint32_t farbled_canvas_ = 0;
+  uint32_t farbled_webgl_ = 0;
+  uint32_t farbled_hardware_ = 0;
   std::vector<std::string> initial_selectors_;
   std::string isolated_script_;
   std::vector<std::string> procedural_actions_;
