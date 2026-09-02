@@ -8,6 +8,10 @@
 #include <vector>
 
 #include "base/functional/bind.h"
+#include "base/json/json_reader.h"
+#include "base/logging.h"
+#include "base/strings/string_util.h"
+#include "base/values.h"
 #include "base/test/test_future.h"
 #include "base/time/time.h"
 #include "chrome/browser/ui/browser.h"
@@ -26,6 +30,7 @@
 #include "seoul/browser/adblock/ad_block_resource_catalog.h"
 #include "seoul/browser/adblock/ad_block_service.h"
 #include "seoul/browser/adblock/ad_block_service_factory.h"
+#include "seoul/browser/adblock/ad_block_stats_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace seoul::adblock {
