@@ -170,6 +170,60 @@ class AdBlockBrowserTest : public InProcessBrowserTest {
           "<div id=\"scriptlet-ad\" class=\"scriptlet-ad\">ad</div>");
       return response;
     }
+    // ---- fingerprinting fixtures --------------------------------------
+    // A page that loads nothing else, so what a probe reads back is the
+    // probe's own drawing and nothing the blocker did to the page.
+    if (request.relative_url == "/farble.html") {
+      response->set_content_type("text/html");
+      response->set_content("<title>farble</title>");
+      return response;
+    }
+    // A dedicated worker draws the canvas probe's scene on an OffscreenCanvas
+    // and reads it back both ways a worker can, and reports its navigator's
+    // hardware profile beside the digests.
+    if (request.relative_url == "/farble-worker.js") {
+      response->set_content_type("application/javascript");
+      response->set_content(
+          "(async () => {"
+          " const digest = bytes => { let sum = 0;"
+          "  for (let i = 0; i < bytes.length; ++i) {"
+          "   sum = (sum * 31 + bytes[i]) >>> 0; }"
+          "  return String(sum); };"
+          " const canvas = new OffscreenCanvas(64, 32);"
+          " const context = canvas.getContext('2d', {willReadFrequently: true});"
+          " context.fillStyle = '#a1b2c3'; context.fillRect(0, 0, 64, 32);"
+          " context.fillStyle = '#102030'; context.font = '16px sans-serif';"
+          " context.fillText('Seoul', 4, 20);"
+          " const sum = digest(context.getImageData(0, 0, 64, 32).data);"
+          " const blob = await canvas.convertToBlob();"
+          " const blobSum = digest(new Uint8Array(await blob.arrayBuffer()));"
+          " postMessage({sum: sum, blobSum: blobSum,"
+          "  cores: navigator.hardwareConcurrency,"
+          "  memory: navigator.deviceMemory === undefined ? -1 :"
+          "   navigator.deviceMemory});"
+          "})().catch(e => postMessage({error: String(e)}));");
+      return response;
+    }
+    if (request.relative_url == "/scriptlet-library.html") {
+      response->set_content_type("text/html");
+      response->set_content(
+          "<video id=\"player\" autoplay data-track=\"beacon-42\"></video>"
+          "<div id=\"badge\" class=\"sponsored plain\">promo</div>");
+      return response;
+    }
+    if (request.relative_url == "/ga-consumer.html") {
+      response->set_content_type("text/html");
+      response->set_content(
+          "<script src=\"ga.js\"></script>"
+          "<script>"
+          "window.gaOutcome = 'missing';"
+          "try {"
+          "  window._gaq.push(['_setAccount', 'UA-0']);"
+          "  window._gaq.push(function() { window.gaOutcome = 'stubbed'; });"
+          "} catch (e) { window.gaOutcome = 'threw:' + e.name; }"
+          "</script>");
+      return response;
+    }
     if (request.relative_url == "/procedural.html") {
       response->set_content_type("text/html");
       response->set_content(
