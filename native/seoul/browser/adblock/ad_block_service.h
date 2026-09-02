@@ -25,6 +25,11 @@
 
 class Profile;
 
+namespace content {
+class BrowserContext;
+class WebContents;
+}  // namespace content
+
 namespace seoul::adblock {
 
 class AdBlockRequestInterceptor;
