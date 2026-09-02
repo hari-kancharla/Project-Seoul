@@ -1,0 +1,1093 @@
+diff --git a/third_party/blink/common/BUILD.gn b/third_party/blink/common/BUILD.gn
+--- a/third_party/blink/common/BUILD.gn
++++ b/third_party/blink/common/BUILD.gn
+@@ -249,6 +249,7 @@ source_set("common") {
+     "page_state/page_state_serialization.cc",
+     "peerconnection/webrtc_ip_handling_policy.cc",
+     "permissions/permission_utils.cc",
++    "privacy/seoul_farbling.cc",
+     "permissions_policy/document_policy.cc",
+     "permissions_policy/policy_value.cc",
+     "renderer_preferences/renderer_preferences.cc",
+diff --git a/third_party/blink/common/privacy/seoul_farbling.cc b/third_party/blink/common/privacy/seoul_farbling.cc
+new file mode 100644
+--- /dev/null
++++ b/third_party/blink/common/privacy/seoul_farbling.cc
+@@ -0,0 +1,86 @@
++// Project Seoul farbling - the generator every farbled surface draws from.
++
++#include "third_party/blink/public/common/privacy/seoul_farbling.h"
++
++namespace blink {
++
++namespace {
++
++// SplitMix64's finalizer: a strong avalanche in a handful of instructions,
++// which matters because this runs once per pixel of a readback.
++uint64_t Mix64(uint64_t z) {
++  z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
++  z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
++  return z ^ (z >> 31);
++}
++
++}  // namespace
++
++uint64_t SeoulFarblingSeed(uint64_t token, SeoulFarblingSurface surface) {
++  // The whole token participates. Shifting a 32-bit value up and xoring it
++  // back, as this did while the token was narrow, would discard the upper half
++  // of a 64-bit one and leave the keyspace exactly as searchable as before.
++  return Mix64(token +
++               static_cast<uint64_t>(surface) * 0x9E3779B97F4A7C15ull);
++}
++
++uint64_t SeoulFarblingPixelHash(uint64_t seed, int32_t x, int32_t y) {
++  return Mix64(seed +
++               static_cast<uint64_t>(static_cast<uint32_t>(x)) *
++                   0x9E3779B97F4A7C15ull +
++               static_cast<uint64_t>(static_cast<uint32_t>(y)) *
++                   0xC2B2AE3D27D4EB4Full);
++}
++
++SeoulFarblingGenerator::SeoulFarblingGenerator(uint64_t token,
++                                               SeoulFarblingSurface surface)
++    : state_((static_cast<uint64_t>(token) << 32) ^
++             (static_cast<uint64_t>(surface) * 0x9E3779B97F4A7C15ull) ^
++             token) {}
++
++uint64_t SeoulFarblingGenerator::Next() {
++  state_ += 0x9E3779B97F4A7C15ull;
++  uint64_t z = state_;
++  z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
++  z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
++  return z ^ (z >> 31);
++}
++
++uint64_t SeoulFarblingGenerator::NextInRange(uint64_t low, uint64_t high) {
++  if (high <= low) {
++    return low;
++  }
++  return low + Next() % (high - low + 1);
++}
++
++unsigned SeoulFarbleHardwareConcurrency(unsigned real_count, uint64_t token) {
++  constexpr unsigned kFloor = 4;
++  if (token == 0 || real_count < kFloor) {
++    return real_count;
++  }
++  SeoulFarblingGenerator generator(token,
++                                   SeoulFarblingSurface::kHardwareConcurrency);
++  return static_cast<unsigned>(generator.NextInRange(kFloor, real_count));
++}
++
++float SeoulFarbleDeviceMemory(float real_gib, uint64_t token) {
++  constexpr float kFloor = 4.0f;
++  if (token == 0 || !(real_gib >= kFloor)) {
++    return real_gib;
++  }
++  // Blink reports powers of two (0.25 ... 8), so the candidates between the
++  // floor and the real bucket are the doublings of the floor that fit.
++  unsigned doublings = 0;
++  for (float bucket = kFloor; bucket * 2.0f <= real_gib; bucket *= 2.0f) {
++    ++doublings;
++  }
++  SeoulFarblingGenerator generator(token, SeoulFarblingSurface::kDeviceMemory);
++  const uint64_t chosen = generator.NextInRange(0, doublings);
++  float value = kFloor;
++  for (uint64_t i = 0; i < chosen; ++i) {
++    value *= 2.0f;
++  }
++  return value;
++}
++
++}  // namespace blink
+diff --git a/third_party/blink/common/web_preferences/web_preferences_mojom_traits.cc b/third_party/blink/common/web_preferences/web_preferences_mojom_traits.cc
+--- a/third_party/blink/common/web_preferences/web_preferences_mojom_traits.cc
++++ b/third_party/blink/common/web_preferences/web_preferences_mojom_traits.cc
+@@ -100,6 +100,7 @@ bool StructTraits<blink::mojom::WebPreferencesDataView,
+   out->container_culling_enabled = data.container_culling_enabled();
+   out->allow_running_insecure_content = data.allow_running_insecure_content();
+   out->disable_reading_from_canvas = data.disable_reading_from_canvas();
++  out->seoul_farbling_token = data.seoul_farbling_token();
+   out->strict_mixed_content_checking = data.strict_mixed_content_checking();
+   out->allow_geolocation_on_insecure_origins =
+       data.allow_geolocation_on_insecure_origins();
+@@ -110,6 +111,7 @@ bool StructTraits<blink::mojom::WebPreferencesDataView,
+   out->password_echo_enabled_physical = data.password_echo_enabled_physical();
+   out->password_echo_enabled_touch = data.password_echo_enabled_touch();
+   out->disable_reading_from_canvas = data.disable_reading_from_canvas();
++  out->seoul_farbling_token = data.seoul_farbling_token();
+   out->should_clear_document_background =
+       data.should_clear_document_background();
+   out->enable_scroll_animator = data.enable_scroll_animator();
+diff --git a/third_party/blink/public/common/BUILD.gn b/third_party/blink/public/common/BUILD.gn
+--- a/third_party/blink/public/common/BUILD.gn
++++ b/third_party/blink/public/common/BUILD.gn
+@@ -271,6 +271,7 @@ source_set("headers") {
+     "peerconnection/webrtc_ip_handling_url_entry.h",
+     "performance/largest_contentful_paint_type.h",
+     "permissions/permission_utils.h",
++    "privacy/seoul_farbling.h",
+     "permissions_policy/document_policy.h",
+     "permissions_policy/document_policy_features.h",
+     "permissions_policy/policy_helper_public.h",
+diff --git a/third_party/blink/public/common/loader/loading_behavior_flag.h b/third_party/blink/public/common/loader/loading_behavior_flag.h
+--- a/third_party/blink/public/common/loader/loading_behavior_flag.h
++++ b/third_party/blink/public/common/loader/loading_behavior_flag.h
+@@ -62,6 +62,13 @@ enum LoadingBehaviorFlag : uint32_t {
+   // The bit will be sent even in the fallback case e.g. inconsistent headers.
+   // crbug.com/1420517 for more details.
+   kLoadingBehaviorServiceWorkerSyntheticResponse = 1 << 13,
++  // Seoul: a script received a farbled answer - perturbed pixels from a
++  // canvas readback, from a WebGL readback, or a farbled hardware profile.
++  // Reported once per readback; the embedder counts them for the page's
++  // receipt. High bits, clear of anything upstream is likely to add.
++  kLoadingBehaviorSeoulFarbledCanvasReadback = 1 << 24,
++  kLoadingBehaviorSeoulFarbledWebGLReadback = 1 << 25,
++  kLoadingBehaviorSeoulFarbledHardwareProfile = 1 << 26,
+ };
+ 
+ inline LoadingBehaviorFlag operator|(LoadingBehaviorFlag a,
+diff --git a/third_party/blink/public/common/privacy/seoul_farbling.h b/third_party/blink/public/common/privacy/seoul_farbling.h
+new file mode 100644
+--- /dev/null
++++ b/third_party/blink/public/common/privacy/seoul_farbling.h
+@@ -0,0 +1,75 @@
++// Project Seoul farbling - the generator every farbled surface draws from.
++//
++// Shared between the renderer and the browser on purpose. Blink derives what
++// a site is told from a per-site session token; the browser derives the same
++// answers from the same token to show a person exactly what the site was
++// told. One implementation, so the two can never drift.
++//
++// Everything here is a pure function of the token. Within a session the same
++// site always sees the same answers (reading twice proves nothing, legitimate
++// round-trips stay stable); other sites and later sessions see different ones
++// (a hash of the answers links nothing across sites). A token of 0 means the
++// surface is left exactly as upstream computes it.
++
++#ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_PRIVACY_SEOUL_FARBLING_H_
++#define THIRD_PARTY_BLINK_PUBLIC_COMMON_PRIVACY_SEOUL_FARBLING_H_
++
++#include <stdint.h>
++
++#include "third_party/blink/public/common/common_export.h"
++
++namespace blink {
++
++// Which surface a value is being farbled for. Each surface seeds its own
++// generator, so the canvas noise pattern and the hardware profile are
++// independent draws from one secret rather than one shared sequence.
++enum class SeoulFarblingSurface : uint32_t {
++  kCanvasPixels = 1,
++  kWebGLPixels = 2,
++  kHardwareConcurrency = 3,
++  kDeviceMemory = 4,
++};
++
++// Deterministic 64-bit generator (SplitMix64) seeded from a token and a
++// surface. Small, fast, and statistically fine for choosing which low bits to
++// flip or which plausible value to report. It is not cryptographic and does
++// not need to be: the secret is the per-session token, not the generator.
++class BLINK_COMMON_EXPORT SeoulFarblingGenerator {
++ public:
++  SeoulFarblingGenerator(uint64_t token, SeoulFarblingSurface surface);
++
++  uint64_t Next();
++  // A value in [low, high]; `low` when the range is empty.
++  uint64_t NextInRange(uint64_t low, uint64_t high);
++
++ private:
++  uint64_t state_;
++};
++
++// navigator.hardwareConcurrency as a fingerprinter should see it: the real
++// count on machines below four cores (already generic, and lying downward only
++// breaks scheduling heuristics), otherwise a stable per-site value between
++// four and the real count. Brave's model.
++BLINK_COMMON_EXPORT unsigned SeoulFarbleHardwareConcurrency(unsigned real_count,
++                                                            uint64_t token);
++
++// navigator.deviceMemory as a fingerprinter should see it: the real bucket
++// below 4 GiB, otherwise a stable per-site bucket between 4 GiB and the real
++// one, on the specification's own power-of-two scale.
++BLINK_COMMON_EXPORT float SeoulFarbleDeviceMemory(float real_gib, uint64_t token);
++
++// The seed a surface draws from, for perturbations that must be a pure
++// function of a coordinate rather than of a sequence: a readback cannot depend
++// on the order its pixels are visited, or two readbacks of one pixel disagree.
++BLINK_COMMON_EXPORT uint64_t SeoulFarblingSeed(uint64_t token,
++                                               SeoulFarblingSurface surface);
++
++// A well-mixed value for one pixel, keyed on its absolute coordinate, so every
++// readback covering that pixel agrees about it however it was framed.
++BLINK_COMMON_EXPORT uint64_t SeoulFarblingPixelHash(uint64_t seed,
++                                                    int32_t x,
++                                                    int32_t y);
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_PUBLIC_COMMON_PRIVACY_SEOUL_FARBLING_H_
+diff --git a/third_party/blink/public/common/web_preferences/web_preferences.h b/third_party/blink/public/common/web_preferences/web_preferences.h
+--- a/third_party/blink/public/common/web_preferences/web_preferences.h
++++ b/third_party/blink/public/common/web_preferences/web_preferences.h
+@@ -106,6 +106,18 @@ struct BLINK_COMMON_EXPORT WebPreferences {
+   bool allow_running_insecure_content = false;
+   // If true, taints all <canvas> elements, regardless of origin.
+   bool disable_reading_from_canvas = false;
++  // Seoul: per-site farbling seed. 0 disables farbling; any other value
++  // deterministically perturbs what a site can read - canvas and WebGL pixels,
++  // the hardware profile - so the same site sees the same answers within a
++  // session while cross-site fingerprints diverge. Set from the browser per
++  // WebContents.
++  //
++  // 64 bits, and it must stay that wide. A script gets an unlimited
++  // known-plaintext oracle against this value: it draws pixels it chose, reads
++  // them back, and observes the perturbation. At 32 bits the whole keyspace is
++  // searchable offline in seconds, which would recover the seed and make every
++  // farbled answer predictable.
++  uint64_t seoul_farbling_token = 0;
+   // Strict mixed content checking disables both displaying and running insecure
+   // mixed content, and disables embedder notifications that such content was
+   // requested (thereby preventing user override).
+diff --git a/third_party/blink/public/common/web_preferences/web_preferences_mojom_traits.h b/third_party/blink/public/common/web_preferences/web_preferences_mojom_traits.h
+--- a/third_party/blink/public/common/web_preferences/web_preferences_mojom_traits.h
++++ b/third_party/blink/public/common/web_preferences/web_preferences_mojom_traits.h
+@@ -251,6 +251,11 @@ struct BLINK_COMMON_EXPORT StructTraits<blink::mojom::WebPreferencesDataView,
+     return r.disable_reading_from_canvas;
+   }
+ 
++  static uint64_t seoul_farbling_token(
++      const blink::web_pref::WebPreferences& r) {
++    return r.seoul_farbling_token;
++  }
++
+   static bool strict_mixed_content_checking(
+       const blink::web_pref::WebPreferences& r) {
+     return r.strict_mixed_content_checking;
+diff --git a/third_party/blink/public/mojom/webpreferences/web_preferences.mojom b/third_party/blink/public/mojom/webpreferences/web_preferences.mojom
+--- a/third_party/blink/public/mojom/webpreferences/web_preferences.mojom
++++ b/third_party/blink/public/mojom/webpreferences/web_preferences.mojom
+@@ -170,6 +170,7 @@ struct WebPreferences {
+   bool allow_running_insecure_content;
+   // If true, taint32s all <canvas> elements, regardless of origin.
+   bool disable_reading_from_canvas;
++  uint64 seoul_farbling_token;
+   // Strict mixed content checking disables both displaying and running insecure
+   // mixed content, and disables embedder notifications that such content was
+   // requested (thereby preventing user override).
+diff --git a/third_party/blink/public/web/web_settings.h b/third_party/blink/public/web/web_settings.h
+--- a/third_party/blink/public/web/web_settings.h
++++ b/third_party/blink/public/web/web_settings.h
+@@ -125,6 +125,7 @@ class WebSettings {
+   virtual void SetDefaultVideoPosterURL(const WebString&) = 0;
+   void SetDeferred2dCanvasEnabled(bool) {}  // temporary stub
+   virtual void SetDisableReadingFromCanvas(bool) = 0;
++  virtual void SetSeoulFarblingToken(uint64_t) = 0;
+   virtual void SetDontSendKeyEventsToJavascript(bool) = 0;
+   virtual void SetDoubleTapToZoomEnabled(bool) = 0;
+   virtual void SetDownloadableBinaryFontsEnabled(bool) = 0;
+diff --git a/third_party/blink/renderer/core/exported/web_settings_impl.cc b/third_party/blink/renderer/core/exported/web_settings_impl.cc
+--- a/third_party/blink/renderer/core/exported/web_settings_impl.cc
++++ b/third_party/blink/renderer/core/exported/web_settings_impl.cc
+@@ -545,6 +545,10 @@ void WebSettingsImpl::SetDisableReadingFromCanvas(bool enabled) {
+   settings_->SetDisableReadingFromCanvas(enabled);
+ }
+ 
++void WebSettingsImpl::SetSeoulFarblingToken(uint64_t token) {
++  settings_->SetSeoulFarblingToken(token);
++}
++
+ void WebSettingsImpl::SetStrictMixedContentChecking(bool enabled) {
+   settings_->SetStrictMixedContentChecking(enabled);
+ }
+diff --git a/third_party/blink/renderer/core/exported/web_settings_impl.h b/third_party/blink/renderer/core/exported/web_settings_impl.h
+--- a/third_party/blink/renderer/core/exported/web_settings_impl.h
++++ b/third_party/blink/renderer/core/exported/web_settings_impl.h
+@@ -82,6 +82,7 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
+   void SetDefaultVideoPosterURL(const WebString&) override;
+ 
+   void SetDisableReadingFromCanvas(bool) override;
++  void SetSeoulFarblingToken(uint64_t) override;
+   void SetDontSendKeyEventsToJavascript(bool) override;
+   void SetDoubleTapToZoomEnabled(bool) override;
+   void SetDownloadableBinaryFontsEnabled(bool) override;
+diff --git a/third_party/blink/renderer/core/exported/web_view_impl.cc b/third_party/blink/renderer/core/exported/web_view_impl.cc
+--- a/third_party/blink/renderer/core/exported/web_view_impl.cc
++++ b/third_party/blink/renderer/core/exported/web_view_impl.cc
+@@ -1634,6 +1634,7 @@ void WebView::ApplyWebPreferences(const web_pref::WebPreferences& prefs,
+   settings->SetAllowRunningOfInsecureContent(
+       prefs.allow_running_insecure_content);
+   settings->SetDisableReadingFromCanvas(prefs.disable_reading_from_canvas);
++  settings->SetSeoulFarblingToken(prefs.seoul_farbling_token);
+   settings->SetStrictMixedContentChecking(prefs.strict_mixed_content_checking);
+ 
+   settings->SetStrictlyBlockBlockableMixedContent(
+diff --git a/third_party/blink/renderer/core/frame/build.gni b/third_party/blink/renderer/core/frame/build.gni
+--- a/third_party/blink/renderer/core/frame/build.gni
++++ b/third_party/blink/renderer/core/frame/build.gni
+@@ -199,6 +199,8 @@ blink_core_sources_frame = [
+   "screen_metrics_emulator.h",
+   "selector_directive.cc",
+   "selector_directive.h",
++  "seoul_farbling.cc",
++  "seoul_farbling.h",
+   "settings.cc",
+   "settings.h",
+   "settings_delegate.cc",
+diff --git a/third_party/blink/renderer/core/frame/seoul_farbling.cc b/third_party/blink/renderer/core/frame/seoul_farbling.cc
+new file mode 100644
+--- /dev/null
++++ b/third_party/blink/renderer/core/frame/seoul_farbling.cc
+@@ -0,0 +1,57 @@
++// Project Seoul farbling - the renderer's side.
++
++#include "third_party/blink/renderer/core/frame/seoul_farbling.h"
++
++#include "third_party/blink/public/common/loader/loading_behavior_flag.h"
++#include "third_party/blink/renderer/core/execution_context/execution_context.h"
++#include "third_party/blink/renderer/core/frame/local_dom_window.h"
++#include "third_party/blink/renderer/core/frame/local_frame.h"
++#include "third_party/blink/renderer/core/frame/settings.h"
++#include "third_party/blink/renderer/core/loader/document_loader.h"
++#include "third_party/blink/renderer/core/loader/frame_loader.h"
++#include "third_party/blink/renderer/core/workers/worker_global_scope.h"
++#include "third_party/blink/renderer/core/workers/worker_settings.h"
++
++namespace blink {
++
++uint64_t SeoulFarblingTokenFor(ExecutionContext* context) {
++  if (!context) {
++    return 0;
++  }
++  if (auto* window = DynamicTo<LocalDOMWindow>(context)) {
++    LocalFrame* frame = window->GetFrame();
++    const Settings* settings = frame ? frame->GetSettings() : nullptr;
++    return settings ? settings->GetSeoulFarblingToken() : 0;
++  }
++  if (auto* scope = DynamicTo<WorkerGlobalScope>(context)) {
++    const WorkerSettings* settings = scope->GetWorkerSettings();
++    return settings ? settings->SeoulFarblingToken() : 0;
++  }
++  return 0;
++}
++
++void SeoulReportFarbled(ExecutionContext* context,
++                        SeoulFarblingSurface surface) {
++  auto* window = DynamicTo<LocalDOMWindow>(context);
++  LocalFrame* frame = window ? window->GetFrame() : nullptr;
++  DocumentLoader* loader = frame ? frame->Loader().GetDocumentLoader() : nullptr;
++  if (!loader) {
++    return;
++  }
++  LoadingBehaviorFlag flag = kLoadingBehaviorNone;
++  switch (surface) {
++    case SeoulFarblingSurface::kCanvasPixels:
++      flag = kLoadingBehaviorSeoulFarbledCanvasReadback;
++      break;
++    case SeoulFarblingSurface::kWebGLPixels:
++      flag = kLoadingBehaviorSeoulFarbledWebGLReadback;
++      break;
++    case SeoulFarblingSurface::kHardwareConcurrency:
++    case SeoulFarblingSurface::kDeviceMemory:
++      flag = kLoadingBehaviorSeoulFarbledHardwareProfile;
++      break;
++  }
++  loader->DidObserveLoadingBehavior(flag);
++}
++
++}  // namespace blink
+diff --git a/third_party/blink/renderer/core/frame/seoul_farbling.h b/third_party/blink/renderer/core/frame/seoul_farbling.h
+new file mode 100644
+--- /dev/null
++++ b/third_party/blink/renderer/core/frame/seoul_farbling.h
+@@ -0,0 +1,40 @@
++// Project Seoul farbling - the renderer's side: which token applies to an
++// execution context, and the receipt of every farbled answer.
++//
++// The browser decides, per site and per session, whether a page's readbacks
++// and hardware profile are perturbed, and hands the renderer a 32-bit token
++// through WebPreferences. The generator that turns the token into answers
++// lives in public/common/privacy/seoul_farbling.h, shared with the browser.
++//
++// Window contexts read the token from the page's Settings. Dedicated workers
++// and worklets read the copy WorkerSettings takes at creation, the same way
++// they inherit disable_reading_from_canvas. Shared and service workers have no
++// creating page and carry no token.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_SEOUL_FARBLING_H_
++#define THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_SEOUL_FARBLING_H_
++
++#include <stdint.h>
++
++#include "third_party/blink/public/common/privacy/seoul_farbling.h"
++#include "third_party/blink/renderer/core/core_export.h"
++
++namespace blink {
++
++class ExecutionContext;
++
++// The farbling token for `context`, or 0 when farbling is off for it: no
++// context, a context without a page or worker settings, or a site the
++// browser left alone.
++CORE_EXPORT uint64_t SeoulFarblingTokenFor(ExecutionContext* context);
++
++// Records that a script in `context` just received a farbled answer for
++// `surface`, as a loading behaviour the frame's embedder observes and counts
++// for the page's receipt. Window contexts only: a worker has no document
++// loader, so its readbacks are farbled but go unreceipted.
++CORE_EXPORT void SeoulReportFarbled(ExecutionContext* context,
++                                    SeoulFarblingSurface surface);
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_SEOUL_FARBLING_H_
+diff --git a/third_party/blink/renderer/core/frame/settings.json5 b/third_party/blink/renderer/core/frame/settings.json5
+--- a/third_party/blink/renderer/core/frame/settings.json5
++++ b/third_party/blink/renderer/core/frame/settings.json5
+@@ -808,6 +808,11 @@
+       name: "disableReadingFromCanvas",
+       initial: false,
+     },
++    {
++      name: "seoulFarblingToken",
++      initial: 0,
++      type: "uint64_t",
++    },
+     {
+       name: "strictMixedContentChecking",
+       initial: false,
+diff --git a/third_party/blink/renderer/core/html/build.gni b/third_party/blink/renderer/core/html/build.gni
+--- a/third_party/blink/renderer/core/html/build.gni
++++ b/third_party/blink/renderer/core/html/build.gni
+@@ -35,6 +35,8 @@ blink_core_sources_html = [
+   "canvas/element_image.h",
+   "canvas/html_canvas_element.cc",
+   "canvas/html_canvas_element.h",
++  "canvas/seoul_canvas_farbling.cc",
++  "canvas/seoul_canvas_farbling.h",
+   "canvas/image_data.cc",
+   "canvas/image_data.h",
+   "canvas/image_element_base.cc",
+diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+@@ -26,6 +26,7 @@
+  */
+ 
+ #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
++#include "third_party/blink/renderer/core/html/canvas/seoul_canvas_farbling.h"
+ 
+ #include <math.h>
+ 
+@@ -1317,6 +1318,9 @@ String HTMLCanvasElement::ToDataURLInternal(
+           mime_type, ImageEncoderUtils::kEncodeReasonToDataURL);
+ 
+   scoped_refptr<StaticBitmapImage> image_bitmap = Snapshot(source_buffer);
++  // Seoul: hand the encoder a farbled copy, never the canvas itself.
++  image_bitmap = SeoulMaybeFarbleForReadback(
++      std::move(image_bitmap), GetDocument().GetExecutionContext());
+   if (image_bitmap) {
+     std::unique_ptr<ImageDataBuffer> data_buffer =
+         ImageDataBuffer::Create(image_bitmap);
+@@ -1428,6 +1432,10 @@ void HTMLCanvasElement::toBlob(V8BlobCallback* callback,
+ 
+   CanvasAsyncBlobCreator* async_creator = nullptr;
+   scoped_refptr<StaticBitmapImage> image_bitmap = Snapshot(kBackBuffer);
++  // Seoul: toBlob reads back the same pixels toDataURL does; farble the
++  // same way or the blob becomes the fingerprinter's bypass.
++  image_bitmap = SeoulMaybeFarbleForReadback(
++      std::move(image_bitmap), GetDocument().GetExecutionContext());
+   if (image_bitmap) {
+     auto* options = ImageEncodeOptions::Create();
+     options->setType(ImageEncoderUtils::MimeTypeName(encoding_mime_type));
+diff --git a/third_party/blink/renderer/core/html/canvas/seoul_canvas_farbling.cc b/third_party/blink/renderer/core/html/canvas/seoul_canvas_farbling.cc
+new file mode 100644
+--- /dev/null
++++ b/third_party/blink/renderer/core/html/canvas/seoul_canvas_farbling.cc
+@@ -0,0 +1,249 @@
++// Project Seoul canvas farbling.
++
++#include "third_party/blink/renderer/core/html/canvas/seoul_canvas_farbling.h"
++
++#include <utility>
++
++#include "base/compiler_specific.h"
++#include "base/containers/span.h"
++#include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
++#include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
++#include "third_party/skia/include/core/SkBitmap.h"
++#include "third_party/skia/include/core/SkImage.h"
++#include "third_party/skia/include/core/SkImageInfo.h"
++#include "third_party/skia/include/core/SkPixmap.h"
++
++namespace blink {
++
++namespace {
++
++bool IsFarblablePixelWidth(int bytes_per_pixel) {
++  return bytes_per_pixel == 4 || bytes_per_pixel == 8 || bytes_per_pixel == 16;
++}
++
++// Perturbs one readback in place.
++//
++// The perturbation of a pixel is a pure function of the site's token and that
++// pixel's ABSOLUTE coordinate on the canvas - never of where the pixel happens
++// to sit inside this particular readback. That is the whole correctness
++// requirement, and it is worth stating why.
++//
++// An earlier design drew a bounded pseudo-random set of positions inside the
++// buffer being returned. It is invisible and it is deterministic, and it is
++// also useless: `getImageData(0, 0, w, h)` and `getImageData(10, 10, 8, 8)`
++// then perturb the same screen pixel differently, so a script detects the
++// protection by reading one region twice at different offsets, and - far worse
++// - recovers the true canvas exactly by reading it many times and taking the
++// per-pixel majority, because each read disturbs a different sparse set. A
++// fingerprint that survives the defence is not a defence.
++//
++// Keyed on the absolute coordinate, every readback of a pixel returns the same
++// perturbed value: whole canvas or sub-rectangle, `getImageData` or
++// `toDataURL` or `readPixels`. Repetition reveals nothing, and the site's hash
++// is stable for the session (so the page's own caching still works) while
++// differing from every other site's.
++//
++// `origin` is the readback's top-left corner in canvas space. `flip_height`,
++// when non-zero, converts a bottom-left origin (WebGL) into the same top-left
++// space everything else uses, so the two APIs cannot disagree about a pixel.
++//
++// Cost is now proportional to the pixels actually returned rather than
++// constant. That is the price of the property above; a small `getImageData`
++// stays small, and a full-canvas read is dominated by its own copy and encode.
++void FarbleRows(base::span<uint8_t> bytes,
++                int origin_x,
++                int origin_y,
++                int width,
++                int height,
++                size_t row_bytes,
++                size_t channel_bytes,
++                int flip_height,
++                uint64_t seed) {
++  if (bytes.empty() || width <= 0 || height <= 0 || channel_bytes == 0) {
++    return;
++  }
++  const size_t pixel_bytes = 4u * channel_bytes;
++  for (int row = 0; row < height; ++row) {
++    const int absolute_y = flip_height > 0
++                               ? flip_height - 1 - (origin_y + row)
++                               : origin_y + row;
++    const size_t row_start = static_cast<size_t>(row) * row_bytes;
++    for (int column = 0; column < width; ++column) {
++      const uint64_t h = SeoulFarblingPixelHash(seed, origin_x + column,
++                                                absolute_y);
++      // A quarter of pixels are left exactly as drawn and the rest move by at
++      // most 3 of 255 in a single colour channel - beneath perception, above
++      // the rounding of a fingerprinter that averages or quantises. Never
++      // alpha: a changed alpha is visible where a colour bit is not.
++      const uint8_t mask = static_cast<uint8_t>(h & 0x3u);
++      if (mask == 0) {
++        continue;
++      }
++      const size_t pixel_start =
++          row_start + static_cast<size_t>(column) * pixel_bytes;
++      // A fully transparent pixel has no colour to hide, and a blank or
++      // out-of-bounds region that read back non-zero would both announce the
++      // protection and break code that checks a canvas is empty. Every format
++      // reaches here as 8-bit, so this guard covers all of them.
++      const size_t alpha = pixel_start + 3u;
++      if (alpha >= bytes.size() || bytes[alpha] == 0u) {
++        continue;
++      }
++      const size_t channel = static_cast<size_t>((h >> 2) % 3u);
++      const size_t offset = pixel_start + channel * channel_bytes;
++      if (offset < bytes.size()) {
++        bytes[offset] ^= mask;
++      }
++    }
++  }
++}
++
++}  // namespace
++
++void SeoulFarblePixels(const SkPixmap& pixmap,
++                       int origin_x,
++                       int origin_y,
++                       int flip_height,
++                       uint64_t token) {
++  if (token == 0 || !pixmap.addr()) {
++    return;
++  }
++  const int bytes_per_pixel = pixmap.info().bytesPerPixel();
++  if (!IsFarblablePixelWidth(bytes_per_pixel)) {
++    return;
++  }
++  const uint64_t seed =
++      SeoulFarblingSeed(token, SeoulFarblingSurface::kCanvasPixels);
++
++  // A wide-channel readback cannot be perturbed in its own storage. Flipping
++  // the low bits of a 32-bit float moves the value by roughly a
++  // twenty-thousandth of an 8-bit step, so Math.round(data[i] * 255) recovers
++  // the true colour of every pixel exactly: a page asks for `rgba-float32` and
++  // the protection evaporates. Quantising first means a float read and an
++  // ordinary read of the same pixel agree, so the two cannot be differenced
++  // either. The cost is that a farbled float readback returns 8-bit precision,
++  // which is the honest trade - that extra precision is itself a
++  // fingerprinting surface, and it is only spent on readbacks already being
++  // perturbed.
++  if (bytes_per_pixel != 4) {
++    const SkImageInfo info8 =
++        pixmap.info().makeColorType(kRGBA_8888_SkColorType);
++    SkBitmap staging;
++    if (!staging.tryAllocPixels(info8) ||
++        !pixmap.readPixels(staging.pixmap())) {
++      return;
++    }
++    const SkPixmap staged = staging.pixmap();
++    // SAFETY: computeByteSize() is the byte length of the pixel memory that
++    // writable_addr() addresses, by SkPixmap's own contract.
++    base::span<uint8_t> staged_bytes = UNSAFE_BUFFERS(base::span<uint8_t>(
++        static_cast<uint8_t*>(staged.writable_addr()),
++        staged.computeByteSize()));
++    FarbleRows(staged_bytes, origin_x, origin_y, staged.width(),
++               staged.height(), staged.rowBytes(), /*channel_bytes=*/1u,
++               flip_height, seed);
++    SkBitmap destination;
++    if (destination.installPixels(pixmap.info(), pixmap.writable_addr(),
++                                  pixmap.rowBytes())) {
++      destination.writePixels(staged, 0, 0);
++    }
++    return;
++  }
++
++  // SAFETY: computeByteSize() is the byte length of the pixel memory that
++  // writable_addr() addresses, by SkPixmap's own contract.
++  base::span<uint8_t> bytes = UNSAFE_BUFFERS(base::span<uint8_t>(
++      static_cast<uint8_t*>(pixmap.writable_addr()), pixmap.computeByteSize()));
++  FarbleRows(bytes, origin_x, origin_y, pixmap.width(), pixmap.height(),
++             pixmap.rowBytes(), /*channel_bytes=*/1u, flip_height, seed);
++}
++
++void SeoulFarbleCanvasReadback(const SkPixmap& pixmap,
++                               int origin_x,
++                               int origin_y,
++                               ExecutionContext* context) {
++  const uint64_t token = SeoulFarblingTokenFor(context);
++  if (token == 0 || !pixmap.addr() ||
++      !IsFarblablePixelWidth(pixmap.info().bytesPerPixel())) {
++    return;
++  }
++  SeoulFarblePixels(pixmap, origin_x, origin_y, /*flip_height=*/0, token);
++  SeoulReportFarbled(context, SeoulFarblingSurface::kCanvasPixels);
++}
++
++void SeoulFarbleWebGLReadback(base::span<uint8_t> pixels,
++                              int origin_x,
++                              int origin_y,
++                              int width,
++                              int height,
++                              size_t row_bytes,
++                              int drawing_buffer_height,
++                              ExecutionContext* context) {
++  const uint64_t token = SeoulFarblingTokenFor(context);
++  if (token == 0 || pixels.empty() || width <= 0 || height <= 0) {
++    return;
++  }
++  // WebGL reads from a bottom-left origin; `drawing_buffer_height` puts those
++  // rows back into the top-left space the 2D readbacks use, so a script cannot
++  // learn anything by comparing readPixels against toDataURL of the same
++  // canvas.
++  FarbleRows(pixels, origin_x, origin_y, width, height, row_bytes,
++             /*channel_bytes=*/1u, drawing_buffer_height,
++             SeoulFarblingSeed(token, SeoulFarblingSurface::kCanvasPixels));
++  SeoulReportFarbled(context, SeoulFarblingSurface::kWebGLPixels);
++}
++
++scoped_refptr<StaticBitmapImage> SeoulMaybeFarbleForReadback(
++    scoped_refptr<StaticBitmapImage> image,
++    ExecutionContext* context) {
++  const uint64_t token = SeoulFarblingTokenFor(context);
++  if (token == 0 || !image) {
++    return image;
++  }
++  // A GPU-backed snapshot is read back to the CPU first; the encoders would
++  // do the same, so this only moves that work earlier.
++  scoped_refptr<StaticBitmapImage> source = image->MakeUnaccelerated();
++  if (!source) {
++    return image;
++  }
++  const PaintImage paint_image = source->PaintImageForCurrentFrame();
++  if (!paint_image || paint_image.width() <= 0 || paint_image.height() <= 0) {
++    return image;
++  }
++  // The copy keeps the source's colour type and colour space, so an 8-bit
++  // canvas still encodes as 8-bit and a float16 one as float16, exactly as
++  // it would unfarbled. Only the alpha type moves: an opaque image stays
++  // opaque; anything else is read back unpremultiplied, so a perturbed colour
++  // bit is always a valid pixel and the encoders (which want unpremultiplied
++  // bytes) convert nothing away.
++  const SkImageInfo source_info = paint_image.GetSkImageInfo();
++  const SkImageInfo info = source_info.makeAlphaType(
++      source_info.isOpaque() ? kOpaque_SkAlphaType : kUnpremul_SkAlphaType);
++  if (!IsFarblablePixelWidth(info.bytesPerPixel())) {
++    return image;
++  }
++  SkBitmap copy;
++  if (!copy.tryAllocPixels(info)) {
++    return image;
++  }
++  if (!paint_image.readPixels(info, copy.getPixels(), copy.rowBytes(), 0, 0)) {
++    return image;
++  }
++  SkPixmap pixmap;
++  if (!copy.peekPixels(&pixmap)) {
++    return image;
++  }
++  // The encoders always receive the whole canvas, so this readback's origin is
++  // the canvas origin.
++  SeoulFarblePixels(pixmap, /*origin_x=*/0, /*origin_y=*/0, /*flip_height=*/0,
++                    token);
++  copy.setImmutable();
++  sk_sp<SkImage> farbled = SkImages::RasterFromBitmap(copy);
++  if (!farbled) {
++    return image;
++  }
++  SeoulReportFarbled(context, SeoulFarblingSurface::kCanvasPixels);
++  return UnacceleratedStaticBitmapImage::Create(std::move(farbled));
++}
++
++}  // namespace blink
+diff --git a/third_party/blink/renderer/core/html/canvas/seoul_canvas_farbling.h b/third_party/blink/renderer/core/html/canvas/seoul_canvas_farbling.h
+new file mode 100644
+--- /dev/null
++++ b/third_party/blink/renderer/core/html/canvas/seoul_canvas_farbling.h
+@@ -0,0 +1,74 @@
++// Project Seoul canvas farbling.
++//
++// Perturbs the pixels a script reads back, keyed by the per-site session token
++// from core/frame/seoul_farbling.h. The perturbation of a pixel is a pure
++// function of that pixel's ABSOLUTE coordinate on the canvas, so every readback
++// of the same pixel agrees - whole canvas or sub-rectangle, getImageData or
++// toDataURL or WebGL readPixels. Reading a region repeatedly therefore reveals
++// nothing, which is the property that makes the canvas useless as a cross-site
++// identifier; a design keyed on position-within-this-readback would instead let
++// a script average the true image back out.
++//
++// A quarter of pixels are returned exactly as drawn and the rest move by at
++// most 3 of 255 in one colour channel, never alpha - beneath perception, above
++// the rounding of a fingerprinter that quantises. The live canvas is never
++// touched: only the copies a readback hands to script or to an encoder.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_CANVAS_SEOUL_CANVAS_FARBLING_H_
++#define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_CANVAS_SEOUL_CANVAS_FARBLING_H_
++
++#include <stddef.h>
++#include <stdint.h>
++
++#include "base/containers/span.h"
++#include "base/memory/scoped_refptr.h"
++#include "third_party/blink/renderer/core/core_export.h"
++#include "third_party/blink/renderer/core/frame/seoul_farbling.h"
++
++class SkPixmap;
++
++namespace blink {
++
++class ExecutionContext;
++class StaticBitmapImage;
++
++// getImageData: perturbs the ImageData's own pixmap in place. `origin` is the
++// readback's top-left corner in canvas coordinates - the sx, sy the script
++// asked for - without which two different sub-rectangles would disagree.
++CORE_EXPORT void SeoulFarbleCanvasReadback(const SkPixmap& pixmap,
++                                           int origin_x,
++                                           int origin_y,
++                                           ExecutionContext* context);
++
++// toDataURL, toBlob, convertToBlob: returns a farbled CPU copy of `image` for
++// handing to an encoder, or `image` unchanged when farbling is off for
++// `context` or the copy cannot be made.
++CORE_EXPORT scoped_refptr<StaticBitmapImage> SeoulMaybeFarbleForReadback(
++    scoped_refptr<StaticBitmapImage> image,
++    ExecutionContext* context);
++
++// WebGL readPixels: perturbs the RGBA8 rows written into `pixels`, script's own
++// buffer. `drawing_buffer_height` converts WebGL's bottom-left origin into the
++// top-left space the 2D readbacks use, so the two APIs cannot disagree about a
++// pixel of the same canvas. Every write stays inside the span.
++CORE_EXPORT void SeoulFarbleWebGLReadback(base::span<uint8_t> pixels,
++                                          int origin_x,
++                                          int origin_y,
++                                          int width,
++                                          int height,
++                                          size_t row_bytes,
++                                          int drawing_buffer_height,
++                                          ExecutionContext* context);
++
++// The primitive the readbacks share. `pixmap` must reference a writable copy
++// owned by the caller - never a canvas's own backing store. `flip_height` is 0
++// for a top-left readback, or the surface height for a bottom-left one.
++CORE_EXPORT void SeoulFarblePixels(const SkPixmap& pixmap,
++                                   int origin_x,
++                                   int origin_y,
++                                   int flip_height,
++                                   uint64_t token);
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_HTML_CANVAS_SEOUL_CANVAS_FARBLING_H_
+diff --git a/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc b/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
+--- a/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
++++ b/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
+@@ -29,6 +29,7 @@
+ #include "third_party/blink/renderer/core/html/canvas/canvas_resource_tracker.h"
+ #include "third_party/blink/renderer/core/html/canvas/element_image.h"
+ #include "third_party/blink/renderer/core/html/canvas/image_data.h"
++#include "third_party/blink/renderer/core/html/canvas/seoul_canvas_farbling.h"
+ #include "third_party/blink/renderer/core/html/canvas/ukm_parameters.h"
+ #include "third_party/blink/renderer/core/html/canvas/unique_font_selector.h"
+ #include "third_party/blink/renderer/core/imagebitmap/image_bitmap.h"
+@@ -422,6 +423,10 @@ ScriptPromise<Blob> OffscreenCanvas::convertToBlob(
+ 
+   base::TimeTicks start_time = base::TimeTicks::Now();
+   scoped_refptr<StaticBitmapImage> image_bitmap = context_->GetImage();
++  // Seoul: convertToBlob is the worker-side toBlob; hand the encoder a
++  // farbled copy exactly as HTMLCanvasElement does, never the canvas itself.
++  image_bitmap = SeoulMaybeFarbleForReadback(std::move(image_bitmap),
++                                             GetTopExecutionContext());
+   if (image_bitmap) {
+     auto* resolver = MakeGarbageCollected<ScriptPromiseResolver<Blob>>(
+         script_state, exception_state.GetContext());
+diff --git a/third_party/blink/renderer/core/workers/worker_settings.cc b/third_party/blink/renderer/core/workers/worker_settings.cc
+--- a/third_party/blink/renderer/core/workers/worker_settings.cc
++++ b/third_party/blink/renderer/core/workers/worker_settings.cc
+@@ -38,6 +38,7 @@ std::unique_ptr<WorkerSettings> WorkerSettings::Copy(
+       old_settings->allow_running_of_insecure_content_;
+   new_settings->strictly_block_blockable_mixed_content_ =
+       old_settings->strictly_block_blockable_mixed_content_;
++  new_settings->seoul_farbling_token_ = old_settings->seoul_farbling_token_;
+   new_settings->generic_font_family_settings_ =
+       old_settings->generic_font_family_settings_;
+   return new_settings;
+@@ -50,6 +51,7 @@ void WorkerSettings::CopyFlagValuesFromSettings(Settings* settings) {
+       settings->GetAllowRunningOfInsecureContent();
+   strictly_block_blockable_mixed_content_ =
+       settings->GetStrictlyBlockBlockableMixedContent();
++  seoul_farbling_token_ = settings->GetSeoulFarblingToken();
+   generic_font_family_settings_ = settings->GetGenericFontFamilySettings();
+ }
+ 
+diff --git a/third_party/blink/renderer/core/workers/worker_settings.h b/third_party/blink/renderer/core/workers/worker_settings.h
+--- a/third_party/blink/renderer/core/workers/worker_settings.h
++++ b/third_party/blink/renderer/core/workers/worker_settings.h
+@@ -5,6 +5,8 @@
+ #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_WORKERS_WORKER_SETTINGS_H_
+ #define THIRD_PARTY_BLINK_RENDERER_CORE_WORKERS_WORKER_SETTINGS_H_
+ 
++#include <stdint.h>
++
+ #include "third_party/blink/renderer/core/core_export.h"
+ #include "third_party/blink/renderer/platform/fonts/generic_font_family_settings.h"
+ #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
+@@ -29,6 +31,9 @@ class CORE_EXPORT WorkerSettings {
+   static std::unique_ptr<WorkerSettings> Copy(WorkerSettings*);
+ 
+   bool DisableReadingFromCanvas() const { return disable_reading_from_canvas_; }
++  // Seoul: the per-site farbling token copied from the creating page's
++  // Settings, 0 when farbling is off. See core/frame/seoul_farbling.h.
++  uint64_t SeoulFarblingToken() const { return seoul_farbling_token_; }
+   bool GetStrictMixedContentChecking() const {
+     return strict_mixed_content_checking_;
+   }
+@@ -54,6 +59,7 @@ class CORE_EXPORT WorkerSettings {
+   bool strict_mixed_content_checking_ = false;
+   bool allow_running_of_insecure_content_ = false;
+   bool strictly_block_blockable_mixed_content_ = false;
++  uint64_t seoul_farbling_token_ = 0;
+ 
+   GenericFontFamilySettings generic_font_family_settings_;
+ };
+diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.h"
++#include "third_party/blink/renderer/core/html/canvas/seoul_canvas_farbling.h"
+ 
+ #include <cmath>
+ #include <cstdint>
+@@ -531,6 +532,11 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
+       SkIRect bounds =
+           snapshot->PaintImageForCurrentFrame().GetSkImageInfo().bounds();
+       DCHECK(!bounds.intersect(SkIRect::MakeXYWH(sx, sy, sw, sh)));
++    } else {
++      // Seoul: the ImageData owns this copy - farbling it never touches the
++      // canvas, and putImageData of a farbled read stays visually identical.
++      SeoulFarbleCanvasReadback(image_data_pixmap, sx, sy,
++                                GetTopExecutionContext());
+     }
+   }
+ 
+diff --git a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
+--- a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.h"
++#include "third_party/blink/renderer/core/frame/seoul_farbling.h"
+ 
+ #include <memory>
+ 
+@@ -822,6 +823,15 @@ void WebGL2RenderingContextBase::pixelStorei(GLenum pname, GLint param) {
+   ContextGL()->PixelStorei(pname, param);
+ }
+ 
++void WebGL2RenderingContextBase::SeoulPackLayout(GLsizei width,
++                                                 GLsizei* row_pixels,
++                                                 GLint* skip_pixels,
++                                                 GLint* skip_rows) const {
++  *row_pixels = pack_row_length_ > 0 ? pack_row_length_ : width;
++  *skip_pixels = pack_skip_pixels_;
++  *skip_rows = pack_skip_rows_;
++}
++
+ void WebGL2RenderingContextBase::readPixels(
+     GLint x,
+     GLint y,
+@@ -873,7 +883,29 @@ void WebGL2RenderingContextBase::readPixels(GLint x,
+ 
+   // Due to WebGL's same-origin restrictions, it is not possible to
+   // taint the origin using the WebGL API.
+-  DCHECK(Host()->OriginClean());
++  // Seoul: except by policy. A canvas tainted by disable_reading_from_canvas
++  // (Strict fingerprinting protection) refuses this readback like every
++  // other, instead of tripping a debug assertion and reading in release.
++  if (!Host()->OriginClean()) {
++    SynthesizeGLError(GL_INVALID_OPERATION, "readPixels",
++                      "the canvas may not be read back");
++    return;
++  }
++
++  // Seoul: this overload writes into a bound pixel-pack buffer, which lives in
++  // GPU memory where the farbling hook cannot reach it. Left alone, a script
++  // reads the drawing buffer into a buffer object and copies it out with
++  // getBufferSubData, receiving the true, unperturbed pixels - every other
++  // readback path farbled and this one wide open. Refusing it is the same
++  // answer the taint gives one branch above, and it leaves no route that
++  // returns unfarbled pixels.
++  if (SeoulFarblingTokenFor(Host()->GetTopExecutionContext()) != 0) {
++    SynthesizeGLError(
++        GL_INVALID_OPERATION, "readPixels",
++        "reads into a pixel pack buffer are unavailable while fingerprinting "
++        "protection is on");
++    return;
++  }
+ 
+   if (!ValidateValueFitNonNegInt32("readPixels", "offset", offset))
+     return;
+diff --git a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.h b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.h
+--- a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.h
++++ b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.h
+@@ -1083,6 +1083,11 @@ class WebGL2RenderingContextBase : public WebGLRenderingContextBase {
+   Member<WebGLQuery> current_elapsed_query_;
+   HeapVector<Member<WebGLSampler>> sampler_units_;
+ 
++  void SeoulPackLayout(GLsizei width,
++                       GLsizei* row_pixels,
++                       GLint* skip_pixels,
++                       GLint* skip_rows) const override;
++
+   GLint pack_row_length_;
+   GLint pack_skip_pixels_;
+   GLint pack_skip_rows_;
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -78,6 +78,7 @@
+ #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h"
+ #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
+ #include "third_party/blink/renderer/core/html/canvas/image_data.h"
++#include "third_party/blink/renderer/core/html/canvas/seoul_canvas_farbling.h"
+ #include "third_party/blink/renderer/core/html/canvas/predefined_color_space.h"
+ #include "third_party/blink/renderer/core/html/html_image_element.h"
+ #include "third_party/blink/renderer/core/html/media/html_video_element.h"
+@@ -5182,6 +5183,15 @@ void WebGLRenderingContextBase::readPixels(
+   ReadPixelsHelper(x, y, width, height, format, type, pixels.Get(), 0);
+ }
+ 
++void WebGLRenderingContextBase::SeoulPackLayout(GLsizei width,
++                                                GLsizei* row_pixels,
++                                                GLint* skip_pixels,
++                                                GLint* skip_rows) const {
++  *row_pixels = width;
++  *skip_pixels = 0;
++  *skip_rows = 0;
++}
++
+ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+                                                  GLint y,
+                                                  GLsizei width,
+@@ -5194,7 +5204,14 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+     return;
+   // Due to WebGL's same-origin restrictions, it is not possible to
+   // taint the origin using the WebGL API.
+-  DCHECK(Host()->OriginClean());
++  // Seoul: except by policy. A canvas tainted by disable_reading_from_canvas
++  // (Strict fingerprinting protection) refuses this readback like every
++  // other, instead of tripping a debug assertion and reading in release.
++  if (!Host()->OriginClean()) {
++    SynthesizeGLError(GL_INVALID_OPERATION, "readPixels",
++                      "the canvas may not be read back");
++    return;
++  }
+ 
+   // Validate input parameters.
+   if (!pixels) {
+@@ -5256,6 +5273,28 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+       return;
+     }
+     ContextGL()->ReadPixels(x, y, width, height, format, type, data);
++    // Seoul: the destination is script's own buffer. Farble the RGBA8 rows
++    // a fingerprinter hashes the way the 2D canvas farbles getImageData;
++    // other formats are left as read.
++    if (!buffer && format == GL_RGBA && type == GL_UNSIGNED_BYTE) {
++      GLsizei row_pixels = width;
++      GLint skip_pixels = 0;
++      GLint skip_rows = 0;
++      SeoulPackLayout(width, &row_pixels, &skip_pixels, &skip_rows);
++      const size_t alignment = static_cast<size_t>(pack_alignment_);
++      const size_t row_bytes =
++          (static_cast<size_t>(row_pixels) * 4u + alignment - 1u) / alignment *
++          alignment;
++      const size_t start = static_cast<size_t>(skip_rows) * row_bytes +
++                           static_cast<size_t>(skip_pixels) * 4u;
++      base::span<uint8_t> destination =
++          pixels->ByteSpanMaybeShared().subspan(offset_in_bytes.ValueOrDie());
++      if (start < destination.size()) {
++        SeoulFarbleWebGLReadback(destination.subspan(start), x, y, width,
++                                 height, row_bytes, drawingBufferHeight(),
++                                 Host()->GetTopExecutionContext());
++      }
++    }
+   }
+ }
+ 
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h
+@@ -961,6 +961,15 @@ class MODULES_EXPORT WebGLRenderingContextBase
+ 
+   GLenum read_buffer_of_default_framebuffer_;
+ 
++  // Seoul: the destination layout GL will use for a readPixels, so the farble
++  // writes exactly the bytes GL wrote. WebGL1 has only PACK_ALIGNMENT; WebGL2
++  // adds a row length and skips, and ignoring them let one pixelStorei call
++  // move the pixels out from under the perturbation.
++  virtual void SeoulPackLayout(GLsizei width,
++                               GLsizei* row_pixels,
++                               GLint* skip_pixels,
++                               GLint* skip_rows) const;
++
+   GLint pack_alignment_ = 4;
+   GLint unpack_alignment_ = 4;
+   bool unpack_flip_y_ = false;
