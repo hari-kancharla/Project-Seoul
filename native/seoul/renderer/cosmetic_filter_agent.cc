@@ -641,6 +641,35 @@ void CosmeticFilterAgent::ReplaceSelectors(
   ApplyStyleSheet();
 }
 
+bool CosmeticFilterAgent::AppendStyledSelectors(
+    const std::vector<adblock::mojom::StyledSelectorPtr>& styled) {
+  bool changed = false;
+  for (const adblock::mojom::StyledSelectorPtr& entry : styled) {
+    if (!entry || selectors_.size() == kMaxSelectors) {
+      continue;
+    }
+    // Re-validate rather than trust: the same shape the browser accepted, on
+    // the value that actually arrived. Any bracket, quote, backslash or angle
+    // bracket would let a declaration escape its block.
+    if (!IsSafeHideSelector(entry->selector) || entry->declarations.empty() ||
+        entry->declarations.size() > 256u ||
+        entry->declarations.find_first_of("(){}\"'\\<>@") !=
+            std::string::npos ||
+        entry->declarations.find('\0') != std::string::npos) {
+      continue;
+    }
+    const std::string rule =
+        entry->selector + "{" + entry->declarations + "}\n";
+    if (style_sheet_bytes_ + rule.size() > kMaxStyleSheetBytes) {
+      break;
+    }
+    style_sheet_.append(rule);
+    style_sheet_bytes_ += rule.size();
+    changed = true;
+  }
+  return changed;
+}
+
 void CosmeticFilterAgent::ExecuteIsolatedScript(const std::string& script) {
   if (script.empty() || script.size() > kMaxIsolatedScriptBytes ||
       script.find('\0') != std::string::npos ||
