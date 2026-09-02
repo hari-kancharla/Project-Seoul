@@ -68,6 +68,12 @@ class CosmeticFilterAgent final : public content::RenderFrameObserver {
       const std::vector<std::string>& additional_actions);
   void RemoveProceduralRules();
   bool AppendSelectors(const std::vector<std::string>& selectors);
+  // Writes browser-approved `:style()` rules into the same stylesheet, under
+  // the same byte cap, after re-validating the declarations. The renderer does
+  // not trust the pipe: a compromised browser process is out of scope, but a
+  // bug on the other side must not become a CSS injection here.
+  bool AppendStyledSelectors(
+      const std::vector<adblock::mojom::StyledSelectorPtr>& styled);
   void ApplyStyleSheet();
   void RemoveStyleSheet();
 
