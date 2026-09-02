@@ -1000,6 +1000,72 @@
       "applyVerify": "git apply --check",
       "reverseVerify": "git apply -R --check",
       "reviewable": true
+    },
+    {
+      "id": "seoul-canvas-farbling",
+      "description": "Blink-level readback farbling, fingerprinting protection's Balanced mode: a 64-bit per-site session token plumbed through WebPreferences (and copied into WorkerSettings) deterministically perturbs every pixel readback a script can reach - 2D getImageData, toDataURL and toBlob; OffscreenCanvas convertToBlob and getImageData in dedicated workers; WebGL readPixels - keyed on the absolute pixel coordinate so repeated reads cannot average the truth back out, and quantised first so a float readback cannot be differenced against an ordinary one. Strict's canvas taint refuses WebGL readPixels, and a read into a pixel-pack buffer is refused whenever a token is set, because that destination cannot be perturbed. Each farbled readback is receipted to the embedder as a loading behaviour. The generator lives in blink/public/common so the browser can tell a person exactly what a site was told.",
+      "rationale": "Brave's model, at Brave's layer: farbling must happen inside Blink because the readback copies exist only there - a browser-side hook sees either the request or the encoded result, never the pixels a fingerprinter hashes. The token rides WebPreferences (struct + mojom + traits + a generated Setting + the WebSettings/WebSettingsImpl setter ApplyWebPreferences calls), the same channel every per-WebContents rendering preference already uses and the channel patch 0039's taint uses, so per-site state recomputes on every navigation with no new IPC surface; WorkerSettings copies it at worker creation exactly as it copies disable_reading_from_canvas, which is how an OffscreenCanvas in a dedicated worker is covered. Every hook farbles a copy the caller owns - getImageData's ImageData buffer, a raster copy handed to the toDataURL/toBlob/convertToBlob encoders (keeping the source's colour type, colour space and opacity, so the encoding is byte-identical apart from the flipped bits), script's own ArrayBufferView after readPixels - so the visible canvas never accumulates noise and putImageData round-trips stay visually identical. The perturbation is deterministic from the token alone: reading twice proves nothing, the same site stays stable all session, different sites and sessions diverge, which is exactly the property that makes a hash of it worthless as a cross-site identifier. The generator and the hardware-profile functions sit in blink/public/common, shared with the browser process, so the Shields panel can compute what a site sees from the same code the renderer ran - one implementation, no drift. Each farbled readback is reported through DocumentLoader::DidObserveLoadingBehavior with three Seoul flags in the high bits of LoadingBehaviorFlag - a channel the embedder's RenderFrameObservers already receive, so the page's fingerprint receipt needs no new Blink-to-content IPC. Upstream asserted OriginClean in readPixels with a DCHECK, which a policy taint would trip in debug and read straight through in release; it is now a GL_INVALID_OPERATION, so Strict refuses this readback like every other. Six Seoul-owned files: the shared generator under public/common/privacy and common/privacy, the token lookup and receipt under core/frame, the pixel farbling under core/html/canvas; every upstream file carries a field, a setting, a flag, a copied value, or one call. Boundaries recorded rather than papered over: shared and service workers have no creating page and no token; a worker's readbacks are farbled but unreceipted, having no document loader; WebGL2's pixel-pack-buffer readPixels path lands in a GPU buffer and is left alone.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 40,
+      "file": "0040-seoul-canvas-farbling.patch",
+      "affectedPaths": [
+        "third_party/blink/common/BUILD.gn",
+        "third_party/blink/common/privacy/seoul_farbling.cc",
+        "third_party/blink/common/web_preferences/web_preferences_mojom_traits.cc",
+        "third_party/blink/public/common/BUILD.gn",
+        "third_party/blink/public/common/loader/loading_behavior_flag.h",
+        "third_party/blink/public/common/privacy/seoul_farbling.h",
+        "third_party/blink/public/common/web_preferences/web_preferences.h",
+        "third_party/blink/public/common/web_preferences/web_preferences_mojom_traits.h",
+        "third_party/blink/public/mojom/webpreferences/web_preferences.mojom",
+        "third_party/blink/public/web/web_settings.h",
+        "third_party/blink/renderer/core/exported/web_settings_impl.cc",
+        "third_party/blink/renderer/core/exported/web_settings_impl.h",
+        "third_party/blink/renderer/core/exported/web_view_impl.cc",
+        "third_party/blink/renderer/core/frame/build.gni",
+        "third_party/blink/renderer/core/frame/seoul_farbling.cc",
+        "third_party/blink/renderer/core/frame/seoul_farbling.h",
+        "third_party/blink/renderer/core/frame/settings.json5",
+        "third_party/blink/renderer/core/html/build.gni",
+        "third_party/blink/renderer/core/html/canvas/html_canvas_element.cc",
+        "third_party/blink/renderer/core/html/canvas/seoul_canvas_farbling.cc",
+        "third_party/blink/renderer/core/html/canvas/seoul_canvas_farbling.h",
+        "third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc",
+        "third_party/blink/renderer/core/workers/worker_settings.cc",
+        "third_party/blink/renderer/core/workers/worker_settings.h",
+        "third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc",
+        "third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc",
+        "third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.h",
+        "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc",
+        "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h"
+      ],
+      "dependencies": [
+        "seoul-canvas-fingerprint-shield"
+      ],
+      "sha256": "215eb615fbc5d3628c877fd13d819d80d180dd3b10e56a926a60219d7b45f4e9",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-hardware-profile-farbling",
+      "description": "Farble navigator.hardwareConcurrency and navigator.deviceMemory per site from the same session token: Brave's floors (four cores, 4 GiB), a stable per-site value between the floor and the truth above them, the true value below, in windows and workers alike.",
+      "rationale": "The hardware profile is the cheapest fingerprint a script has and the one Brave farbles first after canvas. NavigatorBase already overrides hardwareConcurrency to apply the DevTools emulation override and already holds the ExecutionContext, so both values are farbled there with no IDL change and no new plumbing: the deviceMemory mixin accessor becomes virtual so the same override reaches it. Farbling runs before the DevTools override, so an explicit emulation still wins. The floors are Brave's, for Brave's reason: below four cores or 4 GiB a machine is already generic, and lying downward only misleads a site's own scheduling and memory heuristics for nothing. Each read under a token is receipted to the embedder as the hardware-profile loading behaviour patch 0040 defines, so the page's fingerprint receipt counts it. A token of 0 leaves both values exactly as upstream computes them. Depends on patch 0040 for the token lookup, the receipt, and the shared generator.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 41,
+      "file": "0041-seoul-hardware-profile-farbling.patch",
+      "affectedPaths": [
+        "third_party/blink/renderer/core/execution_context/navigator_base.cc",
+        "third_party/blink/renderer/core/execution_context/navigator_base.h",
+        "third_party/blink/renderer/core/frame/navigator_device_memory.h"
+      ],
+      "dependencies": [
+        "seoul-canvas-farbling"
+      ],
+      "sha256": "fb2699c4a15b116742e5114791d5fc29562487e0dfc8dead29ddbd76a0dda998",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
     }
   ]
 }
