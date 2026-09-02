@@ -95,6 +95,7 @@ class AdBlockSettings {
 
  private:
   static bool IsValidModeValue(int value);
+  static bool IsValidFingerprintModeValue(int value);
   static bool IsEligibleSite(const GURL& site_url);
 
   const raw_ptr<PrefService> prefs_;

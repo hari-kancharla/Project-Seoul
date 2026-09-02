@@ -271,6 +271,12 @@ bool AdBlockSettings::IsValidModeValue(int value) {
 }
 
 // static
+bool AdBlockSettings::IsValidFingerprintModeValue(int value) {
+  return value >= static_cast<int>(FingerprintMode::kOff) &&
+         value <= static_cast<int>(FingerprintMode::kStrict);
+}
+
+// static
 bool AdBlockSettings::IsEligibleSite(const GURL& site_url) {
   return site_url.is_valid() && site_url.SchemeIsHTTPOrHTTPS();
 }
