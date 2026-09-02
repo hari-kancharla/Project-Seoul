@@ -212,10 +212,11 @@ void AdBlockSettings::SetSiteFingerprintMode(
       site_url, site_url, ContentSettingsType::SEOUL_AD_BLOCK_MODE);
   base::DictValue dict =
       existing.is_dict() ? std::move(existing.GetDict()) : base::DictValue();
-  if (blocked) {
-    dict.Set(kCanvasFingerprintKey, true);
+  dict.Remove(kLegacyCanvasFingerprintKey);
+  if (mode && IsValidFingerprintModeValue(static_cast<int>(*mode))) {
+    dict.Set(kFingerprintModeKey, static_cast<int>(*mode));
   } else {
-    dict.Remove(kCanvasFingerprintKey);
+    dict.Remove(kFingerprintModeKey);
   }
   host_content_settings_map_->SetWebsiteSettingDefaultScope(
       site_url, site_url, ContentSettingsType::SEOUL_AD_BLOCK_MODE,
