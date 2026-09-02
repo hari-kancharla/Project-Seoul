@@ -51,6 +51,8 @@ void AdBlockSettings::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterIntegerPref(kDefaultAdBlockModePref,
                                 static_cast<int>(AdBlockMode::kStandard));
+  registry->RegisterIntegerPref(kDefaultFingerprintModePref,
+                                static_cast<int>(FingerprintMode::kBalanced));
 }
 
 AdBlockMode AdBlockSettings::GetDefaultMode() const {
