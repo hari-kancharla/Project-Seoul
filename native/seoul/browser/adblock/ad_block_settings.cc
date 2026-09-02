@@ -92,8 +92,8 @@ void AdBlockSettings::SetSiteMode(const GURL& site_url,
   if (!host_content_settings_map_ || !IsEligibleSite(site_url)) {
     return;
   }
-  // The mode shares its dict with the canvas-fingerprint bit; writing one
-  // must never wipe the other.
+  // The mode shares its dict with the fingerprint mode; writing one must
+  // never wipe the other.
   base::Value existing = host_content_settings_map_->GetWebsiteSetting(
       site_url, site_url, ContentSettingsType::SEOUL_AD_BLOCK_MODE);
   base::DictValue dict =
