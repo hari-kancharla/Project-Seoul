@@ -161,7 +161,25 @@ void AdBlockSettings::ClearTemporaryDisable(const GURL& site_url) {
       base::Value());
 }
 
-bool AdBlockSettings::GetCanvasFingerprintBlocked(
+FingerprintMode AdBlockSettings::GetDefaultFingerprintMode() const {
+  if (!prefs_) {
+    return FingerprintMode::kBalanced;
+  }
+  const int value = prefs_->GetInteger(kDefaultFingerprintModePref);
+  if (!IsValidFingerprintModeValue(value)) {
+    return FingerprintMode::kBalanced;
+  }
+  return static_cast<FingerprintMode>(value);
+}
+
+void AdBlockSettings::SetDefaultFingerprintMode(FingerprintMode mode) {
+  if (!prefs_ || !IsValidFingerprintModeValue(static_cast<int>(mode))) {
+    return;
+  }
+  prefs_->SetInteger(kDefaultFingerprintModePref, static_cast<int>(mode));
+}
+
+std::optional<FingerprintMode> AdBlockSettings::GetSiteFingerprintMode(
     const GURL& site_url) const {
   if (!host_content_settings_map_ || !IsEligibleSite(site_url)) {
     return false;
