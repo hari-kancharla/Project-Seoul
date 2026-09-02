@@ -14,7 +14,7 @@ Files:
   `baseRevision` must equal the pinned revision in `../chromium.lock.json`.
 - `chromium/` - the actual `.patch` files referenced by the manifest.
 
-The current series contains 23 patches. Patches `0001` through `0010` establish
+The current series contains 41 patches. Patches `0001` through `0010` establish
 the native integration, session model, integrated vertical shell, product
 surface, identity, and iconography. Patches `0011` through `0016` refine the
 address prompt, Compact timing, command surface, layout migration, native
@@ -41,6 +41,16 @@ prerender, BFCache, cross-origin-frame, and renderer-test integration.
 Patch `0023` registers the fail-closed signed filter-list component at
 Chromium's update and Local State seams; an owner-supplied release key hash is
 required before the component is registered.
+Patches `0024` through `0037` are described by their manifest entries.
+Patch `0038` adds the Shields site control and panel to the address field;
+`0039` hooks the per-site fingerprint decision into the two WebPreferences
+seams; `0040` carries Blink-level readback farbling (a per-site session token
+through WebPreferences and WorkerSettings, perturbing 2D canvas,
+OffscreenCanvas and WebGL readbacks on caller-owned copies), receipts every
+farbled readback as a loading behaviour, and keeps the generator in
+`blink/public/common` so the browser can compute what a site was told;
+`0041` farbles the hardware profile - `navigator.hardwareConcurrency` and
+`navigator.deviceMemory` - from the same token.
 
 Every Chromium modification must remain:
 
