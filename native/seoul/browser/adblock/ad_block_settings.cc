@@ -18,7 +18,10 @@ namespace {
 constexpr base::TimeDelta kMaximumTemporaryDisable = base::Days(30);
 constexpr char kModeKey[] = "mode";
 constexpr char kTemporarilyDisabledKey[] = "disabled";
-constexpr char kCanvasFingerprintKey[] = "canvas_fingerprint_blocked";
+// The v1 strict-only bool, still read so a profile that set it keeps its
+// choice; never written again.
+constexpr char kLegacyCanvasFingerprintKey[] = "canvas_fingerprint_blocked";
+constexpr char kFingerprintModeKey[] = "fingerprint_mode";
 
 std::optional<int> ReadIntegerWebsiteSetting(
     HostContentSettingsMap* settings_map,
