@@ -3,6 +3,7 @@
 #ifndef SEOUL_BROWSER_ADBLOCK_AD_BLOCK_SERVICE_H_
 #define SEOUL_BROWSER_ADBLOCK_AD_BLOCK_SERVICE_H_
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
