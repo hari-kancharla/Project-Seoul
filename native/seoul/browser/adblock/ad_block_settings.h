@@ -68,6 +68,21 @@ class AdBlockSettings {
 
   std::optional<AdBlockMode> GetSiteMode(const GURL& site_url) const;
   void SetSiteMode(const GURL& site_url, std::optional<AdBlockMode> mode);
+
+  FingerprintMode GetDefaultFingerprintMode() const;
+  void SetDefaultFingerprintMode(FingerprintMode mode);
+
+  // The site's own override, if it has one; nullopt means "the default".
+  std::optional<FingerprintMode> GetSiteFingerprintMode(
+      const GURL& site_url) const;
+  void SetSiteFingerprintMode(const GURL& site_url,
+                              std::optional<FingerprintMode> mode);
+  // What applies to the site: its override, else the profile default; Off
+  // for a site the blocker never governs.
+  FingerprintMode GetFingerprintMode(const GURL& site_url) const;
+
+  // Strict-only entry points kept for callers that predate the modes: true
+  // pins the site to Strict, false returns it to the profile default.
   bool GetCanvasFingerprintBlocked(const GURL& site_url) const;
   void SetCanvasFingerprintBlocked(const GURL& site_url, bool blocked);
 
