@@ -434,6 +434,8 @@ void CosmeticFilterAgent::OnDestruct() {
 }
 
 void CosmeticFilterAgent::ClearForNewDocument() {
+  FlushFarbledReads();
+  farbled_reads_reported_ = false;
   ++generation_;
   suspended_ = false;
   document_request_started_ = false;
@@ -451,6 +453,7 @@ void CosmeticFilterAgent::ClearForNewDocument() {
 }
 
 void CosmeticFilterAgent::SuspendForBackForwardCache() {
+  FlushFarbledReads();
   RemoveProceduralRules();
   ++generation_;
   suspended_ = true;
