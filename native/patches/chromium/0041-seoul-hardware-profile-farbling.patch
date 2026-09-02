@@ -1,0 +1,84 @@
+diff --git a/third_party/blink/renderer/core/execution_context/navigator_base.cc b/third_party/blink/renderer/core/execution_context/navigator_base.cc
+--- a/third_party/blink/renderer/core/execution_context/navigator_base.cc
++++ b/third_party/blink/renderer/core/execution_context/navigator_base.cc
+@@ -9,6 +9,7 @@
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+ #include "third_party/blink/renderer/core/frame/navigator_concurrent_hardware.h"
++#include "third_party/blink/renderer/core/frame/seoul_farbling.h"
+ #include "third_party/blink/renderer/core/probe/core_probes.h"
+ #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+ #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+@@ -72,12 +73,38 @@ void NavigatorBase::Trace(Visitor* visitor) const {
+ unsigned int NavigatorBase::hardwareConcurrency() const {
+   unsigned int hardware_concurrency =
+       NavigatorConcurrentHardware::hardwareConcurrency();
++  // Seoul: farble before DevTools' emulation override, so an explicit
++  // override still wins over the per-site value.
++  if (const uint64_t token = SeoulFarblingTokenFor(GetExecutionContext())) {
++    hardware_concurrency =
++        SeoulFarbleHardwareConcurrency(hardware_concurrency, token);
++    if (!seoul_hardware_receipted_) {
++      seoul_hardware_receipted_ = true;
++      SeoulReportFarbled(GetExecutionContext(),
++                         SeoulFarblingSurface::kHardwareConcurrency);
++    }
++  }
+ 
+   probe::ApplyHardwareConcurrencyOverride(
+       probe::ToCoreProbeSink(GetExecutionContext()), hardware_concurrency);
+   return hardware_concurrency;
+ }
+ 
++float NavigatorBase::deviceMemory() const {
++  // Seoul: the same per-site value on every read this session.
++  const float device_memory = NavigatorDeviceMemory::deviceMemory();
++  const uint64_t token = SeoulFarblingTokenFor(GetExecutionContext());
++  if (token == 0) {
++    return device_memory;
++  }
++  if (!seoul_hardware_receipted_) {
++    seoul_hardware_receipted_ = true;
++    SeoulReportFarbled(GetExecutionContext(),
++                       SeoulFarblingSurface::kDeviceMemory);
++  }
++  return SeoulFarbleDeviceMemory(device_memory, token);
++}
++
+ ExecutionContext* NavigatorBase::GetUAExecutionContext() const {
+   return GetExecutionContext();
+ }
+diff --git a/third_party/blink/renderer/core/execution_context/navigator_base.h b/third_party/blink/renderer/core/execution_context/navigator_base.h
+--- a/third_party/blink/renderer/core/execution_context/navigator_base.h
++++ b/third_party/blink/renderer/core/execution_context/navigator_base.h
+@@ -55,6 +55,18 @@ class CORE_EXPORT NavigatorBase : public ScriptWrappable,
+   void Trace(Visitor* visitor) const override;
+ 
+   unsigned int hardwareConcurrency() const override;
++  float deviceMemory() const override;
++
++ private:
++  // Seoul: whether this document's farbled hardware profile has already been
++  // receipted. A page may read these properties in a loop, and reporting each
++  // read both costs a fan-out across every frame observer and lets a page
++  // flood its own receipt until the browser discards the batch - erasing the
++  // evidence of whatever else it did. One report per document says the same
++  // thing and cannot be used that way.
++  mutable bool seoul_hardware_receipted_ = false;
++
++ public:
+ 
+  protected:
+   ExecutionContext* GetUAExecutionContext() const override;
+diff --git a/third_party/blink/renderer/core/frame/navigator_device_memory.h b/third_party/blink/renderer/core/frame/navigator_device_memory.h
+--- a/third_party/blink/renderer/core/frame/navigator_device_memory.h
++++ b/third_party/blink/renderer/core/frame/navigator_device_memory.h
+@@ -11,7 +11,7 @@ namespace blink {
+ 
+ class CORE_EXPORT NavigatorDeviceMemory {
+  public:
+-  float deviceMemory() const;
++  virtual float deviceMemory() const;
+ };
+ 
+ }  // namespace blink
