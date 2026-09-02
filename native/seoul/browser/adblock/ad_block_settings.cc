@@ -182,12 +182,22 @@ void AdBlockSettings::SetDefaultFingerprintMode(FingerprintMode mode) {
 std::optional<FingerprintMode> AdBlockSettings::GetSiteFingerprintMode(
     const GURL& site_url) const {
   if (!host_content_settings_map_ || !IsEligibleSite(site_url)) {
-    return false;
+    return std::nullopt;
   }
   const base::Value value = host_content_settings_map_->GetWebsiteSetting(
       site_url, site_url, ContentSettingsType::SEOUL_AD_BLOCK_MODE);
-  return value.is_dict() &&
-         value.GetDict().FindBool(kCanvasFingerprintKey).value_or(false);
+  if (!value.is_dict()) {
+    return std::nullopt;
+  }
+  const std::optional<int> mode = value.GetDict().FindInt(kFingerprintModeKey);
+  if (mode && IsValidFingerprintModeValue(*mode)) {
+    return static_cast<FingerprintMode>(*mode);
+  }
+  // The v1 strict-only bool, written before the modes existed.
+  if (value.GetDict().FindBool(kLegacyCanvasFingerprintKey).value_or(false)) {
+    return FingerprintMode::kStrict;
+  }
+  return std::nullopt;
 }
 
 void AdBlockSettings::SetCanvasFingerprintBlocked(const GURL& site_url,
