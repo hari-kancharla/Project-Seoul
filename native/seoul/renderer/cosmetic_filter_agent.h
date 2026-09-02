@@ -91,6 +91,11 @@ class CosmeticFilterAgent final : public content::RenderFrameObserver {
   std::string style_sheet_;
   blink::WebStyleSheetKey style_sheet_key_;
   base::RepeatingTimer poll_timer_;
+  bool farbled_reads_reported_ = false;
+  uint32_t pending_canvas_reads_ = 0;
+  uint32_t pending_webgl_reads_ = 0;
+  uint32_t pending_hardware_reads_ = 0;
+  base::OneShotTimer farbled_reads_timer_;
   mojo::Remote<adblock::mojom::CosmeticFilterHost> host_;
   base::WeakPtrFactory<CosmeticFilterAgent> weak_factory_{this};
 };
