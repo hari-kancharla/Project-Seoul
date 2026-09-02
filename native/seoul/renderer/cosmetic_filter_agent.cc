@@ -514,6 +514,17 @@ void CosmeticFilterAgent::OnGotResources(
 
   ReplaceSelectors(resources->default_rules->selectors,
                    resources->additional_rules->selectors);
+  // After the hide rules, so a `:style()` declaration on the same element wins
+  // by source order the way the lists intend.
+  // Both calls must run, so they are sequenced into locals rather than joined
+  // by an operator that may short-circuit.
+  const bool default_styled =
+      AppendStyledSelectors(resources->default_rules->styled_selectors);
+  const bool additional_styled =
+      AppendStyledSelectors(resources->additional_rules->styled_selectors);
+  if (default_styled || additional_styled) {
+    ApplyStyleSheet();
+  }
   ExecuteIsolatedScript(resources->default_rules->isolated_script);
   ExecuteIsolatedScript(resources->additional_rules->isolated_script);
   InstallProceduralRules(resources->default_rules->procedural_actions,
