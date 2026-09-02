@@ -39,6 +39,24 @@ struct AdBlockBlockedNavigation {
   AdBlockDecision decision;
 };
 
+// What one site is told about this machine for the rest of the session.
+struct SiteIdentity {
+  // False when nothing is farbled for the site (protection Off, or shields
+  // Off): the reported values are then the real ones.
+  bool farbled = false;
+  uint64_t token = 0;
+  // Four hex digits a person can compare across sites and across a rotation.
+  std::string persona;
+  int real_cores = 0;
+  unsigned reported_cores = 0;
+  // NOT this machine's RAM. The Device Memory specification requires a clamped
+  // power-of-two bucket, so Chromium already reports the same coarse class to
+  // every site on every browser. Calling it "real" in the interface told people
+  // their memory had been disclosed when it never was.
+  float memory_class_gib = 0.0f;
+  float reported_memory_gib = 0.0f;
+};
+
 class AdBlockService : public KeyedService {
  public:
   using DecisionCallback = base::OnceCallback<void(AdBlockDecision)>;
