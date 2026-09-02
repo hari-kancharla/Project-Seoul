@@ -223,6 +223,26 @@ void AdBlockSettings::SetSiteFingerprintMode(
       dict.empty() ? base::Value() : base::Value(std::move(dict)));
 }
 
+FingerprintMode AdBlockSettings::GetFingerprintMode(
+    const GURL& site_url) const {
+  if (!IsEligibleSite(site_url)) {
+    return FingerprintMode::kOff;
+  }
+  return GetSiteFingerprintMode(site_url).value_or(GetDefaultFingerprintMode());
+}
+
+bool AdBlockSettings::GetCanvasFingerprintBlocked(
+    const GURL& site_url) const {
+  return GetFingerprintMode(site_url) == FingerprintMode::kStrict;
+}
+
+void AdBlockSettings::SetCanvasFingerprintBlocked(const GURL& site_url,
+                                                  bool blocked) {
+  SetSiteFingerprintMode(site_url, blocked ? std::optional<FingerprintMode>(
+                                                 FingerprintMode::kStrict)
+                                           : std::nullopt);
+}
+
 AdBlockSiteSettings AdBlockSettings::GetSiteSettings(
     const GURL& site_url) const {
   AdBlockSiteSettings result;
