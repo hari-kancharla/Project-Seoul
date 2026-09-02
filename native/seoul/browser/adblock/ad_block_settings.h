@@ -20,6 +20,20 @@ class PrefRegistrySyncable;
 namespace seoul::adblock {
 
 inline constexpr char kDefaultAdBlockModePref[] = "seoul.adblock.default_mode";
+inline constexpr char kDefaultFingerprintModePref[] =
+    "seoul.adblock.default_fingerprint_mode";
+
+// How fingerprinting is answered on a site. Balanced farbles what a
+// fingerprinter reads - canvas and WebGL pixels, the hardware profile -
+// deterministically per site and session, invisibly on screen. Strict adds
+// the canvas taint, so pixel readbacks are refused outright. Off is off.
+// Balanced is the profile default: protection is what a person gets without
+// configuring anything, and a site can be moved off it individually.
+enum class FingerprintMode {
+  kOff = 0,
+  kBalanced = 1,
+  kStrict = 2,
+};
 
 struct AdBlockSiteSettings {
   AdBlockMode effective_mode = AdBlockMode::kStandard;
