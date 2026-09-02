@@ -372,6 +372,63 @@ void CosmeticFilterAgent::DidSetPageLifecycleState(
   }
 }
 
+void CosmeticFilterAgent::DidObserveLoadingBehavior(
+    blink::LoadingBehaviorFlag behavior) {
+  bool observed = false;
+  if (behavior & blink::kLoadingBehaviorSeoulFarbledCanvasReadback) {
+    ++pending_canvas_reads_;
+    observed = true;
+  }
+  if (behavior & blink::kLoadingBehaviorSeoulFarbledWebGLReadback) {
+    ++pending_webgl_reads_;
+    observed = true;
+  }
+  if (behavior & blink::kLoadingBehaviorSeoulFarbledHardwareProfile) {
+    ++pending_hardware_reads_;
+    observed = true;
+  }
+  if (!observed || suspended_) {
+    return;
+  }
+  // A document's first probe reports at once, so a panel opened right after
+  // load already shows it; the rest batch.
+  if (!farbled_reads_reported_) {
+    farbled_reads_reported_ = true;
+    FlushFarbledReads();
+    return;
+  }
+  if (farbled_reads_timer_.IsRunning()) {
+    return;
+  }
+  farbled_reads_timer_.Start(
+      FROM_HERE, base::Milliseconds(250),
+      base::BindOnce(&CosmeticFilterAgent::FlushFarbledReads,
+                     weak_factory_.GetWeakPtr()));
+}
+
+void CosmeticFilterAgent::FlushFarbledReads() {
+  farbled_reads_timer_.Stop();
+  const uint32_t canvas = pending_canvas_reads_;
+  const uint32_t webgl = pending_webgl_reads_;
+  const uint32_t hardware = pending_hardware_reads_;
+  pending_canvas_reads_ = 0;
+  pending_webgl_reads_ = 0;
+  pending_hardware_reads_ = 0;
+  if ((canvas == 0 && webgl == 0 && hardware == 0) || !render_frame()) {
+    return;
+  }
+  if (!host_.is_bound()) {
+    render_frame()->GetBrowserInterfaceBroker().GetInterface(
+        host_.BindNewPipeAndPassReceiver());
+  }
+  host_->ReportFarbledReads(canvas, webgl, hardware);
+}
+
+void CosmeticFilterAgent::WillDetach(blink::DetachReason /*detach_reason*/) {
+  // The frame is still alive here; from OnDestruct it is already gone.
+  FlushFarbledReads();
+}
+
 void CosmeticFilterAgent::OnDestruct() {
   delete this;
 }
