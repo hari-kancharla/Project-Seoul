@@ -713,6 +713,622 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
             content::EvalJs(contents, "typeof globalThis.seoulRemoveElements"));
 }
 
+// The DOM scriptlet library is real behaviour, not catalogue entries: a
+// +js(remove-attr) rule strips the attribute, +js(remove-class) strips the
+// class, and both leave the rest of the element standing.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, DomScriptletLibraryActsOnThePage) {
+  ReplaceRules(
+      "news.example##+js(remove-attr, data-track, #player)\n"
+      "news.example##+js(remove-class, sponsored, #badge)\n");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("news.example",
+                                                "/scriptlet-library.html")));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+  EXPECT_EQ(true, content::EvalJs(contents,
+                                  "new Promise(resolve => {"
+                                  " const check = () => {"
+                                  "  const player = "
+                                  "document.getElementById('player');"
+                                  "  const badge = "
+                                  "document.getElementById('badge');"
+                                  "  if (player && badge &&"
+                                  "      !player.hasAttribute('data-track') &&"
+                                  "      !badge.classList.contains('sponsored')"
+                                  ") { resolve(true); return; }"
+                                  "  requestAnimationFrame(check);"
+                                  " }; check();"
+                                  "})"));
+  // Only the targeted parts went: the element and its other class survive.
+  EXPECT_EQ(true, content::EvalJs(contents,
+                                  "document.getElementById('badge')"
+                                  ".classList.contains('plain')"));
+}
+
+// A $redirect to the vetted ga.js stub must keep the page's own analytics
+// calling code alive: the script loads (as the stub), the legacy _gaq API
+// exists, and queued callbacks fire - the whole point of shipping shims
+// instead of plain blocks.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, GaRedirectStubKeepsPageCodeAlive) {
+  ReplaceRules(
+      "/ga\\.js(?:\\?|$)/$script,redirect=ga.js,important,domain=news.example\n");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(),
+      embedded_test_server()->GetURL("news.example", "/ga-consumer.html")));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+  EXPECT_EQ("stubbed",
+            content::EvalJs(contents,
+                            "new Promise(resolve => {"
+                            " const check = () => {"
+                            "  if (window.gaOutcome === 'stubbed') {"
+                            "   resolve(window.gaOutcome); return;"
+                            "  }"
+                            "  requestAnimationFrame(check);"
+                            " }; check();"
+                            "})"));
+}
+
+// ---- Fingerprinting protection --------------------------------------------
+// Shared probes. Each draws the same scene and returns a digest of what a
+// script would hash, so two readbacks compare byte for byte without the test
+// knowing the platform's exact rasterization. Digests travel as strings
+// because a 32-bit rolling sum does not fit base::Value's int.
+
+constexpr char kCanvasProbe[] = R"((() => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64; canvas.height = 32;
+  const context = canvas.getContext('2d', {willReadFrequently: true});
+  context.fillStyle = '#a1b2c3';
+  context.fillRect(0, 0, 64, 32);
+  context.fillStyle = '#102030';
+  context.font = '16px sans-serif';
+  context.fillText('Seoul', 4, 20);
+  const url1 = canvas.toDataURL();
+  const url2 = canvas.toDataURL();
+  let sum = 0;
+  const data = context.getImageData(0, 0, 64, 32).data;
+  for (let i = 0; i < data.length; ++i) { sum = (sum * 31 + data[i]) >>> 0; }
+  return JSON.stringify({stable: url1 === url2, url: url1, sum: String(sum)});
+})())";
+
+// Relays whatever /farble-worker.js reports.
+constexpr char kWorkerProbe[] = R"(new Promise(resolve => {
+  const worker = new Worker('/farble-worker.js');
+  worker.onmessage = event => {
+    resolve(JSON.stringify(event.data)); worker.terminate();
+  };
+  worker.onerror = event => {
+    resolve(JSON.stringify({error: String(event.message)})); worker.terminate();
+  };
+}))";
+
+// WebGL: clear two regions and read the pixels back. Reports "<digest>:<gl
+// error>", or 'unavailable' where the environment has no GL at all.
+constexpr char kWebGLProbe[] = R"((() => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 32; canvas.height = 16;
+  const gl = canvas.getContext('webgl');
+  if (!gl) { return 'unavailable'; }
+  gl.clearColor(0.6, 0.3, 0.2, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.enable(gl.SCISSOR_TEST); gl.scissor(4, 4, 12, 6);
+  gl.clearColor(0.1, 0.9, 0.5, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.disable(gl.SCISSOR_TEST);
+  const pixels = new Uint8Array(32 * 16 * 4);
+  gl.readPixels(0, 0, 32, 16, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  const error = gl.getError();
+  let sum = 0;
+  for (let i = 0; i < pixels.length; ++i) { sum = (sum * 31 + pixels[i]) >>> 0; }
+  return sum + ':' + error;
+})())";
+
+constexpr char kHardwareProbe[] = R"(JSON.stringify({
+  cores: navigator.hardwareConcurrency,
+  memory: navigator.deviceMemory === undefined ? -1 : navigator.deviceMemory,
+}))";
+
+base::DictValue ParseProbe(const std::string& json) {
+  std::optional<base::Value> value =
+      base::JSONReader::Read(json, base::JSON_PARSE_RFC);
+  CHECK(value && value->is_dict()) << json;
+  return std::move(value->GetDict());
+}
+
+// Fingerprinting protection is on by default: a fresh profile farbles canvas
+// readbacks on every site it governs before anyone opens the panel.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, FingerprintProtectionIsOnByDefault) {
+  AdBlockService* service =
+      AdBlockServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(service);
+  ASSERT_EQ(FingerprintMode::kBalanced, service->GetDefaultFingerprintMode());
+  const GURL site = embedded_test_server()->GetURL("a.example", "/farble.html");
+  const auto probe = [&]() {
+    EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), site));
+    return ParseProbe(
+        content::EvalJs(browser()->tab_strip_model()->GetActiveWebContents(),
+                        kCanvasProbe)
+            .ExtractString());
+  };
+
+  const base::DictValue shipped = probe();
+  EXPECT_EQ(true, *shipped.FindBool("stable"))
+      << "farbled readbacks are stable within a page";
+
+  // The true pixels exist only with the default off; they are the control.
+  service->SetDefaultFingerprintMode(FingerprintMode::kOff);
+  const base::DictValue truth = probe();
+  EXPECT_NE(*truth.FindString("url"), *shipped.FindString("url"))
+      << "what ships is not the true pixels";
+  EXPECT_NE(*truth.FindString("sum"), *shipped.FindString("sum"));
+
+  service->SetDefaultFingerprintMode(FingerprintMode::kBalanced);
+  const base::DictValue again = probe();
+  EXPECT_EQ(*shipped.FindString("url"), *again.FindString("url"))
+      << "the same site farbles identically for the whole session";
+}
+
+// Balanced farbling is the promise Brave makes with its shields, checked
+// against real readbacks: the pixels a script reads are perturbed per site,
+// stable for the session, and stand down for a site override or Shields Off.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, CanvasFarblingIsPerSiteAndStable) {
+  AdBlockService* service =
+      AdBlockServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(service);
+  const GURL site_a =
+      embedded_test_server()->GetURL("a.example", "/farble.html");
+  const GURL site_b =
+      embedded_test_server()->GetURL("b.example", "/farble.html");
+  const auto probe = [&](const GURL& url) {
+    EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+    return ParseProbe(
+        content::EvalJs(browser()->tab_strip_model()->GetActiveWebContents(),
+                        kCanvasProbe)
+            .ExtractString());
+  };
+  const auto url_of = [](const base::DictValue& dict) {
+    return *dict.FindString("url");
+  };
+
+  // The true pixels: identical drawing on both sites reads back identically
+  // - that sameness is exactly what fingerprinters bank on.
+  service->SetDefaultFingerprintMode(FingerprintMode::kOff);
+  const base::DictValue off_a = probe(site_a);
+  const base::DictValue off_b = probe(site_b);
+  EXPECT_EQ(url_of(off_a), url_of(off_b));
+
+  service->SetDefaultFingerprintMode(FingerprintMode::kBalanced);
+  const base::DictValue farbled_a = probe(site_a);
+  // Within one page, readbacks are stable: a site cannot detect farbling by
+  // reading twice, and legitimate canvas round-trips keep working.
+  EXPECT_EQ(true, *farbled_a.FindBool("stable"));
+  // The farbled readback is not the true pixels...
+  EXPECT_NE(url_of(off_a), url_of(farbled_a));
+  EXPECT_NE(*off_a.FindString("sum"), *farbled_a.FindString("sum"));
+  // ...and is deterministic for the site within the session.
+  const base::DictValue farbled_a_again = probe(site_a);
+  EXPECT_EQ(url_of(farbled_a), url_of(farbled_a_again));
+  // The same drawing on another site farbles differently - the cross-site
+  // link is what breaks.
+  const base::DictValue farbled_b = probe(site_b);
+  EXPECT_NE(url_of(farbled_a), url_of(farbled_b));
+
+  // A site override to Off restores the true pixels for that site alone.
+  service->SetSiteFingerprintMode(site_a, FingerprintMode::kOff);
+  const base::DictValue site_a_off = probe(site_a);
+  EXPECT_EQ(url_of(off_a), url_of(site_a_off));
+  const base::DictValue site_b_untouched = probe(site_b);
+  EXPECT_EQ(url_of(farbled_b), url_of(site_b_untouched));
+  service->SetSiteFingerprintMode(site_a, std::nullopt);
+  const base::DictValue site_a_default = probe(site_a);
+  EXPECT_EQ(url_of(farbled_a), url_of(site_a_default))
+      << "back on the default, the site's session pattern is unchanged";
+
+  // Shields Off stands the farbling down.
+  service->SetSiteMode(site_a, AdBlockMode::kOff);
+  const base::DictValue down_a = probe(site_a);
+  EXPECT_EQ(url_of(off_a), url_of(down_a));
+}
+
+// Farbling reaches every readback a script has, not only the main thread's
+// 2D canvas: a dedicated worker's OffscreenCanvas (getImageData and
+// convertToBlob) and WebGL readPixels return perturbed bytes under Balanced,
+// stable for the session, and Strict refuses the WebGL read outright.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, FarblingCoversWorkersAndWebGL) {
+  AdBlockService* service =
+      AdBlockServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(service);
+  const GURL site = embedded_test_server()->GetURL("a.example", "/farble.html");
+  const auto navigate = [&]() {
+    EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), site));
+    return browser()->tab_strip_model()->GetActiveWebContents();
+  };
+  const auto worker_probe = [](content::WebContents* contents) {
+    return ParseProbe(content::EvalJs(contents, kWorkerProbe).ExtractString());
+  };
+
+  service->SetDefaultFingerprintMode(FingerprintMode::kOff);
+  content::WebContents* contents = navigate();
+  const base::DictValue worker_off = worker_probe(contents);
+  ASSERT_FALSE(worker_off.contains("error")) << *worker_off.FindString("error");
+  const std::string webgl_off =
+      content::EvalJs(contents, kWebGLProbe).ExtractString();
+
+  service->SetDefaultFingerprintMode(FingerprintMode::kBalanced);
+  contents = navigate();
+  const base::DictValue worker_on = worker_probe(contents);
+  ASSERT_FALSE(worker_on.contains("error")) << *worker_on.FindString("error");
+  EXPECT_NE(*worker_off.FindString("sum"), *worker_on.FindString("sum"))
+      << "getImageData in a worker is farbled";
+  EXPECT_NE(*worker_off.FindString("blobSum"), *worker_on.FindString("blobSum"))
+      << "convertToBlob in a worker is farbled";
+  const std::string webgl_on =
+      content::EvalJs(contents, kWebGLProbe).ExtractString();
+
+  contents = navigate();
+  const base::DictValue worker_again = worker_probe(contents);
+  EXPECT_EQ(*worker_on.FindString("sum"), *worker_again.FindString("sum"))
+      << "and stable for the session";
+  EXPECT_EQ(*worker_on.FindString("blobSum"),
+            *worker_again.FindString("blobSum"));
+
+  if (webgl_off == "unavailable" || webgl_on == "unavailable") {
+    LOG(WARNING) << "WebGL is unavailable here; readPixels farbling was not "
+                    "exercised by this run";
+    return;
+  }
+  EXPECT_TRUE(base::EndsWith(webgl_off, ":0")) << webgl_off;
+  EXPECT_TRUE(base::EndsWith(webgl_on, ":0")) << webgl_on;
+  EXPECT_NE(webgl_off, webgl_on) << "readPixels is farbled";
+  EXPECT_EQ(webgl_on, content::EvalJs(contents, kWebGLProbe).ExtractString())
+      << "and stable for the session";
+
+  // Strict refuses the read the way it refuses toDataURL: GL_INVALID_OPERATION
+  // (0x0502) and a destination left untouched.
+  service->SetSiteFingerprintMode(site, FingerprintMode::kStrict);
+  EXPECT_EQ("0:1282", content::EvalJs(navigate(), kWebGLProbe).ExtractString());
+}
+
+// The hardware profile is farbled the way Brave farbles it: below four cores
+// or 4 GiB a machine is already generic and reads true; above, each site
+// sees a stable value between the floor and the truth, in a worker's
+// navigator exactly as in the window's, and Strict keeps it farbled.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
+                       HardwareProfileIsFarbledPerSiteAndStable) {
+  AdBlockService* service =
+      AdBlockServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(service);
+  // localhost is a secure context, which deviceMemory requires.
+  const GURL site = embedded_test_server()->GetURL("localhost", "/farble.html");
+  content::WebContents* contents = nullptr;
+  const auto probe = [&]() {
+    EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), site));
+    contents = browser()->tab_strip_model()->GetActiveWebContents();
+    return ParseProbe(content::EvalJs(contents, kHardwareProbe).ExtractString());
+  };
+
+  service->SetDefaultFingerprintMode(FingerprintMode::kOff);
+  const base::DictValue truth = probe();
+  const int real_cores = *truth.FindInt("cores");
+  const double real_memory = *truth.FindDouble("memory");
+  ASSERT_GE(real_cores, 1);
+  ASSERT_GT(real_memory, 0.0) << "deviceMemory must be exposed on a secure context";
+
+  service->SetDefaultFingerprintMode(FingerprintMode::kBalanced);
+  const base::DictValue farbled = probe();
+  const int cores = *farbled.FindInt("cores");
+  const double memory = *farbled.FindDouble("memory");
+  if (real_cores < 4) {
+    EXPECT_EQ(real_cores, cores) << "a small machine is left as it is";
+  } else {
+    EXPECT_GE(cores, 4);
+    EXPECT_LE(cores, real_cores);
+  }
+  if (real_memory < 4.0) {
+    EXPECT_EQ(real_memory, memory);
+  } else {
+    EXPECT_GE(memory, 4.0);
+    EXPECT_LE(memory, real_memory);
+  }
+
+  const base::DictValue again = probe();
+  EXPECT_EQ(cores, *again.FindInt("cores")) << "stable across navigations";
+  EXPECT_EQ(memory, *again.FindDouble("memory"));
+
+  // One token, one profile: the worker's navigator agrees with the window's.
+  const base::DictValue worker =
+      ParseProbe(content::EvalJs(contents, kWorkerProbe).ExtractString());
+  ASSERT_FALSE(worker.contains("error")) << *worker.FindString("error");
+  EXPECT_EQ(cores, *worker.FindInt("cores"));
+  EXPECT_EQ(memory, *worker.FindDouble("memory"));
+
+  // Strict blocks the pixels; the hardware profile stays farbled, not true.
+  service->SetSiteFingerprintMode(site, FingerprintMode::kStrict);
+  const base::DictValue strict = probe();
+  EXPECT_EQ(cores, *strict.FindInt("cores"));
+  EXPECT_EQ(memory, *strict.FindDouble("memory"));
+}
+
+// Reports the readback outcome instead of throwing, for a site where Strict
+// is expected to refuse it.
+constexpr char kReadbackProbe[] = R"((() => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 8; canvas.height = 8;
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#123456';
+  context.fillRect(0, 0, 8, 8);
+  try { canvas.toDataURL(); return 'readable'; } catch (e) { return e.name; }
+})())";
+
+// The post-navigation preference seam starts from the previous page's values,
+// so every decision is re-made and re-assigned per site, with no explicit
+// recomputation anywhere in this test: a token or a taint set for one site
+// must never ride into the next.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
+                       FingerprintStateNeverRidesAcrossNavigations) {
+  AdBlockService* service =
+      AdBlockServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(service);
+  const GURL site_a =
+      embedded_test_server()->GetURL("a.example", "/farble.html");
+  const GURL site_b =
+      embedded_test_server()->GetURL("b.example", "/farble.html");
+  const auto farbled_url = [&](const GURL& url) -> std::string {
+    EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+    const base::DictValue dict = ParseProbe(
+        content::EvalJs(browser()->tab_strip_model()->GetActiveWebContents(),
+                        kCanvasProbe)
+            .ExtractString());
+    return *dict.FindString("url");
+  };
+  const auto readback = [&](const GURL& url) -> std::string {
+    EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+    return content::EvalJs(browser()->tab_strip_model()->GetActiveWebContents(),
+                           kReadbackProbe)
+        .ExtractString();
+  };
+
+  service->SetDefaultFingerprintMode(FingerprintMode::kOff);
+  const std::string truth_a = farbled_url(site_a);
+  service->SetDefaultFingerprintMode(FingerprintMode::kBalanced);
+  const std::string farbled_b = farbled_url(site_b);
+  const std::string farbled_a = farbled_url(site_a);
+  EXPECT_NE(farbled_a, farbled_b);
+
+  // Off on A, reached from a farbled B: B's token must not ride along.
+  service->SetSiteFingerprintMode(site_a, FingerprintMode::kOff);
+  EXPECT_EQ(farbled_b, farbled_url(site_b));
+  EXPECT_EQ(truth_a, farbled_url(site_a));
+
+  // Strict on A, then B: A's taint must not ride along either.
+  service->SetSiteFingerprintMode(site_a, FingerprintMode::kStrict);
+  EXPECT_EQ("SecurityError", readback(site_a));
+  EXPECT_EQ("readable", readback(site_b));
+  EXPECT_EQ(farbled_b, farbled_url(site_b));
+  EXPECT_EQ("SecurityError", readback(site_a)) << "and Strict is still Strict";
+
+  // Back on the default, A farbles with its own session pattern again.
+  service->SetSiteFingerprintMode(site_a, std::nullopt);
+  EXPECT_EQ(farbled_a, farbled_url(site_a));
+}
+
+// Incognito is served by the regular profile's service but must never share
+// its pattern: the same site farbles differently in an incognito window, and
+// stays stable within it. Every new incognito session is a new browser
+// context, and so a new pattern, by construction.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, IncognitoFarblesWithItsOwnKey) {
+  const GURL site = embedded_test_server()->GetURL("a.example", "/farble.html");
+  const auto farbled_url = [&](Browser* in_browser) -> std::string {
+    EXPECT_TRUE(ui_test_utils::NavigateToURL(in_browser, site));
+    const base::DictValue dict = ParseProbe(
+        content::EvalJs(in_browser->tab_strip_model()->GetActiveWebContents(),
+                        kCanvasProbe)
+            .ExtractString());
+    return *dict.FindString("url");
+  };
+
+  AdBlockService* service =
+      AdBlockServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(service);
+  Browser* incognito = CreateIncognitoBrowser();
+  ASSERT_TRUE(incognito);
+
+  // The private window must be PROTECTED, not merely different. Comparing it
+  // against the regular window alone would pass even if incognito were farbled
+  // not at all, because unfarbled pixels differ from farbled ones too. So the
+  // true pixels are established first, with protection off, and the private
+  // window is required to differ from those.
+  service->SetDefaultFingerprintMode(FingerprintMode::kOff);
+  const std::string truth = farbled_url(incognito);
+  service->SetDefaultFingerprintMode(FingerprintMode::kBalanced);
+
+  const std::string regular = farbled_url(browser());
+  const std::string private_window = farbled_url(incognito);
+  EXPECT_NE(truth, private_window)
+      << "a private window must be farbled, not left unprotected";
+  EXPECT_NE(regular, private_window);
+  EXPECT_EQ(private_window, farbled_url(incognito))
+      << "stable within the incognito session";
+  EXPECT_EQ(regular, farbled_url(browser()))
+      << "and the regular window is unaffected";
+}
+
+// The receipt: every farbled readback a page performs is counted for the
+// page, by surface, attributed by the browser from the frame that reported
+// it - and a new document starts a new receipt.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
+                       FingerprintReceiptCountsEveryScrambledRead) {
+  AdBlockService* service =
+      AdBlockServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(service);
+  const GURL site = embedded_test_server()->GetURL("a.example", "/farble.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), site));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  const content::GlobalRenderFrameHostToken page =
+      contents->GetPrimaryMainFrame()->GetGlobalFrameToken();
+
+  // Three canvas readbacks (two toDataURL, one getImageData) and one hardware
+  // read; deviceMemory is not exposed on an insecure origin, so it is never
+  // asked and never counted.
+  ASSERT_TRUE(content::ExecJs(contents, kCanvasProbe));
+  ASSERT_TRUE(content::ExecJs(contents, kHardwareProbe));
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    const FarbledReadCounts receipt = service->stats()->GetFarbledReads(page);
+    return receipt.canvas >= 3 && receipt.hardware >= 1;
+  }));
+  FarbledReadCounts receipt = service->stats()->GetFarbledReads(page);
+  EXPECT_EQ(3u, receipt.canvas);
+  EXPECT_EQ(1u, receipt.hardware);
+  EXPECT_EQ(0u, receipt.webgl);
+
+  const std::string webgl =
+      content::EvalJs(contents, kWebGLProbe).ExtractString();
+  if (webgl != "unavailable") {
+    ASSERT_TRUE(base::test::RunUntil([&]() {
+      return service->stats()->GetFarbledReads(page).webgl >= 1;
+    }));
+    EXPECT_EQ(1u, service->stats()->GetFarbledReads(page).webgl);
+  }
+
+  // A new document starts a new receipt, whether or not the frame is reused.
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), site));
+  contents = browser()->tab_strip_model()->GetActiveWebContents();
+  const content::GlobalRenderFrameHostToken next_page =
+      contents->GetPrimaryMainFrame()->GetGlobalFrameToken();
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    return service->stats()->GetFarbledReads(next_page).total() == 0;
+  }));
+}
+
+// "New identity" gives one site a fresh pattern, live, and what the browser
+// says the site sees is exactly what the site's own scripts are told: the
+// same generator on the same token, run in both processes.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, NewIdentityChangesWhatTheSiteSees) {
+  AdBlockService* service =
+      AdBlockServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(service);
+  // localhost is a secure context, so deviceMemory is exposed too.
+  const GURL site = embedded_test_server()->GetURL("localhost", "/farble.html");
+  const GURL other = embedded_test_server()->GetURL("a.example", "/farble.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), site));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  const std::string scope = AdBlockService::IdentityScopeFor(contents);
+  const auto seen_hardware = [&]() {
+    return ParseProbe(content::EvalJs(contents, kHardwareProbe).ExtractString());
+  };
+  const auto canvas_url = [&]() -> std::string {
+    const base::DictValue dict =
+        ParseProbe(content::EvalJs(contents, kCanvasProbe).ExtractString());
+    return *dict.FindString("url");
+  };
+
+  const SiteIdentity before = service->DescribeIdentity(site, scope);
+  ASSERT_TRUE(before.farbled);
+  const uint64_t other_before = service->GetFarblingToken(other, scope);
+  base::DictValue seen = seen_hardware();
+  EXPECT_EQ(static_cast<int>(before.reported_cores), *seen.FindInt("cores"))
+      << "the panel describes what the renderer actually reports";
+  EXPECT_EQ(static_cast<double>(before.reported_memory_gib),
+            *seen.FindDouble("memory"));
+  const std::string url_before = canvas_url();
+
+  // What the panel's chip does.
+  service->RotateIdentity(site, scope);
+  contents->OnWebPreferencesChanged();
+
+  const SiteIdentity after = service->DescribeIdentity(site, scope);
+  EXPECT_NE(before.token, after.token);
+  seen = seen_hardware();
+  EXPECT_EQ(static_cast<int>(after.reported_cores), *seen.FindInt("cores"));
+  EXPECT_EQ(static_cast<double>(after.reported_memory_gib),
+            *seen.FindDouble("memory"));
+  EXPECT_NE(url_before, canvas_url())
+      << "the live page farbles with the new pattern at once";
+  EXPECT_EQ(other_before, service->GetFarblingToken(other, scope))
+      << "no other site moved";
+}
+
+// Two ways a page could have asked for the true pixels and been given them.
+//
+// A float readback was perturbed in its own storage, where the low bits of a
+// 32-bit float are worth about a twenty-thousandth of an 8-bit step - so
+// rounding recovered the exact true colour, and asking for `rgba-float32` was
+// all it took to turn the protection off. And a WebGL read into a pixel-pack
+// buffer landed in GPU memory the farbling never touched, so getBufferSubData
+// handed back the real drawing buffer.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, WideAndBufferedReadbacksCannotEscape) {
+  AdBlockService* service =
+      AdBlockServiceFactory::GetForProfile(browser()->profile());
+  ASSERT_TRUE(service);
+  const GURL site = embedded_test_server()->GetURL("a.example", "/farble.html");
+  const auto go = [&]() {
+    EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), site));
+    return browser()->tab_strip_model()->GetActiveWebContents();
+  };
+
+  // A float read and an ordinary read of the same pixels must agree, or the
+  // two can simply be differenced to recover the truth.
+  constexpr char kAgreement[] = R"((() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 16; canvas.height = 16;
+    const context = canvas.getContext('2d', {willReadFrequently: true});
+    context.fillStyle = '#3366cc';
+    context.fillRect(0, 0, 16, 16);
+    const eight = context.getImageData(0, 0, 16, 16).data;
+    const wide = context.getImageData(0, 0, 16, 16,
+                                      {pixelFormat: 'rgba-float32'}).data;
+    for (let i = 0; i < eight.length; ++i) {
+      if (Math.round(wide[i] * 255) !== eight[i]) { return 'differs at ' + i; }
+    }
+    return 'agree';
+  })())";
+  EXPECT_EQ("agree", content::EvalJs(go(), kAgreement).ExtractString())
+      << "a float readback must not be recoverable to the true 8-bit colour";
+
+  // A blank canvas must read back blank, in every format. Perturbing untouched
+  // pixels both announces the protection and breaks "is this empty" checks.
+  constexpr char kBlank[] = R"((() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 16; canvas.height = 16;
+    const context = canvas.getContext('2d', {willReadFrequently: true});
+    const wide = context.getImageData(0, 0, 16, 16,
+                                      {pixelFormat: 'rgba-float32'}).data;
+    for (let i = 0; i < wide.length; ++i) {
+      if (wide[i] !== 0) { return 'non-zero at ' + i; }
+    }
+    return 'blank';
+  })())";
+  EXPECT_EQ("blank", content::EvalJs(go(), kBlank).ExtractString());
+
+  // A read into a pixel-pack buffer is refused outright while protection is
+  // on, because that destination cannot be perturbed.
+  constexpr char kPackBuffer[] = R"((() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 8; canvas.height = 8;
+    const gl = canvas.getContext('webgl2');
+    if (!gl) { return 'unavailable'; }
+    gl.clearColor(0.2, 0.4, 0.6, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+    gl.bufferData(gl.PIXEL_PACK_BUFFER, 8 * 8 * 4, gl.STREAM_READ);
+    while (gl.getError() !== gl.NO_ERROR) {}
+    gl.readPixels(0, 0, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+    return String(gl.getError());
+  })())";
+  const std::string packed =
+      content::EvalJs(go(), kPackBuffer).ExtractString();
+  if (packed == "unavailable") {
+    LOG(WARNING) << "WebGL2 is unavailable here; the pixel-pack path was not "
+                    "exercised by this run";
+  } else {
+    EXPECT_EQ("1282", packed)
+        << "a pixel-pack readback must be refused, not answered truthfully";
+  }
+}
+
 IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
                        AppliesOnlyBoundedProceduralCosmeticOperations) {
   ReplaceAdditionalRules(
