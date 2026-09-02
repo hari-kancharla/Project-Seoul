@@ -200,11 +200,14 @@ std::optional<FingerprintMode> AdBlockSettings::GetSiteFingerprintMode(
   return std::nullopt;
 }
 
-void AdBlockSettings::SetCanvasFingerprintBlocked(const GURL& site_url,
-                                                  bool blocked) {
+void AdBlockSettings::SetSiteFingerprintMode(
+    const GURL& site_url,
+    std::optional<FingerprintMode> mode) {
   if (!host_content_settings_map_ || !IsEligibleSite(site_url)) {
     return;
   }
+  // Shares its dict with the shield mode; writing one must never wipe the
+  // other.
   base::Value existing = host_content_settings_map_->GetWebsiteSetting(
       site_url, site_url, ContentSettingsType::SEOUL_AD_BLOCK_MODE);
   base::DictValue dict =
