@@ -1,5 +1,12 @@
 // Project Seoul profile-aware native blocker coordinator.
 
+#include <algorithm>
+
+#include "base/hash/hash.h"
+#include "base/rand_util.h"
+#include "base/strings/string_number_conversions.h"
+#include "base/strings/stringprintf.h"
+#include "base/system/sys_info.h"
 #include "base/strings/string_split.h"
 #include "chrome/browser/browser_process.h"
 #include "components/language/core/browser/pref_names.h"
