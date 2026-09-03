@@ -29,9 +29,9 @@ class WebContents;
 
 namespace seoul {
 
-// Applies the per-site canvas-fingerprint decision to `web_preferences`.
-// Returns true when it changed anything, so the caller's prefs-changed
-// accounting stays exact.
+// Applies the per-site fingerprint decision to `web_preferences`. Returns
+// true when it changed anything, so the caller's prefs-changed accounting
+// stays exact.
 bool OverrideFingerprintWebPreferences(
     content::WebContents* web_contents,
     blink::web_pref::WebPreferences* web_preferences);
