@@ -151,6 +151,19 @@ void AdBlockService::CheckRequest(AdBlockRequest request,
   std::string original_url = request.url;
   std::string method = request.method;
   const AdBlockFactoryType factory_type = request.factory_type;
+  // Which requests may have tracking parameters stripped.
+  //
+  // Navigations in both parties, because that is the case a person actually
+  // sees: the identifier sits in the address bar after a click. Subresources
+  // only when third-party, so a site's own first-party call keeps its own
+  // parameters and nothing a page depends on is disturbed. Never WebSockets:
+  // the WebSocket interceptor treats any non-allow decision as a block, so a
+  // rewrite there would silently sever the connection.
+  const bool detrack_eligible =
+      request.factory_type != AdBlockFactoryType::kWebSocket &&
+      GURL(request.url).SchemeIsHTTPOrHTTPS() &&
+      (request.request_type == "main_frame" ||
+       request.request_type == "sub_frame" || request.is_third_party);
   engine_host_.Evaluate(
       std::move(request),
       base::BindOnce(
