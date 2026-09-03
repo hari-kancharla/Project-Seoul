@@ -211,6 +211,14 @@ class AdBlockService : public KeyedService {
   std::unique_ptr<AdBlockSubscriptionDownloader> catalogue_downloader_;
   std::unique_ptr<AdBlockCatalogueSubscriber> catalogue_subscriber_;
   AdBlockSettings settings_;
+  // Fresh each browser session so fingerprints cannot persist across
+  // restarts; a profile-persistent key would let a farbled hash become a
+  // durable identifier of exactly the kind farbling exists to break.
+  const uint64_t farbling_session_key_;
+  // Per-site rotation counts for this session, keyed by context and site.
+  // Bounded: past the cap every site simply starts a new pattern, which is
+  // the harmless direction to fail in.
+  std::map<std::string, uint32_t> identity_generations_;
   AdBlockStatsService stats_;
   std::optional<AdBlockBlockedNavigation> last_blocked_navigation_;
   std::set<std::unique_ptr<AdBlockRequestInterceptor>,
