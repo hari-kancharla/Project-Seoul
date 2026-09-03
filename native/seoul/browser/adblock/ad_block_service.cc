@@ -573,6 +573,22 @@ void AdBlockService::OnEvaluated(
     } else {
       decision.rewritten_url.reset();
     }
+  } else if (detrack_eligible) {
+    // Only when the engine asked for no rewrite of its own, so a list rule
+    // always wins over this table. IsSafeAdBlockUrlRewrite re-checks the result
+    // on the same terms it checks an engine rewrite: same origin and path,
+    // differing only by removed query pairs, and only for a safe method.
+    if (std::optional<GURL> detracked =
+            RemoveTrackingParameters(GURL(original_url))) {
+      if (IsSafeAdBlockUrlRewrite(GURL(original_url), *detracked, method)) {
+        decision.rewritten_url = detracked->spec();
+        decision.action = AdBlockAction::kRewrite;
+        decision.rule_category = AdBlockRuleCategory::kRewrite;
+      }
+    }
+    if (decision.action != AdBlockAction::kRewrite && decision.has_exception) {
+      decision.rule_category = AdBlockRuleCategory::kException;
+    }
   } else if (decision.has_exception) {
     decision.rule_category = AdBlockRuleCategory::kException;
   }
