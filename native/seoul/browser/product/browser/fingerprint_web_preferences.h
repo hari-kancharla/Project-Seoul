@@ -1,4 +1,4 @@
-// Project Seoul fingerprinting protection - canvas, v1.
+// Project Seoul fingerprinting protection - the browser-side decision.
 //
 // The strongest canvas defence Blink already carries: with
 // `disable_reading_from_canvas` every canvas is treated as tainted, so the

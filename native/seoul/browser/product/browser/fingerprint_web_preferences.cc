@@ -1,4 +1,4 @@
-// Project Seoul fingerprinting protection - canvas, v1.
+// Project Seoul fingerprinting protection - the browser-side decision.
 
 #include "seoul/browser/product/browser/fingerprint_web_preferences.h"
 
