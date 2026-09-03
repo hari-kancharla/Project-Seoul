@@ -100,6 +100,22 @@ class AdBlockService : public KeyedService {
       AdBlockFilterListManager::CompletionCallback callback);
 
   AdBlockSiteSettings GetSiteSettings(const GURL& site_url) const;
+
+  // A settings view bound to `context` rather than to the profile that owns
+  // this service.
+  //
+  // One service serves a profile and its off-the-record sessions, so that a
+  // private window gets real blocking and real fingerprinting protection
+  // instead of none. Its SETTINGS must not be shared the same way: an
+  // off-the-record context has its own content-settings map, which inherits
+  // the regular profile's values and discards its own writes when the session
+  // ends. Reading through it means a private window honours the choices a
+  // person already made, and writing through it means a change made there
+  // cannot outlive the window - which is the whole point of a private window.
+  //
+  // Returns null only when `context` has no profile.
+  std::unique_ptr<AdBlockSettings> SettingsFor(
+      content::BrowserContext* context) const;
   void SetDefaultMode(AdBlockMode mode);
   void SetSiteMode(const GURL& site_url, std::optional<AdBlockMode> mode);
   void SetCanvasFingerprintBlocked(const GURL& site_url, bool blocked);
