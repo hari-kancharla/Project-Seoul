@@ -534,6 +534,7 @@ void AdBlockService::OnEvaluated(
     std::string original_url,
     std::string method,
     AdBlockFactoryType factory_type,
+    bool detrack_eligible,
     DecisionCallback callback,
     AdBlockEngineEvaluationResult result) {
   AdBlockDecision decision;
