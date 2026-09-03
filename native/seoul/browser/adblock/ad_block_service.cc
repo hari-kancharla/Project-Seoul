@@ -55,7 +55,8 @@ AdBlockService::AdBlockService(Profile* profile)
     : profile_(profile),
       settings_(profile ? profile->GetPrefs() : nullptr,
                 profile ? HostContentSettingsMapFactory::GetForProfile(profile)
-                        : nullptr) {
+                        : nullptr),
+      farbling_session_key_(base::RandUint64()) {
   if (profile_) {
     filter_list_manager_ = std::make_unique<AdBlockFilterListManager>(
         &engine_host_, profile_->GetPath(), profile_->GetPrefs());
