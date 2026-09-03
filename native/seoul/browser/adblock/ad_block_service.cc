@@ -20,6 +20,7 @@
 #include "components/language/core/browser/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "seoul/browser/adblock/ad_block_service.h"
+#include "seoul/browser/adblock/ad_block_url_detracker.h"
 
 #include "base/logging.h"
 
