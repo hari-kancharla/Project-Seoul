@@ -3,6 +3,8 @@
 #include "seoul/browser/product/browser/fingerprint_web_preferences.h"
 
 #include "chrome/browser/profiles/profile.h"
+#include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/site_instance.h"
 #include "content/public/browser/web_contents.h"
 #include "seoul/browser/adblock/ad_block_request.h"
 #include "seoul/browser/adblock/ad_block_service.h"
