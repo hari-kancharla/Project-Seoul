@@ -90,6 +90,12 @@ bool OverrideFingerprintWebPreferences(
   if (!service) {
     return false;
   }
+  const GURL site_url = SiteForFingerprintDecision(web_contents);
+  // Read through this WebContents' own context. One service serves a profile
+  // and its private sessions, but their settings are separate: a private
+  // window inherits the regular profile's choices and keeps its own to itself.
+  const std::unique_ptr<adblock::AdBlockSettings> scoped_settings =
+      service->SettingsFor(web_contents->GetBrowserContext());
   const adblock::AdBlockSiteSettings settings =
       service->GetSiteSettings(web_contents->GetLastCommittedURL());
   // The protection follows the shields: a site whose shields are Off gets
