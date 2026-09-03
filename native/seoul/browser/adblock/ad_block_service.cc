@@ -332,6 +332,20 @@ void AdBlockService::SetSiteMode(const GURL& site_url,
   settings_.SetSiteMode(site_url, mode);
 }
 
+FingerprintMode AdBlockService::GetDefaultFingerprintMode() const {
+  return settings_.GetDefaultFingerprintMode();
+}
+
+void AdBlockService::SetDefaultFingerprintMode(FingerprintMode mode) {
+  settings_.SetDefaultFingerprintMode(mode);
+}
+
+void AdBlockService::SetSiteFingerprintMode(
+    const GURL& site_url,
+    std::optional<FingerprintMode> mode) {
+  settings_.SetSiteFingerprintMode(site_url, mode);
+}
+
 void AdBlockService::SetCanvasFingerprintBlocked(const GURL& site_url,
                                                  bool blocked) {
   settings_.SetCanvasFingerprintBlocked(site_url, blocked);
