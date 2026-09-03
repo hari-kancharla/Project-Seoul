@@ -12,6 +12,17 @@
 
 namespace seoul::adblock {
 
+// A page's fingerprint receipt: how many times scripts on it read back a
+// farbled answer, by surface. Every count is a probe that received scrambled
+// data rather than the machine's own.
+struct FarbledReadCounts {
+  uint64_t canvas = 0;
+  uint64_t webgl = 0;
+  uint64_t hardware = 0;
+
+  uint64_t total() const { return canvas + webgl + hardware; }
+};
+
 class AdBlockStatsService {
  public:
   AdBlockStatsService();
