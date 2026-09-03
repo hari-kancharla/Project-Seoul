@@ -171,7 +171,8 @@ void AdBlockService::CheckRequest(AdBlockRequest request,
              std::optional<content::GlobalRenderFrameHostToken> frame_token,
              std::optional<std::string> navigation_url,
              std::string original_url, std::string method,
-             AdBlockFactoryType factory_type, DecisionCallback callback,
+             AdBlockFactoryType factory_type, bool detrack_eligible,
+             DecisionCallback callback,
              AdBlockEngineEvaluationResult result) {
             if (!service) {
               std::move(callback).Run(AdBlockDecision());
@@ -180,11 +181,11 @@ void AdBlockService::CheckRequest(AdBlockRequest request,
             service->OnEvaluated(
                 std::move(frame_token), std::move(navigation_url),
                 std::move(original_url), std::move(method), factory_type,
-                std::move(callback), std::move(result));
+                detrack_eligible, std::move(callback), std::move(result));
           },
           weak_factory_.GetWeakPtr(), std::move(frame_token),
           std::move(navigation_url), std::move(original_url), std::move(method),
-          factory_type, std::move(callback)));
+          factory_type, detrack_eligible, std::move(callback)));
 }
 
 void AdBlockService::GetCspDirectives(
