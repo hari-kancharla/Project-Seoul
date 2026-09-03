@@ -125,6 +125,37 @@ class AdBlockService : public KeyedService {
                               std::optional<FingerprintMode> mode);
   // Strict-only entry point kept for callers that predate the modes.
   void SetCanvasFingerprintBlocked(const GURL& site_url, bool blocked);
+  // Deterministic per-site farbling token for this browsing session: same
+  // site in the same browser context, same token; a different site, a
+  // different context (incognito is served by this service but must never
+  // share the regular profile's pattern), or a restarted browser, a different
+  // token. Never 0, so a set token always farbles.
+  //
+  // 64 bits deliberately. A script can draw pixels it chose, read them back,
+  // and watch how they were perturbed - an unlimited known-plaintext oracle
+  // against this value. A 32-bit secret falls to an offline search in seconds
+  // under that, and every farbled answer becomes predictable.
+  uint64_t GetFarblingToken(const GURL& site_url,
+                            const std::string& scope) const;
+
+  // The scope an identity is remembered in.
+  //
+  // Storage is what a site can use to recognise a person, and Seoul splits it
+  // two ways: by profile (incognito from regular) and, for an isolated Space,
+  // by that Space's own StoragePartition inside one profile. An identity has to
+  // be split exactly as far, or the fingerprint re-links what the storage split
+  // separated - the same site in two Spaces would read the same canvas noise
+  // and the same core count, and the panel would print one persona for both.
+  static std::string IdentityScopeFor(content::WebContents* contents);
+  static std::string IdentityScopeFor(const content::BrowserContext* context);
+  // Gives the site a fresh pattern for the rest of the session - a new
+  // canvas noise, a new hardware profile - without touching any other site.
+  void RotateIdentity(const GURL& site_url, const std::string& scope);
+  // What the site is told about this machine, computed from the same token
+  // and the same shared generator the renderer uses, so the panel can show
+  // a person exactly what a site saw.
+  SiteIdentity DescribeIdentity(const GURL& site_url,
+                                const std::string& scope) const;
   void TemporarilyDisable(const GURL& site_url, base::TimeDelta duration);
   void ClearTemporaryDisable(const GURL& site_url);
 
