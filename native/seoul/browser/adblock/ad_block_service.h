@@ -118,6 +118,12 @@ class AdBlockService : public KeyedService {
       content::BrowserContext* context) const;
   void SetDefaultMode(AdBlockMode mode);
   void SetSiteMode(const GURL& site_url, std::optional<AdBlockMode> mode);
+  FingerprintMode GetDefaultFingerprintMode() const;
+  void SetDefaultFingerprintMode(FingerprintMode mode);
+  // A site's own fingerprint mode; nullopt returns it to the profile default.
+  void SetSiteFingerprintMode(const GURL& site_url,
+                              std::optional<FingerprintMode> mode);
+  // Strict-only entry point kept for callers that predate the modes.
   void SetCanvasFingerprintBlocked(const GURL& site_url, bool blocked);
   void TemporarilyDisable(const GURL& site_url, base::TimeDelta duration);
   void ClearTemporaryDisable(const GURL& site_url);
