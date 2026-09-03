@@ -57,6 +57,8 @@ class AdBlockStatsService {
 
   uint64_t total_blocked_count_ = 0;
   std::map<content::GlobalRenderFrameHostToken, uint64_t> blocked_by_frame_;
+  std::map<content::GlobalRenderFrameHostToken, FarbledReadCounts>
+      farbled_reads_by_page_;
 };
 
 }  // namespace seoul::adblock
