@@ -308,6 +308,16 @@ AdBlockFilterListUpdateStatus AdBlockService::filter_list_status() const {
                               : AdBlockFilterListUpdateStatus();
 }
 
+std::unique_ptr<AdBlockSettings> AdBlockService::SettingsFor(
+    content::BrowserContext* context) const {
+  Profile* const profile = Profile::FromBrowserContext(context);
+  if (!profile) {
+    return nullptr;
+  }
+  return std::make_unique<AdBlockSettings>(
+      profile->GetPrefs(), HostContentSettingsMapFactory::GetForProfile(profile));
+}
+
 AdBlockSiteSettings AdBlockService::GetSiteSettings(
     const GURL& site_url) const {
   return settings_.GetSiteSettings(site_url);
