@@ -1,15 +1,20 @@
 // Project Seoul fingerprinting protection - the browser-side decision.
 //
-// The strongest canvas defence Blink already carries: with
-// `disable_reading_from_canvas` every canvas is treated as tainted, so the
-// readbacks a fingerprinter needs - toDataURL, getImageData, toBlob - throw a
-// SecurityError instead of yielding pixels. Brave answers the same attack by
-// farbling the pixels; blocking the read outright is the honest v1 that needs
-// no Blink patch, applied per site from the Shields panel and only while the
-// site's shields are up. ChromeContentBrowserClient calls the override during
-// every preference recomputation, so the protection survives navigation and
-// unrelated preference updates exactly the way the Boost and Handset
-// overrides do.
+// Two Blink-level levers, both riding WebPreferences so the content layer
+// recomputes them on every navigation exactly as it does the Boost and
+// Handset overrides. `seoul_farbling_token` (patch 0040) is the per-site
+// session secret from which the renderer derives every perturbation: canvas
+// and WebGL readbacks, and the hardware profile (patch 0041). Balanced sets
+// only the token. Strict sets the token and `disable_reading_from_canvas`
+// besides, so every canvas is tainted and pixel readbacks are refused
+// outright while the hardware profile stays farbled. The mode is per-site
+// state on the blocker - a profile default with a per-site override, set from
+// the Shields panel - and it stands down while the site's shields are Off.
+//
+// Both seams are re-decided from scratch on every call. The post-navigation
+// seam starts from the previous page's preferences, so the override assigns
+// the token unconditionally and tracks the taint it applied per WebContents;
+// nothing decided for one site can ride into the next.
 
 #ifndef SEOUL_BROWSER_PRODUCT_BROWSER_FINGERPRINT_WEB_PREFERENCES_H_
 #define SEOUL_BROWSER_PRODUCT_BROWSER_FINGERPRINT_WEB_PREFERENCES_H_
