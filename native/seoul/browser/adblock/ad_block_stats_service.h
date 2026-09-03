@@ -40,6 +40,18 @@ class AdBlockStatsService {
     return blocked_by_frame_.size();
   }
 
+  // The receipt is kept per page - the outermost main frame - so a
+  // third-party frame's probes count against the page a person is looking
+  // at. Reset when a new document commits in that frame.
+  void RecordFarbledReads(const content::GlobalRenderFrameHostToken& page,
+                          const FarbledReadCounts& counts);
+  FarbledReadCounts GetFarbledReads(
+      const content::GlobalRenderFrameHostToken& page) const;
+  void ResetFarbledReads(const content::GlobalRenderFrameHostToken& page);
+  size_t tracked_receipt_count_for_testing() const {
+    return farbled_reads_by_page_.size();
+  }
+
  private:
   static constexpr size_t kMaxTrackedFrames = 512;
 
