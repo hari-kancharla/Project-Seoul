@@ -97,19 +97,47 @@ bool OverrideFingerprintWebPreferences(
   const std::unique_ptr<adblock::AdBlockSettings> scoped_settings =
       service->SettingsFor(web_contents->GetBrowserContext());
   const adblock::AdBlockSiteSettings settings =
-      service->GetSiteSettings(web_contents->GetLastCommittedURL());
-  // The protection follows the shields: a site whose shields are Off gets
-  // none of the blocker's interventions, this one included - one switch
-  // means one thing.
-  const bool block = settings.canvas_fingerprint_blocked &&
-                     settings.effective_mode != adblock::AdBlockMode::kOff;
-  if (!block) {
-    // Never force the field off: another embedder policy (headless, WebView)
-    // may have set it for its own reasons.
-    return false;
+      scoped_settings ? scoped_settings->GetSiteSettings(site_url)
+                      : service->GetSiteSettings(site_url);
+  // One switch means one thing: a site whose shields are Off gets none of the
+  // blocker's interventions, this one included.
+  const adblock::FingerprintMode mode =
+      settings.effective_mode == adblock::AdBlockMode::kOff
+          ? adblock::FingerprintMode::kOff
+          : settings.fingerprint_mode;
+
+  bool changed = false;
+
+  // The token is Seoul's own field: decided for this site and assigned every
+  // time, so a token set for the previous site can never ride into this one.
+  const uint64_t token =
+      mode == adblock::FingerprintMode::kOff
+          ? 0u
+          : service->GetFarblingToken(
+                site_url,
+                adblock::AdBlockService::IdentityScopeFor(web_contents));
+  changed |= web_preferences->seoul_farbling_token != token;
+  web_preferences->seoul_farbling_token = token;
+
+  // The taint is shared. Strict applies it and remembers what it replaced;
+  // anything else restores exactly that, once, and otherwise leaves the field
+  // to whoever else set it.
+  FingerprintTaintState::CreateForWebContents(web_contents);
+  FingerprintTaintState* const state =
+      FingerprintTaintState::FromWebContents(web_contents);
+  if (mode == adblock::FingerprintMode::kStrict) {
+    if (!state->applied) {
+      state->value_before = web_preferences->disable_reading_from_canvas;
+      state->applied = true;
+    }
+    changed |= !web_preferences->disable_reading_from_canvas;
+    web_preferences->disable_reading_from_canvas = true;
+  } else if (state->applied) {
+    changed |=
+        web_preferences->disable_reading_from_canvas != state->value_before;
+    web_preferences->disable_reading_from_canvas = state->value_before;
+    state->applied = false;
   }
-  const bool changed = !web_preferences->disable_reading_from_canvas;
-  web_preferences->disable_reading_from_canvas = true;
   return changed;
 }
 
