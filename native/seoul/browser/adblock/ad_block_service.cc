@@ -351,6 +351,114 @@ void AdBlockService::SetCanvasFingerprintBlocked(const GURL& site_url,
   settings_.SetCanvasFingerprintBlocked(site_url, blocked);
 }
 
+namespace {
+
+// One pattern per registrable domain. Giving sub.example.com a different
+// canvas from example.com would not protect either of them; it would only tell
+// a tracker which host it was talking to.
+std::string SiteKeyFor(const GURL& site_url) {
+  const std::string domain =
+      net::registry_controlled_domains::GetDomainAndRegistry(
+          site_url,
+          net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
+  // An IP address or an internal hostname has no registrable domain.
+  return domain.empty() ? std::string(site_url.host()) : domain;
+}
+
+}  // namespace
+
+// static
+std::string AdBlockService::IdentityScopeFor(
+    const content::BrowserContext* context) {
+  // An off-the-record context is served by the original profile's service; its
+  // own id keeps its tokens - and so its farbled hashes - unlinkable to the
+  // regular profile's, and every new incognito session is a new context.
+  return context ? context->UniqueId() : std::string();
+}
+
+// static
+std::string AdBlockService::IdentityScopeFor(content::WebContents* contents) {
+  if (!contents) {
+    return std::string();
+  }
+  std::string scope = IdentityScopeFor(contents->GetBrowserContext());
+  content::RenderFrameHost* const frame = contents->GetPrimaryMainFrame();
+  content::StoragePartition* const partition =
+      frame ? frame->GetStoragePartition() : nullptr;
+  if (!partition) {
+    return scope;
+  }
+  // A tab in an isolated Space is pinned to that Space's partition, which is
+  // the boundary its storage already respects; the default partition adds
+  // nothing to the key, so an ordinary tab's scope is unchanged.
+  const content::StoragePartitionConfig& config = partition->GetConfig();
+  if (config.is_default()) {
+    return scope;
+  }
+  return scope + "\x1f" + config.partition_domain() + "\x1f" +
+         config.partition_name() + (config.in_memory() ? "\x1fm" : "");
+}
+
+uint64_t AdBlockService::GetFarblingToken(const GURL& site_url,
+                                          const std::string& scope) const {
+  const std::string identity_key = scope + "\x1f" + SiteKeyFor(site_url);
+  const auto generation = identity_generations_.find(identity_key);
+  const uint32_t rotation =
+      generation == identity_generations_.end() ? 0u : generation->second;
+  const uint64_t hash = base::FastHash(
+      base::NumberToString(farbling_session_key_) + "\x1f" + identity_key +
+      "\x1f" + base::NumberToString(rotation));
+  // The whole 64-bit hash. Folding it to 32 bits, as this once did, threw
+  // away exactly the margin that puts the value beyond an offline search.
+  // 0 means "farbling off" on the wire, so a real token must never collide
+  // with it.
+  return hash == 0u ? 1u : hash;
+}
+
+void AdBlockService::RotateIdentity(const GURL& site_url,
+                                    const std::string& scope) {
+  const std::string identity_key = scope + "\x1f" + SiteKeyFor(site_url);
+  // Bounded, because the map is keyed by whatever sites a session visits.
+  // Evicting the oldest entry would silently re-randomise a site the person
+  // deliberately rotated, so a full session's worth is kept and the cap is set
+  // where no real session reaches it; past it, only sites that never asked for
+  // a rotation are dropped.
+  constexpr size_t kMaxRotatedSites = 4096;
+  if (identity_generations_.size() >= kMaxRotatedSites &&
+      !identity_generations_.contains(identity_key)) {
+    identity_generations_.erase(identity_generations_.begin());
+  }
+  ++identity_generations_[identity_key];
+}
+
+SiteIdentity AdBlockService::DescribeIdentity(const GURL& site_url,
+                                              const std::string& scope) const {
+  SiteIdentity identity;
+  const AdBlockSiteSettings settings = GetSiteSettings(site_url);
+  identity.farbled = settings.effective_mode != AdBlockMode::kOff &&
+                     settings.fingerprint_mode != FingerprintMode::kOff;
+  identity.token = identity.farbled ? GetFarblingToken(site_url, scope) : 0u;
+  identity.real_cores = base::SysInfo::NumberOfProcessors();
+  blink::ApproximatedDeviceMemory::Initialize();
+  // The specification's clamped power-of-two bucket, not physical RAM.
+  identity.memory_class_gib =
+      blink::ApproximatedDeviceMemory::GetApproximatedDeviceMemory();
+  // The very functions the renderer runs, on the very token it holds.
+  identity.reported_cores = blink::SeoulFarbleHardwareConcurrency(
+      static_cast<unsigned>(std::max(identity.real_cores, 0)), identity.token);
+  identity.reported_memory_gib = blink::SeoulFarbleDeviceMemory(
+      identity.memory_class_gib, identity.token);
+  if (identity.farbled) {
+    // Four hex digits folded from the whole token, enough for a person to
+    // tell two patterns apart and far too few to narrow the token itself.
+    const uint64_t folded = identity.token ^ (identity.token >> 32);
+    identity.persona = base::StringPrintf(
+        "%04X",
+        static_cast<unsigned>((folded ^ (folded >> 16)) & 0xFFFFu));
+  }
+  return identity;
+}
+
 void AdBlockService::TemporarilyDisable(const GURL& site_url,
                                         base::TimeDelta duration) {
   settings_.TemporarilyDisable(site_url, duration);
