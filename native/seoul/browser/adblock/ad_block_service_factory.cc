@@ -51,8 +51,24 @@ void AdBlockServiceFactory::ActivateVerifiedFilterComponentForLoadedProfiles(
 AdBlockServiceFactory::AdBlockServiceFactory()
     : ProfileKeyedServiceFactory(
           "SeoulAdBlockService",
+          // Off-the-record profiles are served by the original profile's
+          // instance rather than being given no service at all.
+          //
+          // `kOriginalOnly` meant a private window had no blocker and no
+          // fingerprinting protection whatsoever: the engine was never
+          // consulted, the canvas was never farbled, and the shields control
+          // opened nothing. That is precisely backwards, because a private
+          // window is where a person has most explicitly asked not to be
+          // followed. Redirecting shares one engine and one set of filter
+          // lists, so a private window costs no second download and no second
+          // copy of the rules.
+          //
+          // The farbling identity does NOT come along with it: the token is
+          // keyed on the requesting WebContents' own browser context (see
+          // AdBlockService::IdentityScopeFor), so a private window still gets a
+          // pattern of its own that cannot be linked to the regular profile's.
           ProfileSelections::Builder()
-              .WithRegular(ProfileSelection::kOriginalOnly)
+              .WithRegular(ProfileSelection::kRedirectedToOriginal)
               .WithGuest(ProfileSelection::kNone)
               .WithSystem(ProfileSelection::kNone)
               .WithAshInternals(ProfileSelection::kNone)
