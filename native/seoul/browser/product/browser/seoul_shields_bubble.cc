@@ -231,7 +231,7 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
                    base::WeakPtr<content::WebContents> web_contents,
                    std::string identity_scope,
                    const GURL& site_url,
-                   uint64_t blocked_on_page) {
+                   const content::GlobalRenderFrameHostToken& page_token) {
     auto bubble_delegate = std::make_unique<views::BubbleDialogDelegate>(
         anchor, views::BubbleBorder::TOP_LEFT);
     bubble_delegate->SetAccessibleTitle(u"Shields for this site");
