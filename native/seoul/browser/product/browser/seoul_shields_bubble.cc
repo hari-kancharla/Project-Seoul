@@ -394,8 +394,46 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     fp_label->GetViewAccessibility().SetHierarchicalLevel(3);
     auto* fp_row = AddChildView(std::make_unique<views::BoxLayoutView>());
     fp_row->SetOrientation(views::BoxLayout::Orientation::kHorizontal);
-    fp_row->SetBetweenChildSpacing(12);
-    fp_row->SetCrossAxisAlignment(
+    fp_row->SetBetweenChildSpacing(8);
+    // A chip row is a radio group, and it must say so and carry a name. The
+    // chips are named with their visible label alone - "Off", "Standard" -
+    // which is what voice control needs to match and what WCAG 2.5.3 (Label in
+    // Name) wants. A bare "Off" is only unambiguous because the group announces
+    // itself first; naming the group is what makes the short names safe.
+    fp_row->GetViewAccessibility().SetRole(ax::mojom::Role::kRadioGroup);
+    fp_row->GetViewAccessibility().SetName(u"Fingerprinting");
+    fp_off_chip_ = fp_row->AddChildView(std::make_unique<SeoulChipButton>(
+        base::BindRepeating(&SeoulShieldsBubble::OnFingerprintModePicked,
+                            base::Unretained(this),
+                            adblock::FingerprintMode::kOff),
+        u"Off"));
+    fp_off_chip_->SetTooltipText(
+        u"This site reads your real canvas and hardware");
+    fp_balanced_chip_ = fp_row->AddChildView(std::make_unique<SeoulChipButton>(
+        base::BindRepeating(&SeoulShieldsBubble::OnFingerprintModePicked,
+                            base::Unretained(this),
+                            adblock::FingerprintMode::kBalanced),
+        u"Balanced"));
+    fp_balanced_chip_->SetTooltipText(
+        u"Canvas, WebGL and hardware details read back scrambled per site");
+    fp_strict_chip_ = fp_row->AddChildView(std::make_unique<SeoulChipButton>(
+        base::BindRepeating(&SeoulShieldsBubble::OnFingerprintModePicked,
+                            base::Unretained(this),
+                            adblock::FingerprintMode::kStrict),
+        u"Strict"));
+    fp_strict_chip_->SetTooltipText(
+        u"Scrambled hardware details, and no canvas pixel reads at all");
+    fp_off_chip_->SetChoice(1, 3);
+    fp_balanced_chip_->SetChoice(2, 3);
+    fp_strict_chip_->SetChoice(3, 3);
+
+    // Where this site's answer comes from, and the one promotion worth
+    // offering here: a mode chosen for this site can become the default for
+    // every site, without the settings page Brave sends people to.
+    auto* fp_footer = AddChildView(std::make_unique<views::BoxLayoutView>());
+    fp_footer->SetOrientation(views::BoxLayout::Orientation::kHorizontal);
+    fp_footer->SetBetweenChildSpacing(8);
+    fp_footer->SetCrossAxisAlignment(
         views::BoxLayout::CrossAxisAlignment::kCenter);
     auto* fp_text = fp_row->AddChildView(
         std::make_unique<views::Label>(u"Block canvas reads"));
