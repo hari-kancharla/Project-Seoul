@@ -281,6 +281,19 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
         u"Shields for this site");
     enabled_toggle_->SetTooltipText(u"Shields for this site");
 
+    // A private window gets the same protection and keeps its own choices to
+    // itself. Saying so is the difference between a person trusting the panel
+    // and wondering what it just changed for the rest of their browsing.
+    if (private_session_) {
+      auto* private_note = AddChildView(std::make_unique<views::Label>(
+          u"Private window \u00b7 changes here last only for this session",
+          views::style::CONTEXT_LABEL, views::style::STYLE_SECONDARY));
+      private_note->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+      private_note->SetMultiLine(true);
+      private_note->SetFontList(
+          private_note->font_list().DeriveWithSizeDelta(-1));
+    }
+
     AddChildView(std::make_unique<views::Separator>());
 
     // What the blocker actually did on this page - the count is the panel's
