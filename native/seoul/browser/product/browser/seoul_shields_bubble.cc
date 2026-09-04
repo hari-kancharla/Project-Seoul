@@ -308,6 +308,11 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
         views::style::STYLE_SECONDARY));
     mode_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     mode_label->SetFontList(mode_label->font_list().DeriveWithSizeDelta(-1));
+    // Structure, not decoration: without a heading role these read as
+    // three unrelated strings and there is no way to move between the
+    // panel's sections.
+    mode_label->GetViewAccessibility().SetRole(ax::mojom::Role::kHeading);
+    mode_label->GetViewAccessibility().SetHierarchicalLevel(3);
     auto* modes = AddChildView(std::make_unique<views::BoxLayoutView>());
     modes->SetOrientation(views::BoxLayout::Orientation::kHorizontal);
     modes->SetBetweenChildSpacing(8);
