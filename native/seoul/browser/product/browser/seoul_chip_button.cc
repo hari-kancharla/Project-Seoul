@@ -54,6 +54,18 @@ void SeoulChipButton::SetSelected(bool selected) {
   SchedulePaint();
 }
 
+void SeoulChipButton::UpdateAccessibleCheckedState() {
+  if (!is_choice_) {
+    views::LabelButton::UpdateAccessibleCheckedState();
+    return;
+  }
+  // Always from `selected_`, and always present: a row where the unselected
+  // options carry no state at all says only what is chosen, never what is not.
+  GetViewAccessibility().SetCheckedState(
+      selected_ ? ax::mojom::CheckedState::kTrue
+                : ax::mojom::CheckedState::kFalse);
+}
+
 void SeoulChipButton::SetProminent(bool prominent) {
   if (prominent_ == prominent) {
     return;
