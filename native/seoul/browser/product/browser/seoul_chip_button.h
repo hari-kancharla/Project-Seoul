@@ -51,11 +51,17 @@ class SeoulChipButton final : public views::LabelButton {
  private:
   // views::LabelButton:
   void StateChanged(ButtonState old_state) override;
+  // views::Button. The base implementation removes the checked state on every
+  // transition that is not "pressed", so merely hovering the selected chip
+  // erased the row's only authoritative state. This writes it from `selected_`
+  // instead, which is where the truth actually lives.
+  void UpdateAccessibleCheckedState() override;
 
   void UpdateBackground();
 
   bool selected_ = false;
   bool prominent_ = false;
+  bool is_choice_ = false;
 };
 
 }  // namespace seoul
