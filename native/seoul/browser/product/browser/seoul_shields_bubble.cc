@@ -188,6 +188,7 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
  public:
   SeoulShieldsBubble(adblock::AdBlockService* service,
                      base::WeakPtr<content::WebContents> web_contents,
+                     std::string identity_scope,
                      const GURL& site_url,
                      uint64_t blocked_on_page)
       : service_(service),
