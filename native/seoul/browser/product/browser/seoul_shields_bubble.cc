@@ -203,6 +203,15 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     SetBetweenChildSpacing(10);
     BuildContents();
     RefreshFromService();
+    // A page keeps blocking and keeps being probed while the panel sits open,
+    // and a count that froze the moment it appeared would be quietly wrong for
+    // as long as anyone looked at it. Refreshing re-reads both counts from the
+    // services; it only touches the layout when a line actually changed, so an
+    // idle page costs nothing visible.
+    refresh_timer_.Start(FROM_HERE, base::Seconds(1),
+                         base::BindRepeating(
+                             &SeoulShieldsBubble::RefreshFromService,
+                             base::Unretained(this)));
   }
   SeoulShieldsBubble(const SeoulShieldsBubble&) = delete;
   SeoulShieldsBubble& operator=(const SeoulShieldsBubble&) = delete;
