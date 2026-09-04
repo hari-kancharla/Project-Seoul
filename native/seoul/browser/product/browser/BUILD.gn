@@ -87,6 +87,7 @@ source_set("product_chromium") {
     "//components/sessions:session_id",
     "//components/tabs:public",
     "//content/public/browser",
+    "//net",
     "//net/traffic_annotation",
     "//seoul/browser/adblock:adblock",
     "//seoul/browser/commands:command_chromium",
