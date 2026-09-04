@@ -6,24 +6,38 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/i18n/number_formatting.h"
+#include "base/strings/string_number_conversions.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/time/time.h"
+#include "base/timer/timer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
+#include "chrome/browser/ui/browser_window/public/global_browser_collection.h"
+#include "chrome/browser/ui/browser_window/public/browser_window_interface_iterator.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+#include "content/public/browser/browser_context.h"
+#include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
+#include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "seoul/browser/adblock/ad_block_service.h"
 #include "seoul/browser/adblock/ad_block_service_factory.h"
 #include "seoul/browser/adblock/ad_block_settings.h"
 #include "seoul/browser/adblock/ad_block_stats_service.h"
 #include "seoul/browser/product/browser/boost_entry_points.h"
 #include "seoul/browser/product/browser/seoul_chip_button.h"
+#include "seoul/browser/product/browser/site_identity.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/mojom/dialog_button.mojom.h"
@@ -42,6 +56,123 @@
 namespace seoul {
 
 namespace {
+
+// What "Forget this site" and "New identity" actually act on. Both are keyed
+// to the registrable domain, so naming only the host the panel header shows
+// would understate their reach - a person forgetting news.example.com would not
+// expect example.com's other subdomains to go with it.
+std::u16string DomainOf(const GURL& site_url) {
+  const std::string domain =
+      net::registry_controlled_domains::GetDomainAndRegistry(
+          site_url,
+          net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
+  return base::UTF8ToUTF16(domain.empty() ? site_url.host() : domain);
+}
+
+// The window a shields panel may govern.
+//
+// Deliberately not Boost's rule, which excludes private windows because a Boost
+// is a persisted Site Layer and there is nowhere to persist it. Shields are the
+// opposite case: a private window is exactly where a person has most clearly
+// asked not to be followed, so it gets the panel, and its choices live and die
+// with the session.
+BrowserWindowInterface* ShieldsBrowserFor(content::WebContents* web_contents) {
+  if (!web_contents) {
+    return nullptr;
+  }
+  GlobalBrowserCollection* const browsers =
+      GlobalBrowserCollection::GetInstance();
+  BrowserWindowInterface* const browser =
+      browsers ? browsers->FindBrowserWithTab(web_contents) : nullptr;
+  if (!browser || !browser->GetProfile() || browser->IsDeleteScheduled() ||
+      browser->GetType() != BrowserWindowInterface::TYPE_NORMAL ||
+      !browser->GetSessionID().is_valid()) {
+    return nullptr;
+  }
+  return browser;
+}
+
+// The chip words, reused where a caption names the profile default.
+std::u16string BlockingModeName(adblock::AdBlockMode mode) {
+  switch (mode) {
+    case adblock::AdBlockMode::kOff:
+      return u"Off";
+    case adblock::AdBlockMode::kStandard:
+      return u"Standard";
+    case adblock::AdBlockMode::kAggressive:
+      return u"Aggressive";
+  }
+  return u"Standard";
+}
+
+std::u16string FingerprintModeName(adblock::FingerprintMode mode) {
+  switch (mode) {
+    case adblock::FingerprintMode::kOff:
+      return u"Off";
+    case adblock::FingerprintMode::kBalanced:
+      return u"Balanced";
+    case adblock::FingerprintMode::kStrict:
+      return u"Strict";
+  }
+}
+
+// The receipt line: what the protection actually did on this page.
+// What was counted, in the plainest words that are true.
+//
+// This line used to say "fingerprinting attempts". It counts readbacks, and a
+// drawing tool or a map legitimately reads its own canvas hundreds of times, so
+// the panel accused ordinary software of attacking the person using it. It also
+// cannot see reads from a worker, nor reads that Strict refused rather than
+// scrambled, so "no attempts seen" claimed a coverage it does not have. The
+// noun is now the measurement, and the sentence promises only this page.
+std::u16string ReceiptText(const adblock::FarbledReadCounts& receipt,
+                           bool farbled) {
+  if (!farbled) {
+    return u"Reads are not recorded while protection is off";
+  }
+  if (receipt.total() == 0) {
+    return u"No scrambled reads recorded on this page yet";
+  }
+  std::vector<std::u16string> surfaces;
+  if (receipt.canvas) {
+    surfaces.push_back(u"canvas " +
+                       base::FormatNumber(static_cast<int64_t>(receipt.canvas)));
+  }
+  if (receipt.webgl) {
+    surfaces.push_back(u"WebGL " +
+                       base::FormatNumber(static_cast<int64_t>(receipt.webgl)));
+  }
+  if (receipt.hardware) {
+    surfaces.push_back(
+        u"hardware " +
+        base::FormatNumber(static_cast<int64_t>(receipt.hardware)));
+  }
+  return base::FormatNumber(static_cast<int64_t>(receipt.total())) +
+         (receipt.total() == 1 ? u" scrambled read on this page"
+                               : u" scrambled reads on this page") +
+         u" \u00b7 " + base::JoinString(surfaces, u", ");
+}
+
+// What the site is told about this machine - the real thing, or the
+// per-site lie, computed by the same generator the renderer runs.
+std::u16string SeesText(const adblock::SiteIdentity& identity) {
+  const auto memory = [](float gib) {
+    return base::FormatNumber(static_cast<int64_t>(gib));
+  };
+  if (!identity.farbled) {
+    // The memory figure is the Device Memory specification's clamped bucket,
+    // which every browser reports to every site. Calling it "your real machine"
+    // told people something had been disclosed that never was.
+    return u"Nothing is scrambled for this site. It reads " +
+           base::FormatNumber(identity.real_cores) + u" cores, and the " +
+           memory(identity.memory_class_gib) +
+           u" GiB memory class every browser reports for this machine";
+  }
+  return u"This site sees a " +
+         base::FormatNumber(static_cast<int64_t>(identity.reported_cores)) +
+         u"-core machine with " + memory(identity.reported_memory_gib) +
+         u" GiB";
+}
 
 // Same measure as the Boost panel: the two site panels hang off the same
 // anchor and must read as siblings, not as two different products.
