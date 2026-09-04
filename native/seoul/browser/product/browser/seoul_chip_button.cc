@@ -5,10 +5,13 @@
 #include <utility>
 
 #include "chrome/browser/ui/color/chrome_color_id.h"
+#include "ui/color/color_id.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/animation/ink_drop.h"
 #include "ui/views/background.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/border.h"
 
 namespace seoul {
@@ -29,6 +32,17 @@ SeoulChipButton::SeoulChipButton(views::Button::PressedCallback callback,
 }
 
 SeoulChipButton::~SeoulChipButton() = default;
+
+void SeoulChipButton::SetChoice(int index, int total) {
+  is_choice_ = true;
+  GetViewAccessibility().SetRole(ax::mojom::Role::kRadioButton);
+  GetViewAccessibility().SetPosInSet(index);
+  GetViewAccessibility().SetSetSize(total);
+  // One tab stop for the row, arrow keys within it, which is how a
+  // single-choice group is expected to behave.
+  SetGroup(total);
+  UpdateAccessibleCheckedState();
+}
 
 void SeoulChipButton::SetSelected(bool selected) {
   if (selected_ == selected) {
