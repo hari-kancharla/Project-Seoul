@@ -333,6 +333,46 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
                             base::Unretained(this),
                             adblock::AdBlockMode::kAggressive),
         u"Aggressive"));
+    standard_chip_->SetChoice(1, 2);
+    aggressive_chip_->SetChoice(2, 2);
+    // One rule for every chip in this panel: the accessible name is the
+    // visible text, and the explanation is the tooltip. Views promotes a
+    // tooltip to the accessible description when none is set, so the
+    // explanation is still announced - once. Folding it into the name instead
+    // announced it twice and left the name saying something nobody can see.
+    standard_chip_->SetTooltipText(
+        u"The vetted default - blocks third-party ads and trackers");
+    aggressive_chip_->SetTooltipText(
+        u"Also applies ordinary first-party blocks - more is blocked, and "
+        u"more sites break");
+
+    // The same footer the Fingerprinting row has. Without it a lit Standard
+    // chip is ambiguous - the profile default, or a choice pinned on this site
+    // months ago - and "Reset this site" then changes how the page is
+    // blocked with nothing having disclosed there was an override. It also puts
+    // the profile-wide blocking default within reach, which no surface in the
+    // browser offered at all.
+    auto* blocking_footer =
+        AddChildView(std::make_unique<views::BoxLayoutView>());
+    blocking_footer->SetOrientation(views::BoxLayout::Orientation::kHorizontal);
+    blocking_footer->SetBetweenChildSpacing(8);
+    blocking_footer->SetCrossAxisAlignment(
+        views::BoxLayout::CrossAxisAlignment::kCenter);
+    blocking_caption_ = blocking_footer->AddChildView(
+        std::make_unique<views::Label>(std::u16string(),
+                                       views::style::CONTEXT_LABEL,
+                                       views::style::STYLE_SECONDARY));
+    blocking_caption_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+    blocking_footer->SetFlexForView(blocking_caption_, 1);
+    blocking_default_chip_ =
+        blocking_footer->AddChildView(std::make_unique<SeoulChipButton>(
+            base::BindRepeating(&SeoulShieldsBubble::OnBlockingModePromoted,
+                                base::Unretained(this)),
+            std::u16string()));
+    // Name follows the text, exactly as on fp_default_chip_.
+    blocking_default_chip_->SetTooltipText(
+        u"Make this site's blocking choice the default for every site");
+    blocking_default_chip_->SetProminent(true);
 
     // Fingerprinting protection, canvas v1: with the toggle on, this site's
     // canvases are tainted and pixel readbacks throw instead of yielding a
