@@ -49,6 +49,7 @@ void SeoulChipButton::SetSelected(bool selected) {
     return;
   }
   selected_ = selected;
+  UpdateAccessibleCheckedState();
   UpdateBackground();
   SchedulePaint();
 }
