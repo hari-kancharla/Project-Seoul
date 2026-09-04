@@ -69,6 +69,7 @@ source_set("product_chromium") {
   deps = [
     "//base",
     "//base/version_info",
+    "//chrome/browser/browsing_data:constants",
     "//chrome/browser/profiles:profile",
     "//chrome/browser/ui/browser_window",
     "//chrome/browser/ui/tabs",
