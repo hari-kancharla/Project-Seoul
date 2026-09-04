@@ -80,14 +80,37 @@ void SeoulChipButton::StateChanged(ButtonState old_state) {
 }
 
 void SeoulChipButton::UpdateBackground() {
-  const bool highlighted = selected_ || prominent_ ||
-                           GetState() == views::Button::STATE_HOVERED ||
-                           GetState() == views::Button::STATE_PRESSED;
-  SetBackground(highlighted
-                    ? views::CreateRoundedRectBackground(
-                          kColorToolbarBackgroundSubtleEmphasis,
-                          kSeoulChipCornerRadius)
-                    : nullptr);
+  // Three meanings, three treatments. They used to share one fill, so a
+  // selected choice, a pressable action and a hovered chip were
+  // indistinguishable - and a fill that light carries far too little contrast
+  // to be the only signal that a setting is active.
+  const bool transient = GetState() == views::Button::STATE_HOVERED ||
+                         GetState() == views::Button::STATE_PRESSED;
+  if (prominent_) {
+    // An action chip: a tonal resting background, Chromium's own treatment for
+    // a secondary action, so it never reads as a selected option.
+    SetBackground(views::CreateRoundedRectBackground(
+        ui::kColorButtonBackgroundTonal, kSeoulChipCornerRadius));
+  } else {
+    SetBackground(transient || selected_
+                      ? views::CreateRoundedRectBackground(
+                            kColorToolbarBackgroundSubtleEmphasis,
+                            kSeoulChipCornerRadius)
+                      : nullptr);
+  }
+
+  // Selection also carries a border, so it survives being read without colour
+  // and does not depend on a fill a few percent off the panel behind it. The
+  // padded border keeps the chip's outer metrics identical either way, so
+  // selecting a chip cannot reflow the row.
+  if (selected_ && !prominent_) {
+    SetBorder(views::CreatePaddedBorder(
+        views::CreateRoundedRectBorder(2, kSeoulChipCornerRadius,
+                                       kColorToolbarButtonIcon),
+        gfx::Insets::VH(2, 8)));
+  } else {
+    SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(4, 10)));
+  }
 }
 
 BEGIN_METADATA(SeoulChipButton)
