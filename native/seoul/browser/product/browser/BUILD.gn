@@ -39,6 +39,8 @@ source_set("product_chromium") {
     "seoul_chip_button.h",
     "seoul_shields_bubble.cc",
     "seoul_shields_bubble.h",
+    "site_identity.cc",
+    "site_identity.h",
     "seoul_handset_size_dialog.cc",
     "seoul_handset_size_dialog.h",
     "space_partition_resolver.cc",
