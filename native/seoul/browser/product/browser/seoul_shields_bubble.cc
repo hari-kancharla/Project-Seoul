@@ -374,9 +374,13 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
         u"Make this site's blocking choice the default for every site");
     blocking_default_chip_->SetProminent(true);
 
-    // Fingerprinting protection, canvas v1: with the toggle on, this site's
-    // canvases are tainted and pixel readbacks throw instead of yielding a
-    // fingerprint. It rides the shields switch - Off means off for
+    // Fingerprinting, three honest answers in the Blocking row's own chip
+    // language. Balanced - the profile default - hands scripts per-site
+    // perturbed canvas and WebGL pixels and a per-site hardware profile
+    // (invisible on screen, useless as a cross-site fingerprint); Strict
+    // adds the canvas taint so pixel reads are refused; Off leaves the site
+    // alone. A pick here is this site's override; the reset chip returns it
+    // to the default. All of it rides the shields switch - Off means off for
     // everything, this included.
     auto* fp_label = AddChildView(std::make_unique<views::Label>(
         u"Fingerprinting", views::style::CONTEXT_LABEL,
