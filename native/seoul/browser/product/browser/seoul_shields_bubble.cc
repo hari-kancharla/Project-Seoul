@@ -509,6 +509,16 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     reset_chip_->SetProminent(true);
   }
 
+  // Settings bound to the window this panel governs. A private window inherits
+  // the regular profile's choices and keeps its own to itself, so this is the
+  // only correct thing to read or write through.
+  std::unique_ptr<adblock::AdBlockSettings> Settings() const {
+    content::WebContents* const contents = web_contents_.get();
+    return service_ && contents
+               ? service_->SettingsFor(contents->GetBrowserContext())
+               : nullptr;
+  }
+
   void OnEnabledToggled() {
     if (!service_) {
       return;
