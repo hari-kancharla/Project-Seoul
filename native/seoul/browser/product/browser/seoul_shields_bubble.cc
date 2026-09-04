@@ -193,6 +193,7 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
                      const content::GlobalRenderFrameHostToken& page_token)
       : service_(service),
         web_contents_(std::move(web_contents)),
+        identity_scope_(std::move(identity_scope)),
         site_url_(site_url),
         blocked_on_page_(blocked_on_page) {
     SetOrientation(views::BoxLayout::Orientation::kVertical);
