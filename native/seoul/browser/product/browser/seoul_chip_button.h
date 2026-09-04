@@ -28,6 +28,16 @@ class SeoulChipButton final : public views::LabelButton {
   SeoulChipButton& operator=(const SeoulChipButton&) = delete;
   ~SeoulChipButton() override;
 
+  // Marks this chip one option of `total` in a single-choice row, at
+  // 1-based `index`.
+  //
+  // Without it a chip is a plain button carrying a checked state, and on macOS
+  // VoiceOver does not speak a value for a button role - so the current mode,
+  // the one fact the row exists to state, is simply never announced. A radio
+  // role with a set position is what produces "Balanced, selected, 2 of 3",
+  // and it is what Chromium's own single-choice rows use.
+  void SetChoice(int index, int total);
+
   // Set once from authoritative state read-back, not on every click, so a
   // chip whose write fails silently does not claim to be selected.
   void SetSelected(bool selected);
