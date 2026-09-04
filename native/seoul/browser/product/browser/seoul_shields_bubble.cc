@@ -502,7 +502,10 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     reset_chip_ = AddChildView(std::make_unique<SeoulChipButton>(
         base::BindRepeating(&SeoulShieldsBubble::OnResetToDefault,
                             base::Unretained(this)),
-        u"Use default for this site"));
+        u"Reset this site"));
+    reset_chip_->SetTooltipText(
+        u"Clear this site's blocking mode, its temporary pause, and its "
+        u"fingerprinting choice, and follow the defaults again");
     reset_chip_->SetProminent(true);
   }
 
