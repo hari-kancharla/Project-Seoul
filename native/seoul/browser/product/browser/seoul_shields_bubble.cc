@@ -229,6 +229,7 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
   static void Show(views::View* anchor,
                    adblock::AdBlockService* service,
                    base::WeakPtr<content::WebContents> web_contents,
+                   std::string identity_scope,
                    const GURL& site_url,
                    uint64_t blocked_on_page) {
     auto bubble_delegate = std::make_unique<views::BubbleDialogDelegate>(
