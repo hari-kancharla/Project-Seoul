@@ -195,7 +195,9 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
         web_contents_(std::move(web_contents)),
         identity_scope_(std::move(identity_scope)),
         site_url_(site_url),
-        blocked_on_page_(blocked_on_page) {
+        page_token_(page_token),
+        private_session_(web_contents_ && web_contents_->GetBrowserContext() &&
+                         web_contents_->GetBrowserContext()->IsOffTheRecord()) {
     SetOrientation(views::BoxLayout::Orientation::kVertical);
     SetInsideBorderInsets(gfx::Insets::TLBR(14, 16, 12, 16));
     SetBetweenChildSpacing(10);
