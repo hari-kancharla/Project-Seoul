@@ -435,18 +435,67 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     fp_footer->SetBetweenChildSpacing(8);
     fp_footer->SetCrossAxisAlignment(
         views::BoxLayout::CrossAxisAlignment::kCenter);
-    auto* fp_text = fp_row->AddChildView(
-        std::make_unique<views::Label>(u"Block canvas reads"));
-    fp_text->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-    fp_row->SetFlexForView(fp_text, 1);
-    fingerprint_toggle_ =
-        fp_row->AddChildView(std::make_unique<views::ToggleButton>(
-            base::BindRepeating(&SeoulShieldsBubble::OnFingerprintToggled,
-                                base::Unretained(this))));
-    fingerprint_toggle_->GetViewAccessibility().SetName(
-        u"Block canvas fingerprinting");
-    fingerprint_toggle_->SetTooltipText(
-        u"Sites cannot read canvas pixels while this is on");
+    fp_caption_ = fp_footer->AddChildView(std::make_unique<views::Label>(
+        std::u16string(), views::style::CONTEXT_LABEL,
+        views::style::STYLE_SECONDARY));
+    fp_caption_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+    fp_footer->SetFlexForView(fp_caption_, 1);
+    fp_default_chip_ = fp_footer->AddChildView(std::make_unique<SeoulChipButton>(
+        base::BindRepeating(&SeoulShieldsBubble::OnFingerprintModePromoted,
+                            base::Unretained(this)),
+        std::u16string()));
+    // No SetName here on purpose. This chip's visible text is built at update
+    // time ("Use Strict everywhere"), and a fixed name like "Use this
+    // fingerprinting mode for all sites" does not contain that visible label -
+    // so voice control could not activate the control by what it reads, which
+    // is exactly what WCAG 2.5.3 forbids. Letting the name follow the text
+    // keeps the two identical by construction.
+    fp_default_chip_->SetTooltipText(
+        u"Make this site's fingerprinting choice the default for every site");
+    fp_default_chip_->SetProminent(true);
+
+    // Identity: what the page actually did, what this site is told, and the
+    // two moves a person can make about it. The receipt is the protection's
+    // proof of work, the way the blocked count is the blocker's.
+    auto* identity_label = AddChildView(std::make_unique<views::Label>(
+        u"Identity", views::style::CONTEXT_LABEL,
+        views::style::STYLE_SECONDARY));
+    identity_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+    identity_label->SetFontList(
+        identity_label->font_list().DeriveWithSizeDelta(-1));
+    // Structure, not decoration: without a heading role these read as
+    // three unrelated strings and there is no way to move between the
+    // panel's sections.
+    identity_label->GetViewAccessibility().SetRole(ax::mojom::Role::kHeading);
+    identity_label->GetViewAccessibility().SetHierarchicalLevel(3);
+    receipt_label_ = AddChildView(std::make_unique<views::Label>());
+    receipt_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+    receipt_label_->SetMultiLine(true);
+    sees_label_ = AddChildView(std::make_unique<views::Label>(
+        std::u16string(), views::style::CONTEXT_LABEL,
+        views::style::STYLE_SECONDARY));
+    sees_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+    sees_label_->SetMultiLine(true);
+    auto* identity_row = AddChildView(std::make_unique<views::BoxLayoutView>());
+    identity_row->SetOrientation(views::BoxLayout::Orientation::kHorizontal);
+    identity_row->SetBetweenChildSpacing(8);
+    new_identity_chip_ = identity_row->AddChildView(
+        std::make_unique<SeoulChipButton>(
+            base::BindRepeating(&SeoulShieldsBubble::OnNewIdentity,
+                                base::Unretained(this)),
+            u"New identity"));
+    new_identity_chip_->SetTooltipText(
+        u"A new canvas pattern and hardware profile for " + DomainOf(site_url_) +
+        u", from now on");
+    new_identity_chip_->SetProminent(true);
+    forget_chip_ = identity_row->AddChildView(std::make_unique<SeoulChipButton>(
+        base::BindRepeating(&SeoulShieldsBubble::OnForgetSite,
+                            base::Unretained(this)),
+        u"Forget this site"));
+    forget_chip_->SetTooltipText(
+        u"Remove everything " + DomainOf(site_url_) +
+        u" stored here, give it a new identity, and reload");
+    forget_chip_->SetProminent(true);
 
     // Only shown while this site overrides the profile default, so the row
     // never suggests there is something to reset when there is not.
