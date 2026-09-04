@@ -242,7 +242,8 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     bubble_delegate->set_close_on_deactivate(true);
     bubble_delegate->set_margins(gfx::Insets());
     bubble_delegate->SetContentsView(std::make_unique<SeoulShieldsBubble>(
-        service, std::move(web_contents), site_url, blocked_on_page));
+        service, std::move(web_contents), std::move(identity_scope), site_url,
+        page_token));
     views::Widget* widget = views::BubbleDialogDelegate::CreateBubbleDeprecated(
         std::move(bubble_delegate),
         views::Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET);
