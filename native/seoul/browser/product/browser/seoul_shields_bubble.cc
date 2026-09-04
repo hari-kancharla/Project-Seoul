@@ -316,6 +316,13 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     auto* modes = AddChildView(std::make_unique<views::BoxLayoutView>());
     modes->SetOrientation(views::BoxLayout::Orientation::kHorizontal);
     modes->SetBetweenChildSpacing(8);
+    // A chip row is a radio group, and it must say so and carry a name. The
+    // chips are named with their visible label alone - "Off", "Standard" -
+    // which is what voice control needs to match and what WCAG 2.5.3 (Label in
+    // Name) wants. A bare "Off" is only unambiguous because the group announces
+    // itself first; naming the group is what makes the short names safe.
+    modes->GetViewAccessibility().SetRole(ax::mojom::Role::kRadioGroup);
+    modes->GetViewAccessibility().SetName(u"Blocking");
     standard_chip_ = modes->AddChildView(std::make_unique<SeoulChipButton>(
         base::BindRepeating(&SeoulShieldsBubble::OnModePicked,
                             base::Unretained(this),
