@@ -190,7 +190,7 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
                      base::WeakPtr<content::WebContents> web_contents,
                      std::string identity_scope,
                      const GURL& site_url,
-                     uint64_t blocked_on_page)
+                     const content::GlobalRenderFrameHostToken& page_token)
       : service_(service),
         web_contents_(std::move(web_contents)),
         site_url_(site_url),
