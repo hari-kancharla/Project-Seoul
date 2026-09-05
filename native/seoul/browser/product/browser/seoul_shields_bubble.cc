@@ -854,6 +854,9 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
 
   const raw_ptr<adblock::AdBlockService> service_;
   const base::WeakPtr<content::WebContents> web_contents_;
+  // A string, not a BrowserContext pointer: the panel can outlive nothing in
+  // particular, and an identity scope is a value.
+  const std::string identity_scope_;
   const GURL site_url_;
   const uint64_t blocked_on_page_;
 
