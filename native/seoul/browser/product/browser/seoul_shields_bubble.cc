@@ -890,7 +890,8 @@ END_METADATA
 }  // namespace
 
 bool ShowShieldsBubbleForWebContents(content::WebContents* web_contents) {
-  if (!CanBoostWebContents(web_contents)) {
+  BrowserWindowInterface* browser = ShieldsBrowserFor(web_contents);
+  if (!browser || !web_contents->GetLastCommittedURL().SchemeIsHTTPOrHTTPS()) {
     return false;
   }
   BrowserWindowInterface* browser = EligibleBrowserFor(web_contents);
