@@ -4226,10 +4226,31 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
         queue.push_back(child);
       }
     }
-  }
-  ASSERT_TRUE(toggle);
-  views::test::ButtonTestApi(static_cast<views::Button*>(toggle))
-      .NotifyClick(ui::test::TestEvent());
+    return nullptr;
+  };
+  const auto click = [](views::View* view) {
+    views::test::ButtonTestApi(static_cast<views::Button*>(view))
+        .NotifyClick(ui::test::TestEvent());
+  };
+  // Every chip in the panel is named by the word it displays and nothing
+  // else, so that voice control can activate it by what the user reads
+  // (WCAG 2.5.3); the sentence explaining the choice is its description.
+  views::View* strict_chip = find_button(u"Strict");
+  ASSERT_TRUE(strict_chip);
+
+  // The promotion chip is named after the mode it would promote, and it
+  // carries that name even while hidden - a hidden control with no name is
+  // unaddressable the instant it appears.
+  ASSERT_EQ(seoul::adblock::FingerprintMode::kBalanced,
+            service->GetDefaultFingerprintMode())
+      << "this test names the promotion chip after the profile default";
+  views::View* promote = find_button(u"Use Balanced everywhere");
+  ASSERT_TRUE(promote);
+  EXPECT_FALSE(promote->GetVisible())
+      << "nothing to promote while the site follows the default";
+  click(strict_chip);
+  EXPECT_EQ(seoul::adblock::FingerprintMode::kStrict,
+            service->GetSiteSettings(url).fingerprint_mode);
   EXPECT_TRUE(service->GetSiteSettings(url).canvas_fingerprint_blocked);
   EXPECT_EQ("SecurityError", content::EvalJs(contents, kProbe).ExtractString())
       << "the toggle applies to the live page, not just future navigations";
