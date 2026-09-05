@@ -747,11 +747,15 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     const bool enabled =
         settings.effective_mode != adblock::AdBlockMode::kOff;
     enabled_toggle_->SetIsOn(enabled);
-    blocked_label_->SetText(
-        blocked_on_page_ == 1
-            ? u"1 request blocked on this page"
-            : base::FormatNumber(static_cast<int64_t>(blocked_on_page_)) +
-                  u" requests blocked on this page");
+    // Read live rather than trusting what was true when the panel opened, so
+    // this count and the fingerprint receipt below cannot disagree about how
+    // current they are.
+    const uint64_t blocked = service_->stats()->GetBlockedCount(page_token_);
+    SetLabelText(blocked_label_,
+                 blocked == 1
+                     ? u"1 request blocked on this page"
+                     : base::FormatNumber(static_cast<int64_t>(blocked)) +
+                           u" requests blocked on this page");
     standard_chip_->SetSelected(
         settings.effective_mode == adblock::AdBlockMode::kStandard);
     aggressive_chip_->SetSelected(
