@@ -545,12 +545,11 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     if (!service_) {
       return;
     }
-    const adblock::AdBlockSiteSettings settings =
-        service_->GetSiteSettings(site_url_);
-    if (settings.effective_mode == mode) {
+    const std::unique_ptr<adblock::AdBlockSettings> scoped = Settings();
+    if (!scoped || scoped->GetSiteSettings(site_url_).effective_mode == mode) {
       return;
     }
-    service_->SetSiteMode(site_url_, mode);
+    scoped->SetSiteMode(site_url_, mode);
     RefreshFromService();
   }
 
