@@ -4175,7 +4175,8 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
   })())";
 
   EXPECT_EQ("readable", content::EvalJs(contents, kProbe).ExtractString())
-      << "a site with the protection off reads its own canvas";
+      << "under the Balanced default a site still reads its own canvas - "
+         "farbled, never refused";
 
   seoul::adblock::AdBlockService* service =
       seoul::adblock::AdBlockServiceFactory::GetForProfile(
