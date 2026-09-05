@@ -834,8 +834,22 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
             : u"Nothing is being scrambled for " + DomainOf(site_url_));
     reset_chip_->SetVisible(settings.site_mode.has_value() ||
                             settings.temporarily_disabled ||
-                            settings.canvas_fingerprint_blocked);
-    InvalidateLayout();
+                            settings.site_fingerprint_mode.has_value());
+    if (std::exchange(text_changed_, false)) {
+      Relayout();
+    } else {
+      InvalidateLayout();
+    }
+  }
+
+  // Records whether a line's wording actually moved, so the panel resizes when
+  // it has something new to say and stays still when it does not.
+  void SetLabelText(views::Label* label, const std::u16string& text) {
+    if (label->GetText() == text) {
+      return;
+    }
+    label->SetText(text);
+    text_changed_ = true;
   }
 
   const raw_ptr<adblock::AdBlockService> service_;
