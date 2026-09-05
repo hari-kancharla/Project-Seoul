@@ -4273,6 +4273,49 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
   bubble->CloseNow();
 }
 
+// "Forget this site" is New Identity scoped to one site and made complete:
+// the site's cookies and storage are gone, its farbling identity is new, and
+// the page has come back as a first visit.
+IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
+                       ForgetThisSiteClearsDataAndIdentity) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  const GURL url = embedded_test_server()->GetURL("/empty.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  ASSERT_TRUE(contents);
+  EXPECT_EQ("seoul=1",
+            content::EvalJs(contents,
+                            "document.cookie = 'seoul=1; path=/';"
+                            "localStorage.setItem('seoul', '1');"
+                            "document.cookie")
+                .ExtractString());
+
+  seoul::adblock::AdBlockService* service =
+      seoul::adblock::AdBlockServiceFactory::GetForProfile(
+          browser()->profile());
+  ASSERT_TRUE(service);
+  const std::string scope =
+      seoul::adblock::AdBlockService::IdentityScopeFor(contents);
+  const uint32_t token_before = service->DescribeIdentity(url, scope).token;
+  EXPECT_NE(0u, token_before);
+
+  base::test::TestFuture<void> done;
+  ASSERT_TRUE(seoul::ForgetSite(contents, done.GetCallback()));
+  ASSERT_TRUE(done.Wait());
+  ASSERT_TRUE(content::WaitForLoadStop(contents));
+
+  EXPECT_EQ("", content::EvalJs(contents, "document.cookie").ExtractString());
+  EXPECT_EQ("gone",
+            content::EvalJs(contents,
+                            "localStorage.getItem('seoul') === null ? 'gone' "
+                            ": 'kept'")
+                .ExtractString());
+  EXPECT_NE(token_before, service->DescribeIdentity(url, scope).token)
+      << "the site cannot recognise the machine by its fingerprint either";
+  EXPECT_FALSE(seoul::ForgetSite(nullptr, base::DoNothing()));
+}
+
 // Design review, not regression: renders each Seoul surface in a real
 // compositor and writes widget-scoped PNGs for a human (or agent) to judge
 // against the polish bar. Captures only the widget's own window - never the
