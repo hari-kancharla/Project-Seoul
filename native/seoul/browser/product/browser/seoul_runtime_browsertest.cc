@@ -4198,7 +4198,7 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
   EXPECT_EQ("readable", content::EvalJs(contents, kProbe).ExtractString());
 
-  // And the panel's toggle is the user-facing writer of the same state.
+  // And the panel's Strict chip is the user-facing writer of the same state.
   service->SetSiteMode(url, std::nullopt);
   service->SetCanvasFingerprintBlocked(url, false);
   ASSERT_TRUE(seoul::ShowShieldsBubbleForWebContents(contents));
