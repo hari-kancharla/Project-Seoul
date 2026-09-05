@@ -915,7 +915,8 @@ bool ShowShieldsBubbleForWebContents(content::WebContents* web_contents) {
   // The count is read live in RefreshFromService rather than captured here, so
   // it and the fingerprint receipt cannot disagree about how current they are.
   SeoulShieldsBubble::Show(anchor, service, web_contents->GetWeakPtr(),
-                           web_contents->GetLastCommittedURL(), blocked);
+                           adblock::AdBlockService::IdentityScopeFor(web_contents),
+                           web_contents->GetLastCommittedURL(), page_token);
   return true;
 }
 
