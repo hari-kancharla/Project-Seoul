@@ -762,8 +762,76 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
         settings.effective_mode == adblock::AdBlockMode::kAggressive);
     standard_chip_->SetEnabled(enabled);
     aggressive_chip_->SetEnabled(enabled);
-    fingerprint_toggle_->SetIsOn(settings.canvas_fingerprint_blocked);
-    fingerprint_toggle_->SetEnabled(enabled);
+    // With shields down nothing here applies, so nothing here may look
+    // chosen: a lit Balanced chip beside a switch that is off states two
+    // contradictory things at once.
+    fp_off_chip_->SetSelected(enabled && settings.fingerprint_mode ==
+                                             adblock::FingerprintMode::kOff);
+    fp_balanced_chip_->SetSelected(
+        enabled &&
+        settings.fingerprint_mode == adblock::FingerprintMode::kBalanced);
+    fp_strict_chip_->SetSelected(
+        enabled &&
+        settings.fingerprint_mode == adblock::FingerprintMode::kStrict);
+    fp_off_chip_->SetEnabled(enabled);
+    fp_balanced_chip_->SetEnabled(enabled);
+    fp_strict_chip_->SetEnabled(enabled);
+    const adblock::AdBlockMode default_blocking = scoped->GetDefaultMode();
+    SetLabelText(blocking_caption_,
+                 settings.site_mode.has_value()
+                     ? u"Every other site: " + BlockingModeName(default_blocking)
+                     : u"Following the default for all sites");
+    blocking_caption_->SetEnabled(enabled);
+    const bool can_promote_blocking =
+        enabled && settings.site_mode.has_value() &&
+        settings.effective_mode != default_blocking;
+    // Set the text unconditionally, not only when the chip is offered. This
+    // chip's accessible name follows its text, so setting it only while
+    // visible left the hidden chip with no name at all - unaddressable by
+    // assistive technology and by voice control the moment it appears, and
+    // indistinguishable from a control that does not exist. Visibility alone
+    // decides whether it is offered; the label is always correct.
+    blocking_default_chip_->SetText(
+        u"Use " + BlockingModeName(settings.effective_mode) + u" everywhere");
+    blocking_default_chip_->SetVisible(can_promote_blocking);
+
+    const adblock::FingerprintMode default_mode =
+        scoped->GetDefaultFingerprintMode();
+    SetLabelText(fp_caption_,
+                 settings.site_fingerprint_mode.has_value()
+                     ? u"Every other site: " + FingerprintModeName(default_mode)
+                     : u"Following the default for all sites");
+    fp_caption_->SetEnabled(enabled);
+    const bool can_promote_fingerprinting =
+        enabled && settings.site_fingerprint_mode.has_value() &&
+        settings.fingerprint_mode != default_mode;
+    // Set the text unconditionally, not only when the chip is offered. This
+    // chip's accessible name follows its text, so setting it only while
+    // visible left the hidden chip with no name at all - unaddressable by
+    // assistive technology and by voice control the moment it appears, and
+    // indistinguishable from a control that does not exist. Visibility alone
+    // decides whether it is offered; the label is always correct.
+    fp_default_chip_->SetText(
+        u"Use " + FingerprintModeName(settings.fingerprint_mode) +
+        u" everywhere");
+    fp_default_chip_->SetVisible(can_promote_fingerprinting);
+    const adblock::SiteIdentity identity =
+        service_->DescribeIdentity(site_url_, identity_scope_);
+    SetLabelText(receipt_label_,
+                 ReceiptText(service_->stats()->GetFarbledReads(page_token_),
+                             identity.farbled));
+    SetLabelText(sees_label_, SeesText(identity));
+    new_identity_chip_->SetEnabled(identity.farbled);
+    // The pattern id belongs where its job is obvious. Printed beside the
+    // machine profile it read as something the site could see; on the chip that
+    // replaces it, it is unambiguous, and it says whose it is.
+    new_identity_chip_->SetTooltipText(
+        identity.farbled
+            ? u"Pattern #" + base::UTF8ToUTF16(identity.persona) +
+                  u", visible only to you. A new one gives " +
+                  DomainOf(site_url_) +
+                  u" a different canvas and hardware profile from now on"
+            : u"Nothing is being scrambled for " + DomainOf(site_url_));
     reset_chip_->SetVisible(settings.site_mode.has_value() ||
                             settings.temporarily_disabled ||
                             settings.canvas_fingerprint_blocked);
