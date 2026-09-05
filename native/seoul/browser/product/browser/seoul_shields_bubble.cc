@@ -738,6 +738,10 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     if (!service_) {
       return;
     }
+    const std::unique_ptr<adblock::AdBlockSettings> scoped = Settings();
+    if (!scoped) {
+      return;
+    }
     const adblock::AdBlockSiteSettings settings =
         service_->GetSiteSettings(site_url_);
     const bool enabled =
