@@ -524,11 +524,19 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
       return;
     }
     // Off is a per-site decision; back on returns the site to the profile
-    // default rather than pinning a mode the person never chose.
-    service_->SetSiteMode(site_url_,
-                          enabled_toggle_->GetIsOn()
-                              ? std::optional<adblock::AdBlockMode>()
-                              : adblock::AdBlockMode::kOff);
+    // default rather than pinning a mode the person never chose - and
+    // clears a temporary disable, which would otherwise keep the shields
+    // down and snap the switch straight back off.
+    const std::unique_ptr<adblock::AdBlockSettings> settings = Settings();
+    if (!settings) {
+      return;
+    }
+    if (enabled_toggle_->GetIsOn()) {
+      settings->SetSiteMode(site_url_, std::nullopt);
+      settings->ClearTemporaryDisable(site_url_);
+    } else {
+      settings->SetSiteMode(site_url_, adblock::AdBlockMode::kOff);
+    }
     RecomputeWebPreferences();
     RefreshFromService();
   }
