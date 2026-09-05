@@ -567,6 +567,115 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     RefreshFromService();
   }
 
+  void OnBlockingModePromoted() {
+    const std::unique_ptr<adblock::AdBlockSettings> scoped = Settings();
+    if (!scoped) {
+      return;
+    }
+    const adblock::AdBlockSiteSettings settings =
+        scoped->GetSiteSettings(site_url_);
+    if (settings.effective_mode == scoped->GetDefaultMode()) {
+      return;
+    }
+    // This site's choice becomes everyone's, and the site follows the default
+    // again rather than keeping an override that now says the same thing.
+    scoped->SetDefaultMode(settings.effective_mode);
+    scoped->SetSiteMode(site_url_, std::nullopt);
+    RefreshFromService();
+  }
+
+  void OnFingerprintModePromoted() {
+    if (!service_) {
+      return;
+    }
+    const std::unique_ptr<adblock::AdBlockSettings> scoped = Settings();
+    if (!scoped) {
+      return;
+    }
+    const adblock::AdBlockSiteSettings settings =
+        scoped->GetSiteSettings(site_url_);
+    if (settings.fingerprint_mode == scoped->GetDefaultFingerprintMode()) {
+      return;
+    }
+    // The site's choice becomes everyone's, and the site itself follows the
+    // default again rather than keeping a now-redundant override.
+    scoped->SetDefaultFingerprintMode(settings.fingerprint_mode);
+    scoped->SetSiteFingerprintMode(site_url_, std::nullopt);
+    RecomputeEveryTabInProfile();
+    RefreshFromService();
+  }
+
+  void OnNewIdentity() {
+    if (!service_) {
+      return;
+    }
+    service_->RotateIdentity(site_url_, identity_scope_);
+    RecomputeEveryTabInProfile();
+    RefreshFromService();
+  }
+
+  void OnForgetSite() {
+    if (!forget_armed_) {
+      // Destructive, so it asks once - in place, with the chip itself, and
+      // the question expires on its own. While it is asking, the chip beside
+      // it steps aside so the question has room and nothing else is pressable
+      // by accident.
+      forget_armed_ = true;
+      forget_armed_at_ = base::TimeTicks::Now();
+      new_identity_chip_->SetVisible(false);
+      forget_chip_->SetText(u"Press again to forget " + DomainOf(site_url_));
+      // Announce it. A confirm carried only by a redrawn label is no confirm
+      // at all for someone who cannot see the redraw, and the next press
+      // deletes everything the site stored.
+      forget_chip_->GetViewAccessibility().AnnounceAlert(
+          u"Press again to forget " + DomainOf(site_url_) +
+          u". This removes everything it stored here.");
+      forget_disarm_timer_.Start(
+          FROM_HERE, base::Seconds(4),
+          base::BindOnce(&SeoulShieldsBubble::DisarmForget,
+                         base::Unretained(this)));
+      Relayout();
+      return;
+    }
+    // A double-click is two presses, and it must not be able to destroy a
+    // site's data: the second half of one arrives far sooner than a person
+    // deciding could, so it is ignored and the question stays up.
+    if (base::TimeTicks::Now() - forget_armed_at_ <
+        base::Milliseconds(500)) {
+      return;
+    }
+    DisarmForget();
+    if (web_contents_ && ForgetSite(web_contents_.get(), base::DoNothing())) {
+      // The page comes back as a stranger; every number on this panel was
+      // about the page that is gone.
+      if (views::Widget* widget = GetWidget()) {
+        widget->Close();
+      }
+    }
+  }
+
+  void DisarmForget() {
+    forget_disarm_timer_.Stop();
+    forget_armed_ = false;
+    new_identity_chip_->SetVisible(true);
+    forget_chip_->SetText(u"Forget this site");
+    Relayout();
+  }
+
+  // A bubble does not resize itself when its contents change, so a row added
+  // or a label grown at runtime is simply clipped off the bottom. Every path
+  // that changes what the panel says goes through here.
+  void Relayout() {
+    InvalidateLayout();
+    views::Widget* const widget = GetWidget();
+    views::WidgetDelegate* const delegate =
+        widget ? widget->widget_delegate() : nullptr;
+    if (views::BubbleDialogDelegate* const bubble =
+            delegate ? delegate->AsBubbleDialogDelegate() : nullptr) {
+      bubble->SizeToContents();
+    }
+  }
+
   // The enforcement lives in WebPreferences, recomputed by the content
   // layer; a settings write alone would not touch the live page until its
   // next navigation.
