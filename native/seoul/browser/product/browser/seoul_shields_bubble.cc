@@ -723,9 +723,13 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     if (!service_) {
       return;
     }
-    service_->SetSiteMode(site_url_, std::nullopt);
-    service_->ClearTemporaryDisable(site_url_);
-    service_->SetCanvasFingerprintBlocked(site_url_, false);
+    const std::unique_ptr<adblock::AdBlockSettings> settings = Settings();
+    if (!settings) {
+      return;
+    }
+    settings->SetSiteMode(site_url_, std::nullopt);
+    settings->ClearTemporaryDisable(site_url_);
+    settings->SetSiteFingerprintMode(site_url_, std::nullopt);
     RecomputeWebPreferences();
     RefreshFromService();
   }
