@@ -910,9 +910,10 @@ bool ShowShieldsBubbleForWebContents(content::WebContents* web_contents) {
   if (!anchor || !anchor->GetVisible() || anchor->GetWidget() == nullptr) {
     anchor = browser_view->toolbar();
   }
-  const uint64_t blocked =
-      service->stats()->GetBlockedCount(
-          web_contents->GetPrimaryMainFrame()->GetGlobalFrameToken());
+  const content::GlobalRenderFrameHostToken page_token =
+      web_contents->GetPrimaryMainFrame()->GetGlobalFrameToken();
+  // The count is read live in RefreshFromService rather than captured here, so
+  // it and the fingerprint receipt cannot disagree about how current they are.
   SeoulShieldsBubble::Show(anchor, service, web_contents->GetWeakPtr(),
                            web_contents->GetLastCommittedURL(), blocked);
   return true;
