@@ -858,7 +858,13 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
   // particular, and an identity scope is a value.
   const std::string identity_scope_;
   const GURL site_url_;
-  const uint64_t blocked_on_page_;
+  const content::GlobalRenderFrameHostToken page_token_;
+  const bool private_session_;
+  bool text_changed_ = false;
+  base::RepeatingTimer refresh_timer_;
+  bool forget_armed_ = false;
+  base::TimeTicks forget_armed_at_;
+  base::OneShotTimer forget_disarm_timer_;
 
   raw_ptr<views::ToggleButton> enabled_toggle_ = nullptr;
   raw_ptr<views::Label> blocked_label_ = nullptr;
