@@ -743,7 +743,7 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
       return;
     }
     const adblock::AdBlockSiteSettings settings =
-        service_->GetSiteSettings(site_url_);
+        scoped->GetSiteSettings(site_url_);
     const bool enabled =
         settings.effective_mode != adblock::AdBlockMode::kOff;
     enabled_toggle_->SetIsOn(enabled);
