@@ -553,7 +553,7 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     RefreshFromService();
   }
 
-  void OnFingerprintToggled() {
+  void OnFingerprintModePicked(adblock::FingerprintMode mode) {
     if (!service_) {
       return;
     }
