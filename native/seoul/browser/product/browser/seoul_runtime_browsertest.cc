@@ -4135,8 +4135,11 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest, ShieldsBubbleWritesSiteMode) {
   EXPECT_EQ(seoul::adblock::AdBlockMode::kOff,
             service->GetSiteSettings(url).effective_mode);
 
-  // And the reset chip returns the site to the profile default.
-  views::View* reset = find_by_name(u"Use default for this site");
+  // And the reset chip returns the site to the profile default. It is named
+  // "Reset this site" rather than "Use default for this site" so it does not
+  // read as a third member of the two "Use ... everywhere" promotion chips,
+  // which act on every site rather than this one.
+  views::View* reset = find_by_name(u"Reset this site");
   ASSERT_TRUE(reset);
   ASSERT_TRUE(reset->GetVisible());
   views::test::ButtonTestApi(static_cast<views::Button*>(reset))
