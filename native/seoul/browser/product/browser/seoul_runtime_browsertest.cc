@@ -4212,20 +4212,19 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
     }
   }
   ASSERT_TRUE(bubble);
-  views::View* toggle = nullptr;
-  base::circular_deque<views::View*> queue;
-  queue.push_back(bubble->GetContentsView());
-  while (!queue.empty()) {
-    views::View* view = queue.front();
-    queue.pop_front();
-    if (views::IsViewClass<views::ToggleButton>(view) &&
-        view->GetViewAccessibility().GetCachedName() ==
-            u"Block canvas fingerprinting") {
-      toggle = view;
-      break;
-    }
-    for (views::View* child : view->children()) {
-      queue.push_back(child);
+  const auto find_button = [&](const std::u16string& name) -> views::View* {
+    base::circular_deque<views::View*> queue;
+    queue.push_back(bubble->GetContentsView());
+    while (!queue.empty()) {
+      views::View* view = queue.front();
+      queue.pop_front();
+      if (views::IsViewClass<views::Button>(view) &&
+          view->GetViewAccessibility().GetCachedName() == name) {
+        return view;
+      }
+      for (views::View* child : view->children()) {
+        queue.push_back(child);
+      }
     }
   }
   ASSERT_TRUE(toggle);
