@@ -895,9 +895,7 @@ bool ShowShieldsBubbleForWebContents(content::WebContents* web_contents) {
     return false;
   }
   adblock::AdBlockService* service =
-      browser ? adblock::AdBlockServiceFactory::GetForProfile(
-                    browser->GetProfile())
-              : nullptr;
+      adblock::AdBlockServiceFactory::GetForProfile(browser->GetProfile());
   if (!service) {
     return false;
   }
