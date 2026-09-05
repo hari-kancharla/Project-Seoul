@@ -685,6 +685,40 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     }
   }
 
+  // Two of the decisions here are not about this tab. Changing the profile
+  // default changes what every site is told, and a new identity covers a whole
+  // registrable domain, which may well be open in several tabs. Recomputing
+  // only the tab the panel happens to hang off would leave the rest answering
+  // with the old token until each of them navigated - so the same site would be
+  // farbled two different ways in two windows at once, which is precisely the
+  // inconsistency the per-session token exists to avoid.
+  void RecomputeEveryTabInProfile() {
+    content::WebContents* const source = web_contents_.get();
+    if (!source) {
+      return;
+    }
+    Profile* const profile =
+        Profile::FromBrowserContext(source->GetBrowserContext());
+    if (!profile) {
+      RecomputeWebPreferences();
+      return;
+    }
+    for (BrowserWindowInterface* browser : GetAllBrowserWindowInterfaces()) {
+      if (!browser || browser->GetProfile() != profile) {
+        continue;
+      }
+      TabStripModel* const tabs = browser->GetTabStripModel();
+      if (!tabs) {
+        continue;
+      }
+      for (int index = 0; index < tabs->count(); ++index) {
+        if (content::WebContents* const tab = tabs->GetWebContentsAt(index)) {
+          tab->OnWebPreferencesChanged();
+        }
+      }
+    }
+  }
+
   void OnResetToDefault() {
     if (!service_) {
       return;
