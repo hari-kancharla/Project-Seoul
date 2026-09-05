@@ -870,7 +870,17 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
   raw_ptr<views::Label> blocked_label_ = nullptr;
   raw_ptr<SeoulChipButton> standard_chip_ = nullptr;
   raw_ptr<SeoulChipButton> aggressive_chip_ = nullptr;
-  raw_ptr<views::ToggleButton> fingerprint_toggle_ = nullptr;
+  raw_ptr<views::Label> blocking_caption_ = nullptr;
+  raw_ptr<SeoulChipButton> blocking_default_chip_ = nullptr;
+  raw_ptr<SeoulChipButton> fp_off_chip_ = nullptr;
+  raw_ptr<SeoulChipButton> fp_balanced_chip_ = nullptr;
+  raw_ptr<SeoulChipButton> fp_strict_chip_ = nullptr;
+  raw_ptr<views::Label> fp_caption_ = nullptr;
+  raw_ptr<SeoulChipButton> fp_default_chip_ = nullptr;
+  raw_ptr<views::Label> receipt_label_ = nullptr;
+  raw_ptr<views::Label> sees_label_ = nullptr;
+  raw_ptr<SeoulChipButton> new_identity_chip_ = nullptr;
+  raw_ptr<SeoulChipButton> forget_chip_ = nullptr;
   raw_ptr<SeoulChipButton> reset_chip_ = nullptr;
 };
 
