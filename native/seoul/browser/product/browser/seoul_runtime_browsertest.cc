@@ -4149,9 +4149,9 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest, ShieldsBubbleWritesSiteMode) {
             service->GetSiteSettings(url).effective_mode);
 }
 
-// Fingerprinting protection v1 must be enforcement, not a label: with the
-// per-site setting on, canvas readbacks throw; with shields Off the
-// protection stands down; and the panel's toggle is what writes it.
+// Strict fingerprinting protection must be enforcement, not a label: with
+// the site pinned to Strict, canvas readbacks throw; with shields Off the
+// protection stands down; and the panel's Strict chip is what writes it.
 IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
                        CanvasFingerprintBlockIsRealEnforcement) {
   ASSERT_TRUE(embedded_test_server()->Start());
