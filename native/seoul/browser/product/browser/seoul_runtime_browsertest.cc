@@ -4253,7 +4253,23 @@ IN_PROC_BROWSER_TEST_F(SeoulRuntimeBrowserTest,
             service->GetSiteSettings(url).fingerprint_mode);
   EXPECT_TRUE(service->GetSiteSettings(url).canvas_fingerprint_blocked);
   EXPECT_EQ("SecurityError", content::EvalJs(contents, kProbe).ExtractString())
-      << "the toggle applies to the live page, not just future navigations";
+      << "the chip applies to the live page, not just future navigations";
+
+  // A site's choice can become everyone's from right here; the site then
+  // follows the default it just set instead of keeping a redundant override,
+  // and the enforcement does not blink while the ownership moves.
+  EXPECT_TRUE(promote->GetVisible());
+  EXPECT_EQ(u"Use Strict everywhere",
+            promote->GetViewAccessibility().GetCachedName())
+      << "the offer must name the mode it would actually apply";
+  click(promote);
+  EXPECT_EQ(seoul::adblock::FingerprintMode::kStrict,
+            service->GetDefaultFingerprintMode());
+  EXPECT_FALSE(service->GetSiteSettings(url).site_fingerprint_mode.has_value());
+  EXPECT_EQ(seoul::adblock::FingerprintMode::kStrict,
+            service->GetSiteSettings(url).fingerprint_mode);
+  EXPECT_EQ("SecurityError", content::EvalJs(contents, kProbe).ExtractString());
+  EXPECT_FALSE(promote->GetVisible()) << "nothing left to promote";
   bubble->CloseNow();
 }
 
