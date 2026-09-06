@@ -61,6 +61,7 @@ group("seoul_unittests") {
     "//seoul/browser/commands:seoul_command_core_unittests",
     "//seoul/browser/connectors:seoul_connectors_unittests",
     "//seoul/browser/context:seoul_context_unittests",
+    "//seoul/browser/context_map:seoul_context_map_unittests",
     "//seoul/browser/data:seoul_data_unittests",
     "//seoul/browser/handset:seoul_handset_unittests",
     "//seoul/browser/intelligence:seoul_intelligence_unittests",
