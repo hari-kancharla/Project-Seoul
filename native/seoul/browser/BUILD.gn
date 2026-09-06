@@ -7,6 +7,7 @@ group("browser") {
     "//seoul/browser/commands:command_chromium",
     "//seoul/browser/connectors:connectors_core",
     "//seoul/browser/context:context_core",
+    "//seoul/browser/context_map:context_map_core",
     "//seoul/browser/data:data_core",
     "//seoul/browser/handset:handset_core",
     "//seoul/browser/intelligence:intelligence_core",

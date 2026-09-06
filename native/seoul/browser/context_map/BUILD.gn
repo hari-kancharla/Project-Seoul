@@ -1,0 +1,30 @@
+# Project Seoul Context Map.
+# A projection over the services that own live and durable browser context. It
+# owns no state of its own, so the model layer is pure: //base only, and the
+# graph builder is a deterministic function over snapshots that can be tested
+# without a browser window.
+
+import("//testing/test.gni")
+
+source_set("context_map_core") {
+  sources = [
+    "context_map_builder.cc",
+    "context_map_builder.h",
+    "context_map_types.cc",
+    "context_map_types.h",
+  ]
+
+  deps = [ "//base" ]
+}
+
+test("seoul_context_map_unittests") {
+  testonly = true
+  sources = [ "context_map_builder_unittest.cc" ]
+  deps = [
+    ":context_map_core",
+    "//base",
+    "//base/test:run_all_unittests",
+    "//base/test:test_support",
+    "//testing/gtest",
+  ]
+}
