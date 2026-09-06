@@ -99,7 +99,10 @@ class ThreadService {
 
  private:
   base::RepeatingCallback<base::Time()> clock_;
+  void NotifyChanged();
+
   base::RepeatingClosure changed_;
+  base::ObserverList<ThreadServiceObserver> observers_;
   std::map<std::string, std::unique_ptr<ContextThread>> threads_;
   std::map<std::string, std::string> thread_workspaces_;
   uint64_t next_id_ = 1;
