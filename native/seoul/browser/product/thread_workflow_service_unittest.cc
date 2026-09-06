@@ -10,6 +10,7 @@
 #include "seoul/browser/product/thread_service.h"
 #include "seoul/browser/product/workflow_service.h"
 #include "seoul/browser/tools/tool_schema.h"
+#include "base/test/bind.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace seoul {
@@ -58,6 +59,54 @@ TEST(ThreadServiceTest, CrudAndAttachDetach) {
   EXPECT_TRUE(service.ReopenThread(id));
   EXPECT_TRUE(service.DeleteThread(id));
   EXPECT_FALSE(service.FindThread(id));
+}
+
+// The change signal is additive. ThreadService carries one RepeatingClosure
+// that the runtime binds to persist state; adding a change signal by taking
+// that slot would have silently stopped Projects being saved. Observers fire at
+// the same points, and the closure still runs - first, so an observer that
+// re-reads state sees what was just committed.
+TEST(ThreadServiceTest, ObserversAndThePersistenceClosureBothFire) {
+  class Counter : public ThreadServiceObserver {
+   public:
+    void OnThreadsChanged() override { ++calls; }
+    int calls = 0;
+  };
+
+  int persisted = 0;
+  ThreadService service(FixedClock(),
+                        base::BindLambdaForTesting([&]() { ++persisted; }));
+  Counter counter;
+  service.AddObserver(&counter);
+
+  const std::string id = service.CreateThread("Project");
+  ASSERT_FALSE(id.empty());
+  EXPECT_EQ(1, counter.calls);
+  EXPECT_EQ(1, persisted) << "persistence must not have been displaced";
+
+  EXPECT_TRUE(service.RenameThread(id, "Renamed"));
+  EXPECT_EQ(2, counter.calls);
+  EXPECT_EQ(2, persisted);
+
+  // A rejected mutation notifies nobody: a signal for a change that did not
+  // happen would rebuild the graph for nothing.
+  EXPECT_FALSE(service.RenameThread("no-such-thread", "x"));
+  EXPECT_EQ(2, counter.calls);
+  EXPECT_EQ(2, persisted);
+
+  EXPECT_TRUE(service.ArchiveThread(id));
+  EXPECT_EQ(3, counter.calls);
+  EXPECT_TRUE(service.ReopenThread(id));
+  EXPECT_EQ(4, counter.calls);
+  EXPECT_TRUE(service.DeleteThread(id));
+  EXPECT_EQ(5, counter.calls);
+  EXPECT_EQ(5, persisted);
+
+  // A removed observer stops hearing, and the closure carries on.
+  service.RemoveObserver(&counter);
+  ASSERT_FALSE(service.CreateThread("After").empty());
+  EXPECT_EQ(5, counter.calls);
+  EXPECT_EQ(6, persisted);
 }
 
 TEST(ThreadServiceTest, SensitiveItemsAreRejected) {
