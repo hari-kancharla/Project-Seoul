@@ -86,6 +86,9 @@ class ThreadService {
                                         ContextItem item);
   bool DetachItem(const std::string& thread_id, const std::string& item_id);
 
+  void AddObserver(ThreadServiceObserver* observer);
+  void RemoveObserver(ThreadServiceObserver* observer);
+
   const ContextThread* FindThread(const std::string& thread_id) const;
   std::vector<ThreadSummary> Summaries() const;
 
