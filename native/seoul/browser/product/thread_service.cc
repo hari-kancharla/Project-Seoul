@@ -113,6 +113,25 @@ ContextResult<std::string> ThreadService::AttachItem(
   return result;
 }
 
+void ThreadService::AddObserver(ThreadServiceObserver* observer) {
+  observers_.AddObserver(observer);
+}
+
+void ThreadService::RemoveObserver(ThreadServiceObserver* observer) {
+  observers_.RemoveObserver(observer);
+}
+
+void ThreadService::NotifyChanged() {
+  // Persistence first: an observer that re-reads state must see what was just
+  // committed, not the state before it.
+  if (changed_) {
+    changed_.Run();
+  }
+  for (ThreadServiceObserver& observer : observers_) {
+    observer.OnThreadsChanged();
+  }
+}
+
 bool ThreadService::DetachItem(const std::string& thread_id,
                                const std::string& item_id) {
   auto it = threads_.find(thread_id);
