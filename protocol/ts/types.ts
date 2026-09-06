@@ -400,3 +400,51 @@ export interface CapabilityDescriptor {
   /** Optional SAUI component wire name best suited to render results. */
   "preferred_component"?: ComponentType;
 }
+
+// ---- context-map.schema.json ----
+
+export type GraphScope = "focus" | "space" | "project" | "all_windows";
+
+export type NodeKind = "session" | "workspace" | "window" | "folder" | "tab" | "split" | "thread" | "context_item" | "task" | "board" | "artifact" | "surface" | "workflow" | "live_collection";
+
+export type NodeState = "live" | "active" | "stale" | "running" | "finished" | "error";
+
+export type EdgeType = "contains" | "belongs_to" | "active_in" | "grouped_in" | "split_with" | "attached_to" | "references" | "bound_to" | "produced_by" | "user_link";
+
+/** Why the edge exists. Every edge in this version is evidence: Seoul's own state (system) or a person's own hand (user). 'suggested' is reserved for a future local-only relationship engine and is never emitted today, so nothing inferred can present itself as fact. */
+export type EdgeProvenance = "system" | "user" | "suggested";
+
+export interface Node {
+  /** Opaque outside the browser process. Derived from the owning service's durable id where one exists, never from a title, a URL, or a position. */
+  "id": string;
+  "kind": NodeKind;
+  /** Variation within a kind, so the kind enum does not grow every time a new flavour of Context Item appears. */
+  "subkind"?: string;
+  "title": string;
+  "subtitle"?: string;
+  "state": NodeState;
+}
+
+export interface Edge {
+  "id": string;
+  "source": string;
+  "target": string;
+  "type": EdgeType;
+  "provenance": EdgeProvenance;
+}
+
+/** One rendering of the browser context a person is working in: Spaces, windows, tabs, folders, splits, Projects, notes, tasks, Boards and artifacts, with the deterministic relationships between them. Mirrors native/seoul/browser/context_map/context_map_types.h. This document is a PROJECTION: it owns none of the objects it draws, carries only bounded presentation fields plus an opaque id, and never carries page content, credentials, history or anything a renderer could use to reach past the graph. */
+export interface ContextMapGraph {
+  "schema_version": 1;
+  /** Monotonic per profile, as decimal digits. A renderer must ignore a snapshot whose revision is lower than the one it is already showing, so a slow reply cannot undo newer state. Carried as a string, not a number, for two reasons: the native counter is 64-bit and would lose precision as a JSON number, and the Canvas renderer's existing ordering guard accepts only a digit string - a number silently disables the comparison and lets a stale snapshot through. */
+  "revision": string;
+  "scope": GraphScope;
+  /** The node the scope is centred on, where the scope has one. */
+  "root_id"?: string;
+  "nodes": Array<Node>;
+  "edges": Array<Edge>;
+  /** True when the source graph exceeded the render bounds. The totals below are what it would have held, so the map can state what it left out rather than presenting a partial graph as complete. */
+  "truncated": boolean;
+  "total_nodes": number;
+  "total_edges": number;
+}

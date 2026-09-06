@@ -17,6 +17,7 @@ const SCHEMA_FILES = [
   ['component-event.schema.json', 'ComponentEvent'],
   ['task-snapshot.schema.json', 'TaskSnapshot'],
   ['capability-descriptor.schema.json', 'CapabilityDescriptor'],
+  ['context-map.schema.json', 'ContextMapGraph'],
 ];
 
 const registry = new Map();
