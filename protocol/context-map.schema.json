@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "context-map.schema.json",
+  "title": "Seoul Context Map graph (canonical wire, protocol version 1)",
+  "description": "One rendering of the browser context a person is working in: Spaces, windows, tabs, folders, splits, Projects, notes, tasks, Boards and artifacts, with the deterministic relationships between them. Mirrors native/seoul/browser/context_map/context_map_types.h. This document is a PROJECTION: it owns none of the objects it draws, carries only bounded presentation fields plus an opaque id, and never carries page content, credentials, history or anything a renderer could use to reach past the graph.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "revision",
+    "scope",
+    "nodes",
+    "edges",
+    "truncated",
+    "total_nodes",
+    "total_edges"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[0-9]+$",
+      "maxLength": 20,
+      "description": "Monotonic per profile, as decimal digits. A renderer must ignore a snapshot whose revision is lower than the one it is already showing, so a slow reply cannot undo newer state. Carried as a string, not a number, for two reasons: the native counter is 64-bit and would lose precision as a JSON number, and the Canvas renderer's existing ordering guard accepts only a digit string - a number silently disables the comparison and lets a stale snapshot through."
+    },
+    "scope": {
+      "$ref": "#/$defs/graph_scope"
+    },
+    "root_id": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "The node the scope is centred on, where the scope has one."
+    },
+    "nodes": {
+      "type": "array",
+      "maxItems": 600,
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "maxItems": 1800,
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "True when the source graph exceeded the render bounds. The totals below are what it would have held, so the map can state what it left out rather than presenting a partial graph as complete."
+    },
+    "total_nodes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total_edges": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "graph_scope": {
+      "type": "string",
+      "enum": [
+        "focus",
+        "space",
+        "project",
+        "all_windows"
+      ]
+    },
+    "node_kind": {
+      "type": "string",
+      "enum": [
+        "session",
+        "workspace",
+        "window",
+        "folder",
+        "tab",
+        "split",
+        "thread",
+        "context_item",
+        "task",
+        "board",
+        "artifact",
+        "surface",
+        "workflow",
+        "live_collection"
+      ]
+    },
+    "node_state": {
+      "type": "string",
+      "enum": [
+        "live",
+        "active",
+        "stale",
+        "running",
+        "finished",
+        "error"
+      ]
+    },
+    "edge_type": {
+      "type": "string",
+      "enum": [
+        "contains",
+        "belongs_to",
+        "active_in",
+        "grouped_in",
+        "split_with",
+        "attached_to",
+        "references",
+        "bound_to",
+        "produced_by",
+        "user_link"
+      ]
+    },
+    "edge_provenance": {
+      "type": "string",
+      "description": "Why the edge exists. Every edge in this version is evidence: Seoul's own state (system) or a person's own hand (user). 'suggested' is reserved for a future local-only relationship engine and is never emitted today, so nothing inferred can present itself as fact.",
+      "enum": [
+        "system",
+        "user",
+        "suggested"
+      ]
+    },
+    "node": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "state"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Opaque outside the browser process. Derived from the owning service's durable id where one exists, never from a title, a URL, or a position."
+        },
+        "kind": {
+          "$ref": "#/$defs/node_kind"
+        },
+        "subkind": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Variation within a kind, so the kind enum does not grow every time a new flavour of Context Item appears."
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "subtitle": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "state": {
+          "$ref": "#/$defs/node_state"
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": [
+        "id",
+        "source",
+        "target",
+        "type",
+        "provenance"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "type": {
+          "$ref": "#/$defs/edge_type"
+        },
+        "provenance": {
+          "$ref": "#/$defs/edge_provenance"
+        }
+      }
+    }
+  }
+}
