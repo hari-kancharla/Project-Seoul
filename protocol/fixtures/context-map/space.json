@@ -1,0 +1,229 @@
+{
+  "schema_version": 1,
+  "revision": "12",
+  "scope": "space",
+  "root_id": "workspace:ws1",
+  "nodes": [
+    {
+      "id": "workspace:ws1",
+      "kind": "workspace",
+      "title": "Research",
+      "state": "live"
+    },
+    {
+      "id": "window:w1",
+      "kind": "window",
+      "title": "Window",
+      "state": "live"
+    },
+    {
+      "id": "folder:f1",
+      "kind": "folder",
+      "title": "Sources",
+      "state": "live"
+    },
+    {
+      "id": "tab:m1",
+      "kind": "tab",
+      "title": "First",
+      "subtitle": "example.org",
+      "state": "active"
+    },
+    {
+      "id": "tab:m2",
+      "kind": "tab",
+      "title": "Second",
+      "subtitle": "example.net",
+      "state": "live"
+    },
+    {
+      "id": "tab:m3",
+      "kind": "tab",
+      "title": "Third",
+      "state": "live"
+    },
+    {
+      "id": "split:s1",
+      "kind": "split",
+      "title": "Split",
+      "state": "live"
+    },
+    {
+      "id": "thread:t1",
+      "kind": "thread",
+      "title": "Review",
+      "state": "live"
+    },
+    {
+      "id": "context_item:i1",
+      "kind": "context_item",
+      "subkind": "note",
+      "title": "Open question",
+      "state": "live"
+    },
+    {
+      "id": "context_item:i2",
+      "kind": "context_item",
+      "subkind": "tab_reference",
+      "title": "Live source",
+      "state": "live"
+    },
+    {
+      "id": "context_item:i3",
+      "kind": "context_item",
+      "subkind": "tab_reference",
+      "title": "Closed source",
+      "state": "stale"
+    },
+    {
+      "id": "task:k1",
+      "kind": "task",
+      "title": "Summarise",
+      "state": "running"
+    },
+    {
+      "id": "board:b1",
+      "kind": "board",
+      "title": "Board",
+      "state": "live"
+    }
+  ],
+  "edges": [
+    {
+      "id": "active_in|workspace:ws1|window:w1",
+      "source": "workspace:ws1",
+      "target": "window:w1",
+      "type": "active_in",
+      "provenance": "system"
+    },
+    {
+      "id": "belongs_to|folder:f1|workspace:ws1",
+      "source": "folder:f1",
+      "target": "workspace:ws1",
+      "type": "belongs_to",
+      "provenance": "system"
+    },
+    {
+      "id": "contains|window:w1|tab:m1",
+      "source": "window:w1",
+      "target": "tab:m1",
+      "type": "contains",
+      "provenance": "system"
+    },
+    {
+      "id": "active_in|tab:m1|window:w1",
+      "source": "tab:m1",
+      "target": "window:w1",
+      "type": "active_in",
+      "provenance": "system"
+    },
+    {
+      "id": "belongs_to|tab:m1|workspace:ws1",
+      "source": "tab:m1",
+      "target": "workspace:ws1",
+      "type": "belongs_to",
+      "provenance": "system"
+    },
+    {
+      "id": "grouped_in|tab:m1|folder:f1",
+      "source": "tab:m1",
+      "target": "folder:f1",
+      "type": "grouped_in",
+      "provenance": "system"
+    },
+    {
+      "id": "contains|window:w1|tab:m2",
+      "source": "window:w1",
+      "target": "tab:m2",
+      "type": "contains",
+      "provenance": "system"
+    },
+    {
+      "id": "belongs_to|tab:m2|workspace:ws1",
+      "source": "tab:m2",
+      "target": "workspace:ws1",
+      "type": "belongs_to",
+      "provenance": "system"
+    },
+    {
+      "id": "contains|window:w1|tab:m3",
+      "source": "window:w1",
+      "target": "tab:m3",
+      "type": "contains",
+      "provenance": "system"
+    },
+    {
+      "id": "belongs_to|tab:m3|workspace:ws1",
+      "source": "tab:m3",
+      "target": "workspace:ws1",
+      "type": "belongs_to",
+      "provenance": "system"
+    },
+    {
+      "id": "split_with|split:s1|tab:m1",
+      "source": "split:s1",
+      "target": "tab:m1",
+      "type": "split_with",
+      "provenance": "system"
+    },
+    {
+      "id": "split_with|split:s1|tab:m2",
+      "source": "split:s1",
+      "target": "tab:m2",
+      "type": "split_with",
+      "provenance": "system"
+    },
+    {
+      "id": "attached_to|context_item:i1|thread:t1",
+      "source": "context_item:i1",
+      "target": "thread:t1",
+      "type": "attached_to",
+      "provenance": "system"
+    },
+    {
+      "id": "attached_to|context_item:i2|thread:t1",
+      "source": "context_item:i2",
+      "target": "thread:t1",
+      "type": "attached_to",
+      "provenance": "system"
+    },
+    {
+      "id": "references|context_item:i2|tab:m2",
+      "source": "context_item:i2",
+      "target": "tab:m2",
+      "type": "references",
+      "provenance": "system"
+    },
+    {
+      "id": "attached_to|context_item:i3|thread:t1",
+      "source": "context_item:i3",
+      "target": "thread:t1",
+      "type": "attached_to",
+      "provenance": "system"
+    },
+    {
+      "id": "bound_to|task:k1|window:w1",
+      "source": "task:k1",
+      "target": "window:w1",
+      "type": "bound_to",
+      "provenance": "system"
+    },
+    {
+      "id": "produced_by|task:k1|thread:t1",
+      "source": "task:k1",
+      "target": "thread:t1",
+      "type": "produced_by",
+      "provenance": "system"
+    },
+    {
+      "id": "references|board:b1|tab:m1",
+      "source": "board:b1",
+      "target": "tab:m1",
+      "type": "references",
+      "provenance": "user"
+    }
+  ],
+  "truncated": false,
+  "total_nodes": 13,
+  "total_edges": 19
+}
