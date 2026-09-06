@@ -94,9 +94,7 @@ bool ThreadService::DeleteThread(const std::string& thread_id) {
   const bool erased = threads_.erase(thread_id) > 0;
   if (erased) {
     thread_workspaces_.erase(thread_id);
-    if (changed_) {
-      changed_.Run();
-    }
+    NotifyChanged();
   }
   return erased;
 }
