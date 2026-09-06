@@ -76,9 +76,7 @@ bool ThreadService::ArchiveThread(const std::string& thread_id) {
     return false;
   }
   it->second->Archive();
-  if (changed_) {
-    changed_.Run();
-  }
+  NotifyChanged();
   return true;
 }
 
