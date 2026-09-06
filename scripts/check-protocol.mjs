@@ -171,6 +171,17 @@ compareSets('execution route', snapshotSchema.$defs.execution_route.enum, switch
 compareSets('task failure reason', snapshotSchema.properties.failure.enum, switchStrings(taskExecutionCc, 'TaskFailureReasonToString'));
 compareSets('freshness state', semanticSchema.$defs.freshness_state.enum, switchStrings(dataValidationCc, 'FreshnessStateToString'));
 
+// Context Map. The graph is a projection whose vocabulary must never drift from
+// the native model that produces it, so every enum is compared to the wire
+// names the C++ actually emits.
+const contextMapTypesCc = read('native/seoul/browser/context_map/context_map_types.cc');
+const contextMapSchema = registry['context-map.schema.json'];
+compareSets('context map node kind', contextMapSchema.$defs.node_kind.enum, switchStrings(contextMapTypesCc, 'NodeKindToString'));
+compareSets('context map node state', contextMapSchema.$defs.node_state.enum, switchStrings(contextMapTypesCc, 'NodeStateToString'));
+compareSets('context map edge type', contextMapSchema.$defs.edge_type.enum, switchStrings(contextMapTypesCc, 'EdgeTypeToString'));
+compareSets('context map edge provenance', contextMapSchema.$defs.edge_provenance.enum, switchStrings(contextMapTypesCc, 'EdgeProvenanceToString'));
+compareSets('context map graph scope', contextMapSchema.$defs.graph_scope.enum, switchStrings(contextMapTypesCc, 'GraphScopeToString'));
+
 const semanticWireCc = read('native/seoul/browser/semantic/semantic_wire.cc');
 const descriptorWireCc = read('native/seoul/browser/tools/tool_descriptor_wire.cc');
 const snapshotWireCc = read('native/seoul/browser/product/task_snapshot_wire.cc');
