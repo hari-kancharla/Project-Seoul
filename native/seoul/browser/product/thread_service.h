@@ -24,6 +24,8 @@
 #include <vector>
 
 #include "base/functional/callback.h"
+#include "base/observer_list.h"
+#include "base/observer_list_types.h"
 #include "base/values.h"
 #include "seoul/browser/context/context_thread.h"
 
@@ -44,6 +46,22 @@ struct ThreadSummary {
   std::string workspace_id;
   bool archived = false;
   size_t item_count = 0;
+};
+
+// Something in the thread set changed: a thread created, renamed, archived,
+// reopened or deleted, or an item attached or detached.
+//
+// ADDITIVE, deliberately. ThreadService already carries a single
+// base::RepeatingClosure that the runtime binds to persist state. Repurposing
+// that one slot - the obvious way to get a change signal - would have silently
+// stopped Projects being saved. Observers fire at exactly the points the
+// closure fires, and the closure still runs, first.
+class ThreadServiceObserver : public base::CheckedObserver {
+ public:
+  virtual void OnThreadsChanged() {}
+
+ protected:
+  ~ThreadServiceObserver() override = default;
 };
 
 class ThreadService {
