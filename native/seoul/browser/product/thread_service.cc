@@ -55,9 +55,7 @@ std::string ThreadService::CreateThread(const std::string& name,
   const std::string id = "thread-" + base::NumberToString(next_id_++);
   threads_[id] = std::make_unique<ContextThread>(id, name);
   thread_workspaces_[id] = workspace_id;
-  if (changed_) {
-    changed_.Run();
-  }
+  NotifyChanged();
   return id;
 }
 
