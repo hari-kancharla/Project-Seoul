@@ -92,6 +92,7 @@ const files = [
   'component-event.schema.json',
   'task-snapshot.schema.json',
   'capability-descriptor.schema.json',
+  'context-map.schema.json',
 ];
 const registry = {};
 for (const file of files) {
@@ -110,6 +111,7 @@ const representative = {
   'component-event.schema.json': 'fixtures/event/submit.json',
   'task-snapshot.schema.json': 'fixtures/task/completed-fixture.json',
   'capability-descriptor.schema.json': 'fixtures/capability/schema-exercise.json',
+  'context-map.schema.json': 'fixtures/context-map/space.json',
 };
 for (const [file, fixture] of Object.entries(representative)) {
   try {
