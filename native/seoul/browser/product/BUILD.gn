@@ -42,6 +42,7 @@ source_set("product_core") {
   deps = [
     "//base",
     "//seoul/browser/context:context_core",
+    "//seoul/browser/context_map:context_map_core",
     "//seoul/browser/intelligence:intelligence_core",
     "//seoul/browser/library:library_core",
     "//seoul/browser/lifecycle:lifecycle_core",
