@@ -64,8 +64,8 @@ bool ThreadService::RenameThread(const std::string& thread_id,
   auto it = threads_.find(thread_id);
   const bool changed =
       it != threads_.end() && it->second->SetName(name).has_value();
-  if (changed && changed_) {
-    changed_.Run();
+  if (changed) {
+    NotifyChanged();
   }
   return changed;
 }
