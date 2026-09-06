@@ -107,8 +107,8 @@ ContextResult<std::string> ThreadService::AttachItem(
     return base::unexpected(ContextError::kUnknownItem);
   }
   auto result = it->second->AddItem(std::move(item), clock_.Run());
-  if (result.has_value() && changed_) {
-    changed_.Run();
+  if (result.has_value()) {
+    NotifyChanged();
   }
   return result;
 }
