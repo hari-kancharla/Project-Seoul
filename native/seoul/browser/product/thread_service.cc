@@ -86,9 +86,7 @@ bool ThreadService::ReopenThread(const std::string& thread_id) {
     return false;
   }
   it->second->Restore();
-  if (changed_) {
-    changed_.Run();
-  }
+  NotifyChanged();
   return true;
 }
 
