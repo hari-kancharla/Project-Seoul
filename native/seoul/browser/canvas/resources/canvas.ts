@@ -1436,7 +1436,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
             .checked="${layer.enabled}" ?disabled="${this.boostsBusy_}"
             @change="${(event: Event) => void this.setBoostEnabled_(
               layer, (event.target as HTMLInputElement).checked)}">
-          <span>${layer.enabled ? 'Enabled' : 'Paused'}</span></label></header>
+          <span>Boost this site</span></label></header>
       <h4>${layer.name}</h4><p>${layer.origin_pattern}</p>
       <div class="boost-tags">${layer.adjustments.slice(0, 5).map(adjustment =>
         html`<span>${adjustment.kind.replace(/_/g, ' ')}</span>`)}</div>
@@ -1504,10 +1504,11 @@ export class SeoulCanvasAppElement extends CrLitElement {
           event => updateNumber('width', event))}
         ${this.renderBoostRange_(
           'Text scale', 'Scale the root page typography',
-          this.boostFontScaleEnabled_, this.boostFontScale_, .75, 1.5, .05,
-          '×', event => this.boostFontScaleEnabled_ =
+          this.boostFontScaleEnabled_, this.boostFontScale_, .9, 1.5, .05,
+          '%', event => this.boostFontScaleEnabled_ =
               (event.target as HTMLInputElement).checked,
-          event => updateNumber('scale', event))}
+          event => updateNumber('scale', event),
+          value => String(Math.round(value * 100)))}
         ${this.renderBoostRange_(
           'Line spacing', 'Give dense text more air',
           this.boostLineSpacingEnabled_, this.boostLineSpacing_, 1, 2.4, .05,
@@ -1595,12 +1596,17 @@ export class SeoulCanvasAppElement extends CrLitElement {
       label: string, detail: string, enabled: boolean, value: number,
       min: number, max: number, step: number, unit: string,
       onToggle: (event: Event) => void,
-      onInput: (event: Event) => void): unknown {
+      onInput: (event: Event) => void,
+      // The readout is not always the raw slider value. The native Boost panel
+      // shows text scale as a percentage over 90%-150%; printing the same
+      // setting here as "0.9x" made one feature read as two. The slider still
+      // carries the real value - only the readout is formatted.
+      display: (value: number) => string = (value) => String(value)): unknown {
     return html`<label class="boost-range" data-enabled="${enabled}">
       <span class="boost-control-heading"><input type="checkbox"
           .checked="${enabled}" @change="${onToggle}">
         <span><strong>${label}</strong><small>${detail}</small></span>
-        <output>${value}${unit}</output></span>
+        <output>${display(value)}${unit}</output></span>
       <input type="range" min="${min}" max="${max}" step="${step}"
           aria-label="${label} value"
           .value="${String(value)}" ?disabled="${!enabled}"
