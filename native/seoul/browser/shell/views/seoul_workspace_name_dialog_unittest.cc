@@ -23,7 +23,6 @@ TEST(SeoulWorkspaceNameDialogTest,
   ui::DialogModelTextfield* textfield = fields.front()->AsTextfield();
   ASSERT_TRUE(textfield);
   EXPECT_EQ(textfield->label(), u"Space name");
-  EXPECT_FALSE(textfield->label().empty());
 }
 
 }  // namespace

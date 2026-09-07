@@ -14,8 +14,9 @@ TEST(SpaceContainerTest, PartitionNameIsStableAndPrefixed) {
   EXPECT_EQ("space-abc123", PartitionNameForWorkspace("abc123"));
   // Stability matters more than the exact spelling: the name is where the
   // Space's data physically lives, so changing it orphans everything stored.
-  EXPECT_EQ(PartitionNameForWorkspace("abc123"),
-            PartitionNameForWorkspace("abc123"));
+  // Pinning the literal is what catches a scheme change; comparing two calls
+  // in one process only restates that the function is pure.
+  EXPECT_EQ("space-7f3a9c2e-1b4d", PartitionNameForWorkspace("7f3a9c2e-1b4d"));
 }
 
 TEST(SpaceContainerTest, DistinctSpacesNeverShareAPartition) {
