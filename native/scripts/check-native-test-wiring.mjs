@@ -75,11 +75,20 @@ function gnBlock(source, kind, name) {
   return null;
 }
 
-/** String literals inside a `name = [ ... ]` list. */
+/** String literals inside EVERY `name = [ ... ]` and `name += [ ... ]` list.
+ *
+ * Collecting only the first list made this checker blind by construction: a
+ * target that opens `sources = [...]` and then adds more under a conditional
+ * `sources += [...]` had everything after the first list ignored, so a test
+ * source added there was never checked and the gate still reported OK.
+ */
 function gnList(block, name) {
-  const match = block.match(new RegExp(`${name}\\s*(?:\\+)?=\\s*\\[([\\s\\S]*?)\\]`));
-  if (!match) return [];
-  return [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  const re = new RegExp(`${name}\\s*(?:\\+)?=\\s*\\[([\\s\\S]*?)\\]`, 'g');
+  const out = [];
+  for (const match of block.matchAll(re)) {
+    out.push(...[...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+  }
+  return out;
 }
 
 // -- Seoul-owned test source sets reachable from seoul_browser_tests ---------
@@ -158,8 +167,14 @@ if (fixtures.size === 0) {
 // -- the filter test.sh actually runs ---------------------------------------
 
 const testShSource = readFileSync(TEST_SH, 'utf8');
+// Only lines that actually assign the filter count. A commented-out fixture is
+// a fixture that no longer runs, so it has to read as missing, not as covered.
 const filtered = new Set(
-  [...testShSource.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\.\*/g)].map((m) => m[1]),
+  testShSource
+    .split('\n')
+    .filter((line) => /^\s*filter=/.test(line))
+    .flatMap((line) => [...line.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\.\*/g)])
+    .map((m) => m[1]),
 );
 
 for (const [fixture, files] of [...fixtures].sort()) {
