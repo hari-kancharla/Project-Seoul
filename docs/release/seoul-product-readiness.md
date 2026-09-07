@@ -16,8 +16,9 @@ target compile, the local browser launches, and the shipping
 `chrome://seoul-canvas` WebUI runs.
 
 Every gate is green: 32 of 32 native unit binaries, 145 of 145 focused browser
-cases, 89 of 89 repository test cases, 21 of 21 Swift cases, 13 of 13 static
-gates, and the product smoke.
+cases, 89 of 89 repository test cases, 21 of 21 Swift cases, and the product
+smoke. The static gates were 13 when this was measured and are 16 now; the
+unit-binary count predates two suites and is discussed under Test evidence.
 
 The current build is not a public release artifact. It is a component
 development build without final Seoul application branding, signing,
@@ -33,7 +34,7 @@ notarization, an installer, or production update infrastructure.
 | Output | `out/SeoulBaseline/Seoul.app` |
 | Build mode | release component build, `symbol_level=0` |
 | Seoul overlay | `native/seoul/` materialized to `src/seoul/` |
-| Integration | 34 ordered, hash-verified patches |
+| Integration | 41 ordered, hash-verified patches |
 | First-party Canvas | `chrome://seoul-canvas` |
 
 The build host passed the RAM, storage, Xcode, SDK, architecture, and checkout
