@@ -15,7 +15,7 @@ reversible integration patches apply, Chromium and every Seoul native test
 target compile, the local browser launches, and the shipping
 `chrome://seoul-canvas` WebUI runs.
 
-Every gate is green: 32 of 32 native unit binaries, 145 of 145 focused browser
+Every gate is green: 34 of 34 native unit binaries, 171 of 171 focused browser
 cases, 89 of 89 repository test cases, 21 of 21 Swift cases, and the product
 smoke. The static gates were 13 when this was measured and are 16 now; the
 unit-binary count predates two suites and is discussed under Test evidence.
@@ -49,7 +49,7 @@ earlier run.
 
 | Suite | Result |
 |---|---|
-| Native unit executables | 32 of 32 passed (see the note below: there are now 33) |
+| Native unit executables | 34 of 34 passed |
 | Native unit tests | 722 passed, 0 failed |
 | Focused Chromium browser tests | 145 passed, 0 failed |
 | Product smoke (`native/scripts/smoke.mjs`) | passed |
