@@ -76,6 +76,13 @@ public:
     SetFocusBehavior(FocusBehavior::NEVER);
     SetBorder(views::CreateEmptyBorder(gfx::Insets::TLBR(10, 8, 10, 8)));
     GetViewAccessibility().SetName(base::UTF8ToUTF16(entry.label));
+    // A row is deliberately unfocusable - the omnibox keeps the focus and the
+    // arrow keys move a selection here - so "selected" is the only way its
+    // state can be conveyed. aria-selected on a button is ignored, and the
+    // container event that carries a selection change is raised only on an
+    // ancestor whose role takes selectable children. Option inside a listbox
+    // is that pair.
+    GetViewAccessibility().SetRole(ax::mojom::Role::kListBoxOption);
 
     auto *layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
         views::BoxLayout::Orientation::kHorizontal, gfx::Insets(), 0));
@@ -132,10 +139,10 @@ public:
       return;
     }
     selected_ = selected;
+    // SetIsSelected raises kSelection itself and walks up to the listbox to
+    // raise kSelectedChildrenChanged, so announcing it again here only
+    // duplicated the event.
     GetViewAccessibility().SetIsSelected(selected);
-    if (selected) {
-      NotifyAccessibilityEventDeprecated(ax::mojom::Event::kSelection, true);
-    }
     UpdateStyle();
   }
 
@@ -225,6 +232,8 @@ SeoulOmniboxActionView::SeoulOmniboxActionView(ShellController *controller,
   rows->SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical));
   rows_container_ = scroll_view->SetContents(std::move(rows));
+  rows_container_->GetViewAccessibility().SetRole(ax::mojom::Role::kListBox);
+  rows_container_->GetViewAccessibility().SetName(u"Commands");
   scroll_view_ = AddChildView(std::move(scroll_view));
   RebuildRows();
 }
@@ -310,7 +319,11 @@ void SeoulOmniboxActionView::RebuildRows() {
         visible_entries_[i], i,
         base::BindRepeating(&SeoulOmniboxActionView::ExecuteIndex,
                             base::Unretained(this)));
-    rows_.push_back(rows_container_->AddChildView(std::move(row)));
+    ActionRowView *added = rows_container_->AddChildView(std::move(row));
+    added->GetViewAccessibility().SetPosInSet(static_cast<int>(i) + 1);
+    added->GetViewAccessibility().SetSetSize(
+        static_cast<int>(visible_entries_.size()));
+    rows_.push_back(added);
   }
   if (!rows_.empty()) {
     static_cast<ActionRowView *>(rows_.front().get())->SetSelected(true);
