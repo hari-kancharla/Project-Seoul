@@ -113,6 +113,7 @@ void UpdateEssentialButton(views::LabelButton *button,
   const std::u16string label = EssentialLabel(essential);
   const bool active = IsCurrentWindowActive(essential);
   SetEssentialButtonActive(button, active);
+  button->GetViewAccessibility().SetIsSelected(active);
   button->GetViewAccessibility().SetName(label);
   button->GetViewAccessibility().SetDescription(active ? u"Current tab"
                                                        : std::u16string());
@@ -524,12 +525,12 @@ void SeoulShellHeaderView::RebuildFromSnapshot(const ShellSnapshot &snapshot) {
           ui::ImageModel::FromVectorIcon(kSeoulPlusIcon,
                                          kColorToolbarButtonIcon, 16));
       ConfigureEssentialButton(essentials_overflow_button_);
+      essentials_overflow_button_->GetViewAccessibility().SetHasPopup(
+          ax::mojom::HasPopup::kMenu);
       SetEssentialButtonActive(essentials_overflow_button_, false);
       row_layout->SetFlexForView(essentials_overflow_button_, 1);
       essentials_overflow_button_->GetViewAccessibility().SetName(
           count + u" more Essentials");
-      essentials_overflow_button_->SetTooltipText(count +
-                                                  u" more Essentials");
       essentials_overflow_button_->SetTooltipText(u"Show more Essentials");
     }
   }
