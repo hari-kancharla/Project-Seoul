@@ -443,6 +443,47 @@ Milestones are a proposed ordering, not a schedule:
   `docs/research/native-adblock-implementation.md` for the unfinished parity
   list.
 
+## 11c. Fingerprinting protection
+
+- User problem: Blocking trackers' requests leaves the tracker that needs no
+  request: a script that hashes what the machine draws and what it reports
+  about itself, and recognizes the person on the next site.
+- Reference browser behavior: Brave farbles canvas, WebGL, audio and the
+  hardware profile per site and per session by default, with a Strict mode
+  that blocks harder; Firefox offers a global resist-fingerprinting mode that
+  many sites cannot tolerate; Safari reduces surface and reports generic
+  values.
+- What Seoul implements: a Shields-scoped mode per site - Off, Balanced,
+  Strict - with Balanced as the profile default. Balanced hands the renderer a
+  per-site session token and Blink perturbs, from that token alone, the low
+  bits of every pixel readback (2D canvas, `OffscreenCanvas` in dedicated
+  workers, WebGL `readPixels`) and the reported core count and device memory,
+  Brave's floors included. Strict adds the canvas taint, so pixel reads are
+  refused. One switch: a site whose shields are Off gets none of it.
+- What Seoul improves: the same site is stable for the whole session, so a
+  page cannot detect the protection by reading twice and canvas round-trips
+  keep working; the token is never persisted, so a fingerprint cannot survive
+  a restart even on the same site. And the protection is visible and
+  controllable where no browser makes it so: the Shields panel shows a
+  per-page receipt of every scrambled probe by surface, states exactly what
+  the site was told about the machine (with a persona id to compare across
+  sites), rotates a site's identity on demand, and forgets a site
+  completely - data, cache, permissions, identity - in two presses.
+- What is NOT true yet: as of 2026-09-02 the Balanced implementation (patches
+  0040 and 0041) is written and not built; audio, fonts, plugins, screen
+  metrics and the user-agent string are not farbled; shared and service
+  workers carry no token; the profile default has no settings surface.
+- Upstream Chromium support already available: `disable_reading_from_canvas`
+  (the taint), `WebPreferences`, `Settings` and `WorkerSettings` as the
+  per-page and per-worker channels.
+- Native integration area: `seoul/browser/adblock/ad_block_settings.*`,
+  `seoul/browser/product/browser/fingerprint_web_preferences.*`,
+  `seoul/browser/product/browser/seoul_shields_bubble.cc`, and patches
+  0039-0041 (Seoul-owned Blink files `core/frame/seoul_farbling.*` and
+  `core/html/canvas/seoul_canvas_farbling.*`).
+- Honest status: v1 (Strict) built and verified; v2 (Balanced, the default)
+  authored and unbuilt. See `docs/release/seoul-product-readiness.md`.
+
 ## 12. Native AI page understanding
 
 - User problem: Reading, summarizing, and asking questions about a page (or
