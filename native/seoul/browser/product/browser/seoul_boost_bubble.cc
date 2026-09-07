@@ -666,6 +666,16 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
                                       base::Unretained(this), i, 1));
       filter_minus_[i]->SetProminent(true);
       filter_plus_[i]->SetProminent(true);
+      // Six steppers across three rows otherwise carry the same two names,
+      // and neither the minus glyph nor "+" is a word a voice-control user
+      // can say. Name each one for the row it steps. The visible glyphs are
+      // unchanged; only the name assistive tech reads is.
+      const std::u16string filter_name =
+          base::UTF8ToUTF16(std::string(kFilters[i].label));
+      filter_minus_[i]->GetViewAccessibility().SetName(u"Decrease " +
+                                                       filter_name);
+      filter_plus_[i]->GetViewAccessibility().SetName(u"Increase " +
+                                                      filter_name);
     }
 
     // Arc's "Reset to original colors".
@@ -687,7 +697,17 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
           fonts, base::UTF8ToUTF16(std::string(kFonts[i].label)),
           base::BindRepeating(&SeoulBoostBubble::OnFontPicked,
                               base::Unretained(this), i));
+      font_chips_[i]->SetChoice(static_cast<int>(i) + 1,
+                                static_cast<int>(kFonts.size()));
     }
+    // Without SetChoice these chips are plain buttons, and SetSelected then
+    // does not merely fail to announce the active font - the base class
+    // REMOVES the checked state on every transition that is not a press, so
+    // hovering the selected chip erases the row's only machine-readable
+    // state. Which font is active would be carried by the background fill
+    // alone. Naming the group is what lets a chip be named by its font alone.
+    fonts->GetViewAccessibility().SetRole(ax::mojom::Role::kRadioGroup);
+    fonts->GetViewAccessibility().SetName(u"Font");
 
     // Size row. Arc: 90% to 150%.
     auto* size_row = AddRow();
@@ -718,7 +738,11 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
           cases, base::UTF8ToUTF16(std::string(kCases[i].label)),
           base::BindRepeating(&SeoulBoostBubble::OnCasePicked,
                               base::Unretained(this), i));
+      case_chips_[i]->SetChoice(static_cast<int>(i) + 1,
+                                static_cast<int>(kCases.size()));
     }
+    cases->GetViewAccessibility().SetRole(ax::mojom::Role::kRadioGroup);
+    cases->GetViewAccessibility().SetName(u"Case");
 
     AddChildView(std::make_unique<views::Separator>());
 
@@ -760,6 +784,12 @@ class SeoulBoostBubble final : public views::BoxLayoutView,
     // A step down from the rows it introduces - the muted colour alone was
     // not separating "Color" the heading from "Contrast" the control.
     label->SetFontList(label->font_list().DeriveWithSizeDelta(-1));
+    // Structure, not decoration, and the same structure the Shields panel
+    // uses. Styled like a heading but with no heading role, these three
+    // labels read as loose strings and there is no way to move between the
+    // panel's sections.
+    label->GetViewAccessibility().SetRole(ax::mojom::Role::kHeading);
+    label->GetViewAccessibility().SetHierarchicalLevel(3);
   }
 
   SeoulChipButton* AddChip(views::BoxLayoutView* row,
