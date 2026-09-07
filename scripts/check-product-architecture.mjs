@@ -34,6 +34,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { checkoutSrc } from '../native/scripts/checkout-root.mjs';
 
+// Where the Chromium evidence came from. Reading the real patched source is
+// exact; reconstructing it from the patch series is not.
+const PATCH_SERIES_SOURCE = 'manifest-owned Chromium patch series';
+
 const repoRoot = path.resolve(import.meta.dirname, '..');
 const productRoot = path.join(repoRoot, 'native/seoul/browser/product');
 const seoulRoot = path.join(repoRoot, 'native/seoul');
@@ -136,7 +140,7 @@ function chromiumIntegrationEvidence(relativePath) {
   }
   return {
     text: sections.join('\n'),
-    source: 'manifest-owned Chromium patch series',
+    source: PATCH_SERIES_SOURCE,
   };
 }
 
@@ -799,7 +803,24 @@ const locationBarHeaderEvidence = chromiumIntegrationEvidence(
 const omniboxViewEvidence = chromiumIntegrationEvidence(
   'chrome/browser/ui/views/omnibox/omnibox_view_views.cc');
 
-function boundedSourceSection(text, startMarker, endMarker) {
+function boundedSourceSection(text, startMarker, endMarker, evidence) {
+  // Function bounds cannot be reconstructed from a patch series. A function
+  // edited by several patches arrives as scattered hunks, and git names the
+  // enclosing function only on the hunks that carry that context - so the
+  // window between two markers is a fragment, and an invariant that is really
+  // present reports itself missing. That is not hypothetical: BrowserView's
+  // Zen Compact registration is laid down by one patch and extended by
+  // another, and the reconstructed window held 752 characters that did not
+  // include it.
+  //
+  // So where the evidence IS the patch series - CI, which has the repository
+  // but not the 56 GB checkout - the bound is advisory and the whole patched
+  // text for that file is searched instead. The invariant still has to be
+  // present in the patches. On the build host, where the real source is read,
+  // the bound still applies exactly as before.
+  if (evidence && evidence.source === PATCH_SERIES_SOURCE) {
+    return text;
+  }
   // Collect EVERY window, not just the first. A patch series routinely touches
   // one function from several patches (0014 lays the function down, 0017
   // extends it); keeping only the first window hides the later patch's
@@ -824,7 +845,7 @@ function boundedSourceSection(text, startMarker, endMarker) {
 const showActionsSource = boundedSourceSection(
   browserViewEvidence.text,
   'void BrowserView::ShowSeoulOmniboxActions()',
-  'bool BrowserView::IsSeoulOmniboxActionMode() const');
+  'bool BrowserView::IsSeoulOmniboxActionMode() const', browserViewEvidence);
 for (const required of [
   'std::make_unique<seoul::SeoulOmniboxActionView>',
   'location_bar->SetSeoulActionMode(true)',
@@ -843,7 +864,7 @@ for (const required of [
 const actionKeySource = boundedSourceSection(
   browserViewEvidence.text,
   'bool BrowserView::HandleSeoulOmniboxActionKeyEvent',
-  'void BrowserView::HideSeoulOmniboxActions');
+  'void BrowserView::HideSeoulOmniboxActions', browserViewEvidence);
 for (const required of [
   'ui::VKEY_TAB',
   'ui::VKEY_UP',
@@ -867,7 +888,7 @@ for (const required of [
 const executeActionSource = boundedSourceSection(
   browserViewEvidence.text,
   'void BrowserView::ExecuteSeoulOmniboxAction',
-  'void BrowserView::RefreshSeoulOmniboxSurfaceBackground');
+  'void BrowserView::RefreshSeoulOmniboxSurfaceBackground', browserViewEvidence);
 for (const required of [
   'controller->ExecuteCommandLauncherEntry(entry)',
   'HideSeoulOmniboxActions(/*restore_page_focus=*/true)',
@@ -884,7 +905,7 @@ for (const required of [
 const entranceAnimationSource = boundedSourceSection(
   browserViewEvidence.text,
   'void BrowserView::StartSeoulOmniboxEntranceAnimation',
-  'void BrowserView::Layout');
+  'void BrowserView::Layout', browserViewEvidence);
 for (const required of [
   'gfx::Animation::PrefersReducedMotion()',
   'SeoulOmniboxEntranceAnimation',
@@ -920,7 +941,7 @@ for (const required of [
 const locationBarActionModeSource = boundedSourceSection(
   locationBarEvidence.text,
   'void LocationBarView::SetSeoulActionMode(bool enabled)',
-  'void LocationBarView::OnOmniboxHovered');
+  'void LocationBarView::OnOmniboxHovered', locationBarEvidence);
 for (const required of [
   'const bool hide_embedded_chrome =',
   'location_icon_view_->SetVisible(false)',
@@ -975,7 +996,7 @@ for (const required of [
 const loadAcceleratorsSource = boundedSourceSection(
   browserViewEvidence.text,
   'void BrowserView::LoadAccelerators()',
-  'int BrowserView::GetCommandIDForAppCommandID');
+  'int BrowserView::GetCommandIDForAppCommandID', browserViewEvidence);
 for (const required of [
   'ui::VKEY_K, ui::EF_PLATFORM_ACCELERATOR | ui::EF_SHIFT_DOWN',
   'accelerator_table_.contains(seoul_command_launcher)',
@@ -1003,7 +1024,7 @@ for (const required of [
 const acceleratorPressedSource = boundedSourceSection(
   browserViewEvidence.text,
   'bool BrowserView::AcceleratorPressed',
-  'void BrowserView::InfoBarContainerStateChanged');
+  'void BrowserView::InfoBarContainerStateChanged', browserViewEvidence);
 for (const required of [
   'ui::VKEY_K, ui::EF_PLATFORM_ACCELERATOR | ui::EF_SHIFT_DOWN',
   'accelerator == seoul_command_launcher',
