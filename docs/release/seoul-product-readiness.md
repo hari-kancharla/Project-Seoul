@@ -471,6 +471,249 @@ the content stream (Netflix's and Prime Video's ad tiers, SSAI generally)
 present no ad-state DOM and no separate media element. No client-side blocker
 removes those, and Seoul does not claim to.
 
+## Fingerprinting protection, and what has not been run
+
+Brave's second pillar, in two steps. Fingerprinting protection v1 (patch
+0039, verified 2026-08-30) blocks the canvas read outright: a per-site Strict
+setting taints every canvas so `toDataURL`, `getImageData` and `toBlob` throw
+`SecurityError`, proven by a browser test that watches the readback flip.
+
+v2, authored 2026-09-02, is Brave's model at Brave's layer, and it changes
+the default. Protection is now Balanced for every http(s) site unless the site
+is moved off it in the Shields panel. The blocker hands the renderer a
+per-site, per-session token through WebPreferences (patch 0040), and Blink
+derives every perturbation from that token alone: the low bits of 2D canvas
+readbacks (`getImageData`, `toDataURL`, `toBlob`), of `OffscreenCanvas`
+readbacks in dedicated workers (`getImageData`, `convertToBlob`), and of WebGL
+`readPixels` in its ordinary RGBA8 form; and (patch 0041)
+`navigator.hardwareConcurrency` and
+`navigator.deviceMemory`, farbled with Brave's own floors of four cores and
+4 GiB. The same site reads the same values all session, so reading twice
+proves nothing and legitimate round-trips stay stable; another site or another
+session reads different ones, so a hash of any of it identifies nothing across
+sites. The token is regenerated every browser session and never persisted.
+Strict is Balanced plus the canvas taint, and the taint now refuses WebGL
+`readPixels` with `GL_INVALID_OPERATION` instead of tripping a debug assertion
+and reading anyway. The Shields panel's Fingerprinting row shows Off, Balanced
+and Strict as chips; a pick is the site's override and "Use default for this
+site" clears it. A caption under the chips names the profile default, and
+when a site's choice differs from it a "Use for all sites" chip promotes that
+choice to the default (preference `seoul.adblock.default_fingerprint_mode`)
+and lets the site follow it again - the global setting Brave keeps on a
+settings page, offered where the decision is actually made.
+
+Two defects found by reading the content seam rather than the tests, both
+fixed in the same pass. First, `OverrideWebPreferencesAfterNavigation` hands
+the override the WebContents's *current* preferences, not a fresh
+computation, and the v1 override "never forced the field off" - so a Strict
+taint set for one site rode into every site visited next in that tab until
+something else recomputed preferences, and the v1 browser test only passed
+because it called `OnWebPreferencesChanged()` by hand. That defect is in the
+committed v1. The override now decides the token per site and assigns it
+unconditionally, and tracks the taint it applied per WebContents so it
+restores exactly the value it replaced (content and Chrome set the same field
+for their own reasons). Second, incognito is served by the regular profile's
+blocker service and so shared its session key: the same site would have
+farbled identically in a private window, linking the two. The token now also
+keys on the browser context's own id, so each incognito session has its own
+pattern. `FingerprintStateNeverRidesAcrossNavigations` and
+`IncognitoFarblesWithItsOwnKey` are the proofs, and neither calls the
+recomputation by hand. Two smaller repairs rode along: switching a site's
+shields back on now clears a temporary disable (which would otherwise snap
+the switch straight back off), and the farbled copy handed to the encoders
+keeps the canvas's own colour type and colour space, so an 8-bit canvas still
+encodes as 8-bit and a float16 one as float16, exactly as it would unfarbled.
+
+Then the part no browser shows. Under the Fingerprinting row the panel now
+carries an **Identity** section with three things in it. A *receipt*: how
+many times scripts on this page read back a farbled answer, by surface -
+"3 fingerprinting attempts scrambled · canvas 2, hardware 1" - the
+protection's proof of work, the way the blocked count is the blocker's. Each
+farbled readback is reported by Blink as a loading behaviour (three Seoul
+bits in the high end of `LoadingBehaviorFlag`, a channel the renderer's
+frame observers already receive), counted by Seoul's per-frame renderer agent
+- a document's first probe reports at once, the rest batch every 250 ms -
+sent over the agent's existing mojo channel (`ReportFarbledReads`), and kept
+per page (the outermost main frame, so a third-party frame's probes count
+against the page a person is looking at), reset when a new document binds.
+*What this site sees*: "a 6-core machine with 8 GB · persona 7A3F" - the
+generator moved into `blink/public/common` so the browser computes the
+site's answers from the very token and code the renderer ran; the persona is
+four hex digits of the token a person can compare across sites and across a
+rotation. And two moves: **New identity** rotates the site's pattern for the
+rest of the session, live on the open page, touching no other site; **Forget
+this site** - two presses, the question expiring on its own - removes
+everything the site's registrable domain stored in the profile through
+Chrome's own browsing-data remover, rotates the identity so its fingerprint
+of the machine stops matching too, and reloads the page as a first visit.
+Tor's New Identity, scoped to one site and made complete.
+
+**v2 has now been compiled; it has not been run.** On 2026-09-06 the tree was
+built for the first time (`chrome`, `seoul_browser_tests`,
+`seoul_adblock_core_unittests`). Three things came out of that, recorded here
+because each was invisible to every static gate:
+
+1. The first build failed to compile. Adding `ReportFarbledReads` to the
+   `CosmeticFilterHost` mojo interface made the renderer test's
+   `FakeCosmeticFilterHost` abstract, and twenty errors cascaded from that one
+   omission. The fake now implements it and records the counts.
+2. The second build failed to link, wanting the pre-refactor signatures of
+   `RotateIdentity` and `DescribeIdentity`. The cause was not the code: it was
+   `materialize.sh`, which mirrors with `rsync -a` and so preserves the
+   repository's modification times. Edits made at 04:35 arrived in the checkout
+   stamped 04:35, older than object files built at 04:42, so the build system
+   considered them current and linked stale objects against new sources. This is
+   a standing hazard, not a one-off: any edit can be silently ignored by a build
+   whose objects happen to be newer. Until `materialize.sh` is fixed, a build
+   after materialising must force the timestamps forward. Note that simply
+   touching the mirror breaks `materialize.sh verify`, which compares times, so
+   the fix belongs in the script rather than in each caller.
+3. Nothing else failed to compile. The plumbing is therefore real: the mojom
+   change, the `WorkerSettings` field, the `NavigatorBase` overrides, the new
+   `blink_common` generator, every build-list entry, and the link of all three
+   binaries.
+
+The suites have now been run against those binaries. Measured on 2026-09-06 on
+macOS arm64, with the runner's own flags (`--headless=new --disable-gpu
+--test-launcher-jobs=1`):
+
+| Suite | Result |
+|---|---|
+| `AdBlockSettingsTest` fingerprinting cases | 5 of 5 passed |
+| Identity rotation, Space scoping, browser/renderer agreement | 3 of 3 passed |
+| `AdBlockStatsServiceTest` receipt cases | 3 of 3 passed |
+| `AdBlockBrowserTest` fingerprinting cases | 8 of 8 passed, in 19s |
+| Strict enforcement, the panel chip, promotion to the default | passed |
+| Forgetting a site: data, identity, reload | passed |
+
+The eight browser cases are the ones that matter, because they drive real
+readbacks in a live renderer rather than asserting about the model: protection
+on by default, per-site farbling that is stable within a session and divergent
+across sites, coverage of dedicated workers and WebGL, the hardware profile,
+no carry-over across navigations, incognito keyed separately, the receipt
+counting real probes, and a rotation that changes what the site is told. WebGL
+was genuinely exercised rather than skipped - the case logs and returns early
+where no GL is available, and it logged nothing, because the software renderer
+served it.
+
+One defect was found by running them, in the tests rather than the code: the
+three identity cases were written as bare `TEST()` and so had no
+`base::test::TaskEnvironment`, and constructing `AdBlockService` without one
+segfaults instead of failing an assertion. They now use the `AdBlockAsyncTest`
+fixture that supplies it. A test that crashes on setup proves nothing, and no
+static gate can see it.
+
+Twenty-one cases in total. The two runtime cases close the loop through the
+interface itself: they press the panel's Strict chip and watch a real readback
+start throwing, press the promotion chip and watch the site follow the new
+default, then write a cookie and local storage, forget the site, and confirm
+both are gone and the token has changed.
+
+### What a standards-grounded review found afterwards
+
+The suites passing did not mean the work was right. A review against published
+criteria and against Chromium's own conventions returned fifteen must-fix
+findings, each checked from two angles before anything was changed. The ones
+worth recording, because each was invisible to every test that existed:
+
+**A private window had no protection at all.** The blocker was registered
+`kOriginalOnly`, which means no service off-the-record: no blocking, no
+farbling, and a shields control that opened nothing. The incognito test passed
+only because unfarbled pixels differ from farbled ones too. Off-the-record
+sessions now share the engine, settings are scoped to the window's own context
+so a choice made privately cannot outlive it, and the panel opens there and says
+so.
+
+**Three ways a page could still read the true pixels.** A WebGL read into a
+pixel-pack buffer landed in GPU memory the farbling never touched, and
+`getBufferSubData` handed back the real drawing buffer; it is now refused while
+protection is on. Asking `getImageData` for `rgba-float32` returned the canvas
+exactly, because perturbing the low bits of a float moves it about a
+twenty-thousandth of an 8-bit step; readbacks are now quantised first, so a
+float read and an ordinary read agree and cannot be differenced either. And the
+farbling secret was 32 bits against an unlimited known-plaintext oracle - a
+script draws pixels it chose and watches how they change - so it is now 64 bits
+end to end.
+
+**A page could delete its own receipt** by spinning a cheap property past the
+batch cap inside the same window as a canvas probe, because the browser
+discarded the entire batch. Counts are clamped rather than dropped, and the
+hardware profile reports once per document instead of once per read.
+
+**The panel was overclaiming.** "This site sees your real machine: 8 GB" was the
+Device Memory specification's clamped bucket, which every browser reports to
+every site; nothing had been disclosed. "No fingerprinting attempts seen"
+claimed a coverage the receipt does not have, being blind to workers and to
+reads Strict refused. And every canvas readback was counted as an attempt, so a
+drawing tool or a map read as hundreds of attacks. The sentences now say what
+was measured.
+
+**The accessible state was destroyed by pointing at it.** `views::Button`
+overwrites the checked state on every state transition that is not "pressed", so
+hovering the selected chip removed the row's only authoritative state; and a
+button role does not speak its value to VoiceOver, so the current mode was never
+announced on the platform this build targets. Chips are now radio buttons with
+set positions, state written from the truth, and selection carries a border
+rather than a fill that also meant hover, press and "this is an action".
+
+Three Context Map defects in the same review: Space scope applied no scope and
+was identical to All Windows with a test enshrining it; truncation discarded
+user-authored notes first, the opposite of what this document promises; and
+`total_edges` reported a complete edge set while dropping hundreds. All three
+are fixed and each now has a test that fails if it returns.
+
+What is still owed:
+
+| Step | Command |
+|---|---|
+| Build and run every native unit binary | `npm run test:native` |
+| Settings model, in isolation | `seoul_adblock_core_unittests --gtest_filter='AdBlockSettingsTest.*'` |
+| Readbacks, workers, WebGL, hardware, default-on, navigation, incognito, the receipt, rotation | `seoul_browser_tests --gtest_filter='AdBlockBrowserTest.Fingerprint*:AdBlockBrowserTest.CanvasFarbling*:AdBlockBrowserTest.Farbling*:AdBlockBrowserTest.HardwareProfile*:AdBlockBrowserTest.Incognito*:AdBlockBrowserTest.NewIdentity*'` |
+| Strict enforcement, the panel chip, promotion to the default, forgetting a site | `seoul_browser_tests --gtest_filter='SeoulRuntimeBrowserTest.CanvasFingerprintBlockIsRealEnforcement:SeoulRuntimeBrowserTest.ForgetThisSite*'` |
+| The receipt store and identity rotation, in isolation | `seoul_adblock_core_unittests --gtest_filter='AdBlockStatsServiceTest.*:AdBlockAsyncTest.*Identity*:AdBlockAsyncTest.Rotation*:AdBlockAsyncTest.Description*'` |
+| The 41-patch round trip | `npm run verify:patches` (needs a clean checkout) |
+
+Two of those cases carry stated environmental conditions rather than hidden
+assumptions: the WebGL clause logs and returns where the test environment has
+no GL at all, and the hardware clause asserts ranges, because a farbled value
+may legitimately equal the true one.
+
+What was verified without a build, so nobody mistakes it for one: every
+touched source - eleven Seoul files (the renderer agent included) and
+fourteen Blink files - was compiled in syntax-only mode
+with the exact flags of the last build, read from its generated `.ninja`
+target files (`clang++ -fsyntax-only` plus the target's defines, include
+paths and cflags), after `gn gen` and the mojom codegen were re-run through
+the project's own build driver so the new `ReportFarbledReads` bindings
+were real. That parse-and-type check caught four errors along the way: a
+`GURL::host()` that is a `string_view` here, a `JSONReader::Read` call
+missing its options, raw-pointer indexing that Chromium's unsafe-buffers
+policy rejects in Blink, and an `EvalJs` comparison to `nullptr` that is
+ambiguous at this revision. It proves no linking or behaviour; the table
+above is still owed.
+
+One gap is left open deliberately, and it is a trade rather than an oversight.
+WebGL can read back in a floating-point format, through `EXT_color_buffer_float`
+and `readPixels(..., gl.FLOAT)`, and Balanced does not perturb those pixels.
+Refusing them would close it, but Balanced is the default mode and that read is
+how sites do GPU compute - physics, model inference, image processing - so
+refusing by default would break working software on every site to remove a
+route a fingerprinter has no need of, since the ordinary 8-bit readback it
+would otherwise use is farbled. Strict does close it: the canvas taint makes
+`OriginClean()` false, and that refusal sits ahead of any format handling, so
+every `readPixels` is refused there regardless of type. A person who wants the
+hole shut can shut it, and the default does not break their browser to do it.
+
+Boundaries, stated so nobody oversells it: shared and service workers have no
+creating page and carry no token, so an `OffscreenCanvas` in one reads true
+pixels (upstream's own canvas taint has the same shape); a dedicated worker's
+readbacks are farbled but not receipted, because a worker has no document
+loader to report through; the receipt counts probes, not scripts, and names
+no script; WebGL2's pixel-pack-buffer `readPixels` path lands in a GPU buffer
+and is not farbled;
+AudioContext, font enumeration, plugins, screen metrics and the user-agent
+string are untouched. Those are the recorded next vectors, in that order.
+
 ## Boosts, now on the page they change
 
 "Boost This Site" opens a native bubble anchored to the toolbar of the window
@@ -948,8 +1191,14 @@ simulated or marked complete by a development build.
 
 ## Current handoff
 
-The development build is reproducible and every gate is green. The remaining
-work is the public-release gate list above, not defect repair.
+The development build is reproducible and every gate was green for the tree as
+of 2026-08-30. One piece of work sits on top of it unbuilt: fingerprinting
+protection v2 (its own section above), authored 2026-09-02 without a build.
+Build it and run the cases listed there before touching anything else in that
+area. The static gates (`npm run check`) pass on the tree, which proves the
+manifest, the patch series' shape, and Seoul source syntax against the pinned
+headers - not compilation. After that, the remaining work is the
+public-release gate list above, not defect repair.
 
 Continue from this state; do not restart from the standalone prototype, do not
 weaken the patch or build gates, and do not use an installed browser as a Seoul
