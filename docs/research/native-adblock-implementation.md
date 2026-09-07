@@ -958,3 +958,79 @@ tested.
 
 Brave parity must not be claimed until all of those paths and their compatibility
 tests are complete.
+
+## Fingerprinting protection
+
+Brave's second pillar. Two modes on top of Off, decided per site by the
+blocker's settings (`FingerprintMode` in `ad_block_settings.h`: a profile
+default, Balanced, and a per-site override), enforced by Blink, and standing
+down while the site's shields are Off.
+
+**Strict (v1, patch 0039)** sets Blink's own `disable_reading_from_canvas`, so
+every canvas is tainted and `toDataURL`, `getImageData`, `toBlob` and, with
+patch 0040, WebGL `readPixels` refuse the read.
+
+**Balanced (v2, patches 0040 and 0041)** is farbling. `AdBlockService` derives
+a 32-bit token per site (eTLD+1) and per browser context (so incognito never
+shares the regular profile's pattern) from a key generated fresh each browser
+session and never persisted; `OverrideFingerprintWebPreferences` places it in
+`WebPreferences::seoul_farbling_token` at the two ChromeContentBrowserClient
+seams patch 0039 established. Both seams re-decide from scratch: the
+post-navigation seam starts from the previous page's preferences, so the
+token is assigned unconditionally per site and the Strict taint is tracked
+per WebContents and restored to whatever it replaced. Blink carries it as a generated Setting,
+`WorkerSettings` copies it at worker creation, and
+`core/frame/seoul_farbling.{h,cc}` turns it into a deterministic generator per
+surface. From that generator:
+
+- `core/html/canvas/seoul_canvas_farbling.{h,cc}` flips the least-significant
+  bit of one colour channel (never alpha) in a bounded pseudo-random pixel
+  subset - 16 to 1024 flips, scaled to the readback - on a copy the caller
+  owns: the `ImageData` of `getImageData`, a raster copy handed to the
+  `toDataURL`/`toBlob`/`convertToBlob` encoders, script's own buffer after
+  `readPixels`. The canvas buffer itself is never touched, so `putImageData`
+  round-trips are visually identical and noise never accumulates. 8-bit,
+  float16 and float32 `ImageData` are all handled.
+- `navigator.hardwareConcurrency` and `navigator.deviceMemory` are farbled in
+  `NavigatorBase`, before the DevTools emulation override, with Brave's floors:
+  true below four cores or 4 GiB, otherwise a stable per-site value between the
+  floor and the truth.
+
+Strict sets the token as well as the taint, so the hardware profile stays
+farbled while the pixels are refused.
+
+**The receipt and the identity.** Each farbled readback is reported by Blink
+through `DocumentLoader::DidObserveLoadingBehavior` with one of three Seoul
+flags (`kLoadingBehaviorSeoulFarbledCanvasReadback`, `...WebGLReadback`,
+`...HardwareProfile`), a channel content already forwards to every
+`RenderFrameObserver`. Seoul's per-frame agent (`seoul/renderer/
+cosmetic_filter_agent`) counts them - first probe immediately, then batched
+at 250 ms, flushed at detach - and sends `ReportFarbledReads` on its
+existing `CosmeticFilterHost` pipe; the host attributes the counts to the
+outermost main frame in `AdBlockStatsService`, and resets that page's
+receipt when a primary main frame document binds. `AdBlockService::
+DescribeIdentity` computes what the site is told - cores, memory, a
+four-hex-digit persona - from the shared generator in
+`blink/public/common/privacy/seoul_farbling.h`, the same code the renderer
+ran; `RotateIdentity` adds a per-site generation to the token derivation;
+`seoul/browser/product/browser/site_identity.cc` implements "Forget this
+site" over `BrowsingDataRemover::RemoveWithFilterAndReply` scoped to the
+registrable domain, then rotates and reloads.
+
+What is deliberately not covered, recorded so it is not mistaken for coverage:
+shared and service workers (no creating page, no token; upstream's taint has
+the same boundary); WebGL2's pixel-pack-buffer `readPixels` path (a GPU
+buffer, later read by `getBufferSubData`); AudioContext, font enumeration,
+plugins, screen metrics and the user-agent string.
+
+Verification status: the settings model is covered by `AdBlockSettingsTest.*`,
+the runtime behaviour by `AdBlockBrowserTest.FingerprintProtectionIsOnByDefault`,
+`CanvasFarblingIsPerSiteAndStable`, `FarblingCoversWorkersAndWebGL`,
+`HardwareProfileIsFarbledPerSiteAndStable`,
+`FingerprintStateNeverRidesAcrossNavigations`, `IncognitoFarblesWithItsOwnKey`,
+`FingerprintReceiptCountsEveryScrambledRead`, `NewIdentityChangesWhatTheSiteSees`,
+`SeoulRuntimeBrowserTest.ForgetThisSiteClearsDataAndIdentity`,
+`AdBlockStatsServiceTest.FarbledReads*`, `AdBlockServiceIdentityTest.*` and
+`SeoulRuntimeBrowserTest.CanvasFingerprintBlockIsRealEnforcement`. As of
+2026-09-02 v2 has not been built or run; `docs/release/seoul-product-readiness.md`
+carries the exact steps.
