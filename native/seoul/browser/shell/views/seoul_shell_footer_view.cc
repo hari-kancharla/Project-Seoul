@@ -93,6 +93,13 @@ class CreateNewButton final : public views::LabelButton {
       : views::LabelButton(std::move(callback), std::u16string()) {
     image_container_view()->SetPaintToLayer();
     image_container_view()->layer()->SetFillsBoundsOpaquely(false);
+    // Pressing this opens the command launcher over the window; pressing it
+    // again closes it. The 45-degree turn of the plus is that state, drawn.
+    // These two say the same thing to a screen reader, which otherwise hears a
+    // plain button that gives no hint it opens anything and never reports that
+    // it is currently open.
+    GetViewAccessibility().SetHasPopup(ax::mojom::HasPopup::kDialog);
+    GetViewAccessibility().SetIsCollapsed();
   }
 
   void SetLauncherVisible(bool visible) {
@@ -100,6 +107,11 @@ class CreateNewButton final : public views::LabelButton {
       return;
     }
     launcher_visible_ = visible;
+    if (launcher_visible_) {
+      GetViewAccessibility().SetIsExpanded();
+    } else {
+      GetViewAccessibility().SetIsCollapsed();
+    }
     ApplyRotation(/*animate=*/true);
   }
 
@@ -220,6 +232,11 @@ class SpaceSwitcherButton final : public views::LabelButton {
   SpaceSwitcherButton(views::Button::PressedCallback callback,
                       const ShellSpaceItem& space)
       : views::LabelButton(std::move(callback), std::u16string()) {
+    // One of N Spaces is current, so each button is a radio button inside the
+    // strip's radio group. Without the pair, "current" can only be smuggled
+    // into the name as prose - which no platform reports as a selected state,
+    // and which cannot be translated or reordered the way a state can.
+    GetViewAccessibility().SetRole(ax::mojom::Role::kRadioButton);
     SetHorizontalAlignment(gfx::ALIGN_CENTER);
     // Width is not fixed: the current Space carries a pill and needs room for
     // it. ApplySizeForState() is the single place that decides.
@@ -284,15 +301,17 @@ class SpaceSwitcherButton final : public views::LabelButton {
     ApplyVisualState(animate && was_active == active_);
 
     SetTooltipText(name.empty() ? u"Space" : name);
-    std::u16string accessible_name =
-        space.is_active ? u"Current Space" : u"Switch to Space";
-    if (!name.empty()) {
-      accessible_name += u", " + name;
-    }
+    // The name is the Space, and being current is a STATE. SetIsSelected sets
+    // the selected bit, raises kSelection, and walks up to raise
+    // kSelectedChildrenChanged on the strip - which is what makes a switch
+    // driven by the scroll wheel or by another window announce at all, since
+    // neither of those paths moves focus onto a renamed button.
+    std::u16string accessible_name = name.empty() ? u"Space" : name;
     if (space.switching) {
       accessible_name += u", switching";
     }
     GetViewAccessibility().SetName(accessible_name);
+    GetViewAccessibility().SetIsSelected(space.is_active);
     SchedulePaint();
   }
 
@@ -334,6 +353,22 @@ class SpaceSwitcherButton final : public views::LabelButton {
           GetColorProvider()->GetColor(kColorToolbarButtonIcon), alpha));
       canvas->DrawRoundRect(gfx::RectF(GetLocalBounds()),
                             space_visuals::kSwitcherCornerRadius, tile);
+    }
+    // Collapsed, the current Space gives up its pill and its name, so the only
+    // thing left between it and a hovered neighbour is 0x2E against 0x24 of the
+    // same fill - under 4%, and less once the neighbour's ink drop lands on top.
+    // A ring is a shape rather than a shade: it does not move when anything is
+    // hovered, and it does not ask the eye to compare two alphas.
+    if (active_ && presentation_collapsed_) {
+      cc::PaintFlags ring;
+      ring.setAntiAlias(true);
+      ring.setStyle(cc::PaintFlags::kStroke_Style);
+      ring.setStrokeWidth(2.0f);
+      ring.setColor(GetColorProvider()->GetColor(kColorToolbarButtonIcon));
+      gfx::RectF ring_bounds(GetLocalBounds());
+      ring_bounds.Inset(1.0f);
+      canvas->DrawRoundRect(ring_bounds,
+                            space_visuals::kSwitcherCornerRadius - 1, ring);
     }
     if (!builtin_icon_ref_.empty()) {
       ui::ColorId color_id = kColorToolbarButtonIcon;
@@ -519,8 +554,14 @@ SeoulShellFooterView::SeoulShellFooterView(ShellController* controller) {
       views::BoxLayout::MainAxisAlignment::kCenter);
   spaces_layout_->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kCenter);
-  spaces_container_->GetViewAccessibility().SetRole(ax::mojom::Role::kGroup);
-  spaces_container_->GetViewAccessibility().SetName(u"Workspaces");
+  // kGroup is not a selection container - ui::IsContainerWithSelectableChildren
+  // does not accept it - so a child's SetIsSelected would find no ancestor to
+  // raise kSelectedChildrenChanged on and the switch would go unannounced.
+  // Named "Spaces" because that is the word every visible string in this
+  // surface uses; "Workspaces" was the internal model's name leaking out.
+  spaces_container_->GetViewAccessibility().SetRole(
+      ax::mojom::Role::kRadioGroup);
+  spaces_container_->GetViewAccessibility().SetName(u"Spaces");
   controls_layout_->SetFlexForView(spaces_container_, 1);
 
   create_new_button_ = controls_row_->AddChildView(
@@ -536,8 +577,11 @@ SeoulShellFooterView::SeoulShellFooterView(ShellController* controller) {
                           base::Unretained(this)),
       u"Recover"));
   StyleFooterButton(reconcile_button_);
+  // No SetName: the button reads "Recover", and naming it "Run reconciliation"
+  // left a speech-input user unable to activate by saying what they see
+  // (WCAG 2.5.3). LabelButton derives the name from the text; the tooltip
+  // supplies the longer phrasing as the description.
   reconcile_button_->SetTooltipText(u"Run reconciliation");
-  reconcile_button_->GetViewAccessibility().SetName(u"Run reconciliation");
 
   status_label_ = AddChildView(std::make_unique<views::Label>(
       u"", views::style::CONTEXT_LABEL, views::style::STYLE_SECONDARY));
@@ -629,11 +673,13 @@ void SeoulShellFooterView::RebuildFromSnapshot(const ShellSnapshot& snapshot) {
     reconcile_button_->SetText(
         presentation_collapsed_ ? u"!" : u"Acknowledge Recovery");
     reconcile_button_->SetTooltipText(u"Acknowledge Recovery");
-    reconcile_button_->GetViewAccessibility().SetName(u"Acknowledge recovery");
+    // Collapsed, the button shows only "!", which is no name at all - so this
+    // one keeps an explicit name. Expanded, it matches the visible text
+    // exactly rather than differing from it by case.
+    reconcile_button_->GetViewAccessibility().SetName(u"Acknowledge Recovery");
   } else {
     reconcile_button_->SetText(u"Recover");
     reconcile_button_->SetTooltipText(u"Run reconciliation");
-    reconcile_button_->GetViewAccessibility().SetName(u"Run reconciliation");
     reconcile_button_->SetVisible(!presentation_collapsed_ &&
                                   snapshot.show_status_banner);
   }
