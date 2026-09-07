@@ -23,8 +23,10 @@ The repository contains:
    unit-test target.
 2. The **reversible Chromium integration patch series** (`native/patches/`) over
    a pinned Chromium revision, which wires the native services into
-   `//chrome/browser` and the vertical tab strip. It applies and reverses
-   cleanly against the pinned checkout.
+   `//chrome/browser` and the vertical tab strip. It applied and reversed
+   cleanly against the pinned checkout when the series was 39 patches; the
+   round trip for the current 41 has not been re-run and is listed as owed in
+   `docs/release/seoul-product-readiness.md`.
 3. An **unmodified, pinned native Chromium baseline** (`native/chromium.lock.json`,
    `native/gn/`) plus reproduction/verification scripts. The Chromium source and
    build output live in an external, untracked checkout (default sibling
