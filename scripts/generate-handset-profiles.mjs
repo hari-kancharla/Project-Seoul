@@ -48,7 +48,22 @@ const BOUNDS = { minW: 240, maxW: 1366, minH: 320, maxH: 1600, minDpr: 1.0, maxD
 function fail(msg) { console.error('generate-handset-profiles: ' + msg); process.exit(1); }
 
 // --- 1. Extract the catalog array from the TS source -------------------------
-if (!existsSync(catalogPath)) fail('no DevTools catalog at ' + catalogPath);
+if (!existsSync(catalogPath)) {
+  // This reads the device catalog out of the Chromium checkout, and the
+  // checkout does not exist everywhere this runs: CI has the repository but
+  // not the 56 GB tree. The two cases are not the same failure. No checkout at
+  // all means there is nothing to check against, so skip and say so - the same
+  // thing the syntax gate does for sources that only parse on the build host.
+  // A checkout that IS present but has no catalog means upstream moved the
+  // file, which is exactly the regression this gate exists to catch, so that
+  // still fails.
+  if (!existsSync(src)) {
+    console.log('generate-handset-profiles: SKIP (no Chromium checkout at ' +
+                src + '; catalog check needs the build host)');
+    process.exit(0);
+  }
+  fail('no DevTools catalog at ' + catalogPath);
+}
 const ts = readFileSync(catalogPath, 'utf8');
 const begin = ts.indexOf('// DEVICE-LIST-BEGIN');
 const end = ts.indexOf('// DEVICE-LIST-END');
