@@ -128,9 +128,11 @@ run_browser_tests() {
   # this is an allow-list rather than an unfiltered run.
   #
   # An allow-list rots silently: a new fixture simply never runs, and the suite
-  # still says SUCCESS. check-browser-test-filter.mjs (npm run
-  # check:browser-tests) reads the fixtures back out of the Seoul sources and
-  # fails if any of them is missing from this list.
+  # still says SUCCESS. check-native-test-wiring.mjs (npm run
+  # check:native-tests) reads the fixtures back out of the Seoul sources and
+  # fails if any of them is missing from this list. It previously named a
+  # check-browser-test-filter.mjs and an npm run check:browser-tests, neither
+  # of which exists - a comment promising a gate that was never there.
   local filter
   filter="SeoulRuntimeSessionRestoreBrowserTest.*"
   filter="${filter}:SeoulRuntimeBrowserTest.*"
