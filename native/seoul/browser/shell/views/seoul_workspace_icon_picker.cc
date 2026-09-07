@@ -113,8 +113,15 @@ class WorkspaceIconChoiceButton final : public views::LabelButton {
     SetTextSubpixelRenderingEnabled(false);
     label()->SetFontList(label()->font_list().DeriveWithSizeDelta(
         14 - label()->font_list().GetFontSize()));
-    GetViewAccessibility().SetName(std::move(accessible_name));
-    SetTooltipText(GetViewAccessibility().GetCachedName());
+    if (builtin) {
+      // A built-in icon is painted, not labelled, so it needs both the name
+      // and the tooltip. An emoji is already its own visible label -
+      // LabelButton::SetTextInternal has named the button from that text - and
+      // repeating the glyph as a tooltip only duplicates the name into the
+      // accessible description.
+      GetViewAccessibility().SetName(std::move(accessible_name));
+      SetTooltipText(GetViewAccessibility().GetCachedName());
+    }
     UpdateBackground();
   }
 
@@ -315,8 +322,17 @@ class SeoulWorkspaceIconPicker final : public views::View,
             /*builtin=*/true));
     none_button_->SetPaintToLayer();
     none_button_->layer()->SetFillsBoundsOpaquely(false);
+    // Two pages of one panel, one of them current: a tab list of tabs. On a
+    // plain button role the selected bit reaches nothing - Windows exposes
+    // SelectionItem only for the roles in IsSelectionItemSupported, and the
+    // Mac AXValue mapping reads AXSelected only for kTab - and a container
+    // that is not a selection container never receives the
+    // kSelectedChildrenChanged that announces the switch.
+    page_buttons->GetViewAccessibility().SetRole(ax::mojom::Role::kTabList);
+    page_buttons->GetViewAccessibility().SetName(u"Icon source");
     for (views::LabelButton* button :
          {emoji_page_button_, builtin_page_button_}) {
+      button->GetViewAccessibility().SetRole(ax::mojom::Role::kTab);
       button->SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(3, 6)));
       button->SetFocusRingCornerRadius(kChoiceCornerRadius);
       button->SetLabelStyle(views::style::STYLE_EMPHASIZED);
@@ -392,6 +408,13 @@ class SeoulWorkspaceIconPicker final : public views::View,
   };
 
   void BuildChoices() {
+    // The grid is a single-select list, so it has to say so. SetIsSelected on
+    // a choice raises kSelectedChildrenChanged only on an ancestor whose role
+    // passes ui::IsContainerWithSelectableChildren, and the selected bit is
+    // not exposed at all on a plain button role - the same listbox/option pair
+    // the command launcher's result rows already use.
+    grid_->GetViewAccessibility().SetRole(ax::mojom::Role::kListBox);
+    grid_->GetViewAccessibility().SetName(u"Space icons");
     for (const WorkspaceEmojiData& emoji : WorkspaceEmojiCatalog()) {
       const std::string icon_ref(emoji.emoji);
       auto* button =
@@ -399,6 +422,7 @@ class SeoulWorkspaceIconPicker final : public views::View,
               base::BindRepeating(&SeoulWorkspaceIconPicker::SelectIcon,
                                   base::Unretained(this), icon_ref),
               icon_ref, base::UTF8ToUTF16(icon_ref), /*builtin=*/false));
+      button->GetViewAccessibility().SetRole(ax::mojom::Role::kListBoxOption);
       choices_.push_back(
           {button, PickerPage::kEmoji, emoji.search_terms, icon_ref});
     }
@@ -409,6 +433,7 @@ class SeoulWorkspaceIconPicker final : public views::View,
               base::BindRepeating(&SeoulWorkspaceIconPicker::SelectIcon,
                                   base::Unretained(this), icon_ref),
               icon_ref, base::UTF8ToUTF16(icon.name), /*builtin=*/true));
+      button->GetViewAccessibility().SetRole(ax::mojom::Role::kListBoxOption);
       choices_.push_back({button, PickerPage::kBuiltin, icon.name, icon_ref});
     }
   }
