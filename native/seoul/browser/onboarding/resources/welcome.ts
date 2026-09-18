@@ -29,6 +29,7 @@ export class SeoulWelcomeAppElement extends CrLitElement {
     return {
       state_: {type: Object},
       busy_: {type: Boolean},
+      error_: {type: String},
       // Set once the platform has answered a default-browser request, so the
       // step can report the real outcome instead of implying success.
       defaultBrowserAnswer_: {type: String},
@@ -37,6 +38,7 @@ export class SeoulWelcomeAppElement extends CrLitElement {
 
   protected accessor state_: WelcomeState|null = null;
   protected accessor busy_: boolean = false;
+  protected accessor error_: string = '';
   protected accessor defaultBrowserAnswer_: string = '';
 
   private handler_: PageHandlerRemote = new PageHandlerRemote();
@@ -48,9 +50,14 @@ export class SeoulWelcomeAppElement extends CrLitElement {
     this.refresh_();
   }
 
-  private async refresh_() {
-    const {state} = await this.handler_.getState();
-    this.state_ = state;
+  protected async refresh_() {
+    try {
+      const {state} = await this.handler_.getState();
+      this.state_ = state;
+      this.error_ = '';
+    } catch {
+      this.error_ = 'Setup could not be loaded. Please try again.';
+    }
   }
 
   // The index of the current step, for the progress dots. Derived from the
@@ -104,28 +111,49 @@ export class SeoulWelcomeAppElement extends CrLitElement {
       return;
     }
     this.busy_ = true;
-    const {state} = await this.handler_.completeStep(this.state_.currentStep);
-    this.state_ = state;
-    this.busy_ = false;
+    try {
+      const {state} = await this.handler_.completeStep(this.state_.currentStep);
+      this.state_ = state;
+      if (this.finished_()) this.onStartBrowsing_();
+    } catch {
+      this.error_ = 'Your choice could not be saved. Please try again.';
+    } finally {
+      this.busy_ = false;
+    }
   }
 
-  protected onSkip_() {
-    this.handler_.skip();
-    // Nothing further to show. The routing that opened this surface is what
-    // decides where the window goes next; closing it here would race that.
-    this.state_ = this.state_ ?
-        {...this.state_, currentStep: ''} as WelcomeState :
-        null;
+  protected async onSkip_() {
+    if (this.busy_) return;
+    this.busy_ = true;
+    try {
+      await this.handler_.skip();
+      this.onStartBrowsing_();
+    } catch {
+      this.error_ = 'Setup could not be skipped. Please try again.';
+    } finally {
+      this.busy_ = false;
+    }
+  }
+
+  protected onStartBrowsing_() {
+    window.location.replace('about:blank');
   }
 
   protected async onRailChoice_(e: Event) {
+    if (this.busy_) return;
     const collapsed = (e.currentTarget as HTMLElement).dataset['rail'] ===
         'collapsed';
-    this.handler_.setRailCollapsed(collapsed);
-    // Re-read rather than assume: the window is the authority on its own rail,
-    // and a request it declines must not leave this screen showing a choice
-    // that did not happen.
-    await this.refresh_();
+    this.busy_ = true;
+    try {
+      const {accepted, state} = await this.handler_.setRailCollapsed(collapsed);
+      this.state_ = state;
+      this.error_ = accepted ? '' :
+          'The sidebar could not be changed. Try again after leaving the active scene.';
+    } catch {
+      this.error_ = 'Your sidebar choice could not be saved. Please try again.';
+    } finally {
+      this.busy_ = false;
+    }
   }
 
   protected async onMakeDefault_() {
@@ -133,12 +161,17 @@ export class SeoulWelcomeAppElement extends CrLitElement {
       return;
     }
     this.busy_ = true;
-    const {isDefaultNow} = await this.handler_.requestDefaultBrowser();
-    this.defaultBrowserAnswer_ = isDefaultNow ?
-        'Seoul is now your default browser.' :
-        'Left unchanged. You can set this later in System Settings.';
-    this.busy_ = false;
-    await this.refresh_();
+    try {
+      const {isDefaultNow} = await this.handler_.requestDefaultBrowser();
+      this.defaultBrowserAnswer_ = isDefaultNow ?
+          'Seoul is now your default browser.' :
+          'Left unchanged. You can set this later in System Settings.';
+      await this.refresh_();
+    } catch {
+      this.error_ = 'The default browser request did not finish. Please try again.';
+    } finally {
+      this.busy_ = false;
+    }
   }
 }
 

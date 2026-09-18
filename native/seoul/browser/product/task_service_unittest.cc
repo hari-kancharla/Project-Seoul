@@ -1,6 +1,7 @@
 // Project Seoul product runtime: the task service.
 
 #include "seoul/browser/product/task_service.h"
+#include "seoul/browser/product/task_snapshot_wire.h"
 
 #include <memory>
 #include <utility>
@@ -142,6 +143,64 @@ class TaskServiceTest : public testing::Test {
   TaskService service_;
 };
 
+TEST_F(TaskServiceTest, HistorySurvivesRestartWithoutRestoringExecutionAuthority) {
+  ASSERT_TRUE(registry_.Register(Descriptor("info.read.inventory")).has_value());
+  auto executor = std::make_unique<ManualExecutor>("info.read.inventory", StepStatus::kSucceeded);
+  auto* raw = executor.get();
+  ASSERT_TRUE(executors_.Register(std::move(executor)));
+  const TaskId id = service_.StartTask("read the fixture inventory records",
+      LiveWindowKey::FromSessionId(7), AllowAll(), false, true);
+  ASSERT_TRUE(id.is_valid());
+  const auto saved = service_.TakePersistedState();
+  TaskService restored(&registry_, &executors_, &planner_, base::BindRepeating([] {
+    return base::Time::UnixEpoch();
+  }));
+  restored.RestorePersistedState(saved);
+  const auto history = restored.TakePersistedState();
+  const auto* entries = history.FindList("tasks");
+  ASSERT_TRUE(entries);
+  ASSERT_EQ(entries->size(), 1u);
+  const auto* snapshot = entries->front().GetDict().Find("snapshot");
+  ASSERT_TRUE(snapshot);
+  auto parsed = ParseTaskSnapshot(*snapshot);
+  ASSERT_TRUE(parsed.has_value());
+  EXPECT_EQ(parsed->id, id);
+  EXPECT_EQ(parsed->state, TaskState::kCompleted);
+  EXPECT_EQ(parsed->receipts.size(), 1u);
+  EXPECT_EQ(raw->executions(), 1);
+  EXPECT_TRUE(restored.Snapshots().empty());
+  EXPECT_FALSE(restored.Resume(id));
+}
+
+TEST_F(TaskServiceTest, InterruptedHistoryClearsApprovalAndIsNeverReplayed) {
+  TaskSnapshot snapshot;
+  snapshot.id = TaskId::GenerateNew();
+  snapshot.goal = "A task interrupted while awaiting approval";
+  snapshot.window = LiveWindowKey::FromSessionId(7);
+  snapshot.state = TaskState::kAwaitingApproval;
+  snapshot.pending_approval_step = "step_1";
+  snapshot.pending_approval_prompt = "Confirm this action";
+  base::DictValue entry;
+  entry.Set("snapshot", TaskSnapshotToValue(snapshot));
+  base::ListValue entries;
+  entries.Append(std::move(entry));
+  base::DictValue saved;
+  saved.Set("schema_version", 1);
+  saved.Set("tasks", std::move(entries));
+  service_.RestorePersistedState(saved);
+  const auto restored = service_.TakePersistedState();
+  const auto* history = restored.FindList("tasks");
+  ASSERT_TRUE(history);
+  ASSERT_EQ(history->size(), 1u);
+  EXPECT_TRUE(history->front().GetDict().FindBool("interrupted").value_or(false));
+  auto parsed = ParseTaskSnapshot(*history->front().GetDict().Find("snapshot"));
+  ASSERT_TRUE(parsed.has_value());
+  EXPECT_EQ(parsed->state, TaskState::kFailed);
+  EXPECT_TRUE(parsed->pending_approval_step.empty());
+  EXPECT_FALSE(service_.Approve(snapshot.id, "step_1", true));
+  EXPECT_FALSE(service_.Resume(snapshot.id));
+}
+
 TEST_F(TaskServiceTest, RunsPlannedTaskThroughExecutorToCompletion) {
   ASSERT_TRUE(
       registry_.Register(Descriptor("info.read.inventory")).has_value());
@@ -172,6 +231,7 @@ TEST_F(TaskServiceTest, RunsPlannedTaskThroughExecutorToCompletion) {
 }
 
 TEST(TaskServicePlanningStateTest, PublishesWhileModelPlanningIsInFlight) {
+  base::test::TaskEnvironment environment;
   ToolRegistry registry;
   CapabilityExecutorRegistry executors;
   base::OnceCallback<void(std::optional<base::DictValue>, PlanOrigin)>
@@ -208,8 +268,53 @@ TEST(TaskServicePlanningStateTest, PublishesWhileModelPlanningIsInFlight) {
   EXPECT_EQ(lean[0].state, TaskState::kPlanning);
   EXPECT_GE(observer.updates(), 1);
 
+  EXPECT_TRUE(service.Cancel(id));
+  EXPECT_EQ(service.Snapshot(id)->state, TaskState::kCancelled);
   std::move(pending_plan).Run(std::nullopt, PlanOrigin::kLocalModel);
+  EXPECT_EQ(service.Snapshot(id)->state, TaskState::kCancelled);
+  EXPECT_EQ(observer.finished(), 1);
   service.RemoveObserver(&observer);
+}
+
+TEST_F(TaskServiceTest, ModelPlanningTimeoutIgnoresLateResult) {
+  base::OnceCallback<void(std::optional<base::DictValue>, PlanOrigin)> pending;
+  Planner planner(registry_, base::BindLambdaForTesting(
+      [&pending](const std::string&, bool, bool,
+          base::OnceCallback<void(std::optional<base::DictValue>, PlanOrigin)> callback) {
+        pending = std::move(callback);
+      }));
+  TaskService service(&registry_, &executors_, &planner, base::BindRepeating([] {
+    return base::Time::UnixEpoch();
+  }));
+  const auto id = service.StartTask("research the request",
+      LiveWindowKey::FromSessionId(3), AllowAll(), true, true);
+  ASSERT_TRUE(pending);
+  environment_.FastForwardBy(base::Seconds(61));
+  ASSERT_TRUE(service.Snapshot(id));
+  EXPECT_EQ(service.Snapshot(id)->state, TaskState::kFailed);
+  EXPECT_NE(service.Snapshot(id)->pending_approval_prompt.find("timed out"),
+      std::string::npos);
+  std::move(pending).Run(std::nullopt, PlanOrigin::kLocalModel);
+  EXPECT_EQ(service.Snapshot(id)->state, TaskState::kFailed);
+}
+
+TEST_F(TaskServiceTest, FinishedTasksDoNotExhaustTheSessionCapacity) {
+  ASSERT_TRUE(registry_.Register(Descriptor("info.read.inventory")).has_value());
+  ASSERT_TRUE(executors_.Register(std::make_unique<ManualExecutor>(
+      "info.read.inventory", StepStatus::kSucceeded)));
+  TaskId newest;
+  for (size_t i = 0; i < kMaxTasksInDeck + 2; ++i) {
+    newest = service_.StartTask("read the fixture inventory records",
+        LiveWindowKey::FromSessionId(7), AllowAll(), false, true);
+    ASSERT_TRUE(newest.is_valid()) << i;
+    ASSERT_EQ(service_.Snapshot(newest)->state, TaskState::kCompleted);
+  }
+  EXPECT_EQ(service_.task_count(), kMaxTasksInDeck);
+  const auto history = service_.TakePersistedState();
+  ASSERT_EQ(history.FindList("tasks")->size(), 100u);
+  const auto* snapshot = history.FindList("tasks")->front().GetDict().Find("snapshot");
+  ASSERT_TRUE(snapshot);
+  EXPECT_EQ(ParseTaskSnapshot(*snapshot)->id, newest);
 }
 
 TEST_F(TaskServiceTest, DirectPlanCannotOmitFirstUseApproval) {
@@ -494,7 +599,8 @@ TEST_F(TaskServiceTest, UnplannableGoalFailsHonestlyWithReason) {
   environment_.RunUntilIdle();
   const std::optional<TaskSnapshot> snapshot = service_.Snapshot(id);
   ASSERT_TRUE(snapshot.has_value());
-  EXPECT_EQ(snapshot->state, TaskState::kCancelled);
+  EXPECT_EQ(snapshot->state, TaskState::kFailed);
+  EXPECT_EQ(snapshot->failure, TaskFailureReason::kProviderUnavailable);
   EXPECT_FALSE(snapshot->pending_approval_prompt.empty());
 }
 

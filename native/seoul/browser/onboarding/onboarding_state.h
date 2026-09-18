@@ -81,6 +81,7 @@ void MarkStepComplete(PrefService* prefs, Step step);
 // completion so the two can be told apart in metrics and in support: a person
 // who skipped saw nothing, and a person who finished chose their settings.
 void MarkSkipped(PrefService* prefs);
+void MarkStarted(PrefService* prefs);
 
 // True when every step is complete, or the flow was skipped.
 bool IsFinished(const PrefService* prefs);
@@ -94,6 +95,7 @@ void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 // Pref names, exposed for tests and for the settings surface.
 inline constexpr char kCompletedStepsPref[] = "seoul.onboarding.completed_steps";
 inline constexpr char kSkippedPref[] = "seoul.onboarding.skipped";
+inline constexpr char kStartedPref[] = "seoul.onboarding.started";
 
 }  // namespace seoul::onboarding
 

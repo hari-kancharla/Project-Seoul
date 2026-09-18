@@ -14,7 +14,10 @@ export function getHtml(this: SeoulWelcomeAppElement) {
   // renders defaults and then corrects itself is the first thing a new user
   // sees flicker.
   if (!this.state_) {
-    return html`<div class="stage"></div>`;
+    return html`<div class="stage"><div class="centre"><p role="status">
+      ${this.error_ || 'Preparing Seoul…'}</p>${this.error_ ? html`
+        <button class="primary" @click="${this.refresh_}">Try again</button>` : nothing}
+    </div></div>`;
   }
 
   const lockup = html`
@@ -36,11 +39,12 @@ export function getHtml(this: SeoulWelcomeAppElement) {
             </div>
             <h1 class="rise" style="--i:1">Ready.</h1>
             <p class="lede rise" style="--i:2">
-              Everything here stays changeable from Studio.
+              You can change these choices in Settings.
             </p>
           </div>
         </div>
-        <div class="controls"></div>
+        <div class="controls"><span></span>
+          <button class="primary" @click="${this.onStartBrowsing_}">Start browsing</button></div>
       </div>`;
   }
 
@@ -62,18 +66,18 @@ export function getHtml(this: SeoulWelcomeAppElement) {
             ${heroArt()}
             <h1 class="rise" style="--i:1">A browser that pays attention.</h1>
             <p class="lede rise" style="--i:2">
-              Seoul keeps your work in <strong>workspaces</strong>, blocks the
-              advertising industry <strong>by default</strong>, and takes
+              Seoul keeps your work in <strong>Spaces</strong>, includes
+              <strong>ad and tracker protection</strong>, and takes
               instructions in plain language.
             </p>
             <div class="claims">
               <div class="claim rise" style="--i:3">
-                <b>Workspaces</b>
-                <span>A vertical rail that holds context, not forty tabs.</span>
+                <b>Spaces</b>
+                <span>Keep the tabs for each part of your life together.</span>
               </div>
               <div class="claim rise" style="--i:4">
                 <b>Blocking built in</b>
-                <span>Native engine in the browser, not an extension.</span>
+                <span>Manage protection from each site's controls.</span>
               </div>
               <div class="claim rise" style="--i:5">
                 <b>Ask, don't hunt</b>
@@ -83,7 +87,7 @@ export function getHtml(this: SeoulWelcomeAppElement) {
 
           ${this.isStep_('appearance') ? html`
             ${layoutArt(this.state_.railCollapsed)}
-            <h1 class="rise" style="--i:1">Choose your rail.</h1>
+            <h1 class="rise" style="--i:1">Choose your sidebar.</h1>
             <p class="lede rise" style="--i:2">
               This changes the window behind you as you pick, so you can see
               which one you want.
@@ -91,12 +95,16 @@ export function getHtml(this: SeoulWelcomeAppElement) {
             <div class="choices">
               <button class="choice rise ${!this.state_.railCollapsed ? 'on' : ''}"
                   style="--i:3" data-rail="expanded"
+                  ?disabled="${this.busy_}"
+                  aria-pressed="${!this.state_.railCollapsed}"
                   @click="${this.onRailChoice_}">
                 <b>Expanded</b>
                 <span>Titles always visible.</span>
               </button>
               <button class="choice rise ${this.state_.railCollapsed ? 'on' : ''}"
                   style="--i:4" data-rail="collapsed"
+                  ?disabled="${this.busy_}"
+                  aria-pressed="${this.state_.railCollapsed}"
                   @click="${this.onRailChoice_}">
                 <b>Compact</b>
                 <span>Slides open when you reach for it.</span>
@@ -105,10 +113,10 @@ export function getHtml(this: SeoulWelcomeAppElement) {
 
           ${this.isStep_('browsing') ? html`
             ${blockingArt()}
-            <h1 class="rise" style="--i:1">Already blocking.</h1>
+            <h1 class="rise" style="--i:1">${this.state_.blockingEnabled ? 'Protection is on.' : 'Your protection status.'}</h1>
             <p class="lede rise" style="--i:2">
-              Nothing to install and nothing to switch on. This is the state of
-              the blocker in this session, right now.
+              This is the state of ad and tracker protection in this session.
+              You can adjust it for a site from Shields.
             </p>
             <div class="status rise ${this.blockingIsFull_() ? '' : 'weak'}"
                 style="--i:3">
@@ -133,9 +141,10 @@ export function getHtml(this: SeoulWelcomeAppElement) {
       </div>
 
       <div class="controls">
+        ${this.error_ ? html`<p role="alert">${this.error_}</p>` : nothing}
         <div class="dots">${dots}</div>
         <div class="buttons">
-          <button class="ghost" @click="${this.onSkip_}">Skip</button>
+          <button class="ghost" ?disabled="${this.busy_}" @click="${this.onSkip_}">Skip</button>
           <button class="primary" ?disabled="${this.busy_}"
               @click="${this.onNext_}">
             ${last ? 'Start browsing' : 'Continue'}

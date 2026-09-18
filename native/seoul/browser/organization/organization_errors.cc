@@ -40,6 +40,8 @@ const char* OrganizationErrorToString(OrganizationError error) {
       return "duplicate_membership";
     case OrganizationError::kCrossProfileReference:
       return "cross_profile_reference";
+    case OrganizationError::kCrossContainerMove:
+      return "cross_container_move";
     case OrganizationError::kCrossWorkspaceSplit:
       return "cross_workspace_split";
     case OrganizationError::kInvalidSplitArity:

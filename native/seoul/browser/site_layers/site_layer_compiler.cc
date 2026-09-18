@@ -86,6 +86,7 @@ bool ValidFontFamily(const std::string &family) {
 // Adjustments that apply to the whole document and reject selectors.
 bool SelectorsForbidden(SiteAdjustmentKind kind) {
   switch (kind) {
+  case SiteAdjustmentKind::kPageScale:
   case SiteAdjustmentKind::kReadingMode:
   case SiteAdjustmentKind::kIncreaseContrast:
   case SiteAdjustmentKind::kReduceMotion:
@@ -142,6 +143,7 @@ SiteLayerStatusResult ValidateAdjustment(const SiteAdjustment &adjustment) {
     return std::isfinite(v) && v >= lo && v <= hi;
   };
   switch (adjustment.kind) {
+  case SiteAdjustmentKind::kPageScale:
   case SiteAdjustmentKind::kFontSizeScale:
     if (!in_range(adjustment.numeric_value, 0.5, 2.0)) {
       return base::unexpected(SiteLayerError::kInvalidNumericValue);
@@ -222,6 +224,8 @@ std::string CompileAdjustment(const SiteAdjustment &adjustment) {
                              : selector) +
            " { font-family: " + adjustment.font_family +
            ", sans-serif !important; }\n";
+  case SiteAdjustmentKind::kPageScale:
+    return "html { zoom: " + FormatNumber(adjustment.numeric_value) + " !important; }\n";
   case SiteAdjustmentKind::kFontSizeScale:
     return selector +
            " { font-size: " + FormatNumber(adjustment.numeric_value) +
@@ -294,6 +298,8 @@ const char *AdjustmentKindName(SiteAdjustmentKind kind) {
     return "tint_color";
   case SiteAdjustmentKind::kFontFamily:
     return "font_family";
+  case SiteAdjustmentKind::kPageScale:
+    return "page_scale";
   case SiteAdjustmentKind::kFontSizeScale:
     return "font_size_scale";
   case SiteAdjustmentKind::kContentWidth:
@@ -336,6 +342,7 @@ bool AdjustmentKindFromName(const std::string &name, SiteAdjustmentKind *out) {
       {"tint_color", SiteAdjustmentKind::kTintColor},
       {"font_family", SiteAdjustmentKind::kFontFamily},
       {"font_size_scale", SiteAdjustmentKind::kFontSizeScale},
+      {"page_scale", SiteAdjustmentKind::kPageScale},
       {"content_width", SiteAdjustmentKind::kContentWidth},
       {"line_spacing", SiteAdjustmentKind::kLineSpacing},
       {"density", SiteAdjustmentKind::kDensity},
@@ -644,7 +651,7 @@ SiteLayerResult<std::string> CompileSiteLayer(const SiteLayer &layer) {
   return css;
 }
 
-base::DictValue SiteLayerToValue(const SiteLayer &layer) {
+base::DictValue SiteLayerToValue(const SiteLayer &layer, bool include_custom_code) {
   base::DictValue dict;
   dict.Set("schema_version", layer.schema_version);
   dict.Set("id", layer.id);
@@ -683,10 +690,10 @@ base::DictValue SiteLayerToValue(const SiteLayer &layer) {
     adjustments.Append(std::move(adjustment_dict));
   }
   dict.Set("adjustments", std::move(adjustments));
-  if (!layer.custom_css.empty()) {
+  if (include_custom_code && !layer.custom_css.empty()) {
     dict.Set("custom_css", layer.custom_css);
   }
-  if (!layer.custom_javascript.empty()) {
+  if (include_custom_code && !layer.custom_javascript.empty()) {
     dict.Set("custom_javascript", layer.custom_javascript);
   }
   return dict;

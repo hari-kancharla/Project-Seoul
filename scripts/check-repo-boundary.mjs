@@ -33,7 +33,10 @@ const DENY = [
   [/(^|\/)out\/.+/, 'Chromium build output (out/...) must not be tracked'],
   [/\.app\/Contents\//, 'built application bundle must not be tracked'],
   [/\.(ninja|ninja_log|ninja_deps)$/, 'Ninja build files must not be tracked'],
-  [/(^|\/)native\/evidence\//, 'generated audit evidence must not be tracked'],
+  // Evidence belongs in the ignored native/evidence/. This rule once named only
+  // that directory, so 8.5 MB of screenshots, logs and receipts written to
+  // docs/product/evidence/ passed it; an evidence/ directory anywhere is scratch.
+  [/(^|\/)evidence\//, 'generated audit evidence must not be tracked (keep it under the ignored native/evidence/)'],
   // Verification captures land in the working directory and are easy to commit
   // by reflex; eleven of them (19 MB) were tracked here. Product artwork lives
   // under native/seoul/resources/, so a bare image at the root is always scratch.

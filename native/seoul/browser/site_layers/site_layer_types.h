@@ -69,9 +69,9 @@ enum class SiteAdjustmentKind {
   kBrightnessLevel,
   kSaturationLevel,
   kTextCase, // Arc's "Case": capitalization applied to all text
-  // Follows the browser/system color scheme: Blink's automatic darkening is
-  // enabled only while the current browser color mode is dark.
+  // Explicit per-site dark appearance, independent of the browser theme.
   kAutomaticDarkMode,
+  kPageScale,  // whole-page layout scale in [0.5, 2.0], no selectors
 };
 
 enum class DensityLevel {

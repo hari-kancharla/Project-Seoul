@@ -60,6 +60,8 @@ class HandsetModeState : public content::WebContentsUserData<HandsetModeState>,
   const HandsetProfile* profile() const { return profile_; }
   HandsetOrientation orientation() const { return orientation_; }
   HandsetSnapMode snap_mode() const { return snap_mode_; }
+  int width() const { return view_width_dip_; }
+  int height() const { return view_height_dip_; }
 
   void Set(const HandsetProfile* profile,
            HandsetOrientation orientation,
@@ -335,6 +337,17 @@ const HandsetProfile* HandsetProfileFor(content::WebContents* web_contents) {
   return state ? state->profile() : nullptr;
 }
 
+bool RotateHandsetMode(content::WebContents* web_contents) {
+  const HandsetModeState* state = web_contents ?
+      HandsetModeState::FromWebContents(web_contents) : nullptr;
+  if (!state || !state->profile()) return false;
+  const HandsetMetrics metrics = HandsetMetricsFor(web_contents, 0, 0);
+  return EnableHandsetMode(web_contents, state->profile()->id,
+      metrics.orientation == HandsetOrientation::kPortrait ?
+          HandsetOrientation::kLandscape : HandsetOrientation::kPortrait,
+      state->snap_mode(), metrics.view_height_dip, metrics.view_width_dip);
+}
+
 HandsetMetrics HandsetMetricsFor(content::WebContents* web_contents,
                                  int free_width_dip,
                                  int free_height_dip) {
@@ -350,8 +363,9 @@ HandsetMetrics HandsetMetricsFor(content::WebContents* web_contents,
                                  free_width_dip, free_height_dip);
   }
   return ResolveHandsetMetrics(*profile, state->orientation(),
-                               state->snap_mode(), free_width_dip,
-                               free_height_dip);
+                               state->snap_mode(),
+                               free_width_dip > 0 ? free_width_dip : state->width(),
+                               free_height_dip > 0 ? free_height_dip : state->height());
 }
 
 bool HandsetRendererIsShared(content::WebContents* web_contents) {

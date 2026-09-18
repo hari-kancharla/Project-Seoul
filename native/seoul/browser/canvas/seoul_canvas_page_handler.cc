@@ -11,6 +11,8 @@
 #include "base/json/json_writer.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/uuid.h"
+#include "chrome/browser/profiles/profile.h"
+#include "components/prefs/pref_service.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "seoul/browser/library/library_service.h"
 #include "seoul/browser/organization/organization_errors.h"
@@ -56,6 +58,15 @@ std::string ErrorJson(const std::string &detail) {
   value.Set("status", "error");
   value.Set("detail", detail);
   return WriteJson(std::move(value));
+}
+
+std::string ProviderStatusMessage(const ProviderStateSnapshot& providers) {
+  // Never send a raw server error to the WebUI: it may quote submitted data.
+  if (providers.last_error.empty()) return {};
+  if (providers.local_configured && !providers.local_healthy)
+    return "The local model is unavailable. Check the server and model name in Settings.";
+  return "The model could not complete this request. Check your connection, "
+         "model access and provider account in Settings. Browser commands may still work.";
 }
 
 const char* SchemaFieldKindToWire(SchemaFieldKind kind) {
@@ -107,6 +118,9 @@ SiteAdjustmentKindFromWire(const std::string &kind) {
   }
   if (kind == "font_family") {
     return SiteAdjustmentKind::kFontFamily;
+  }
+  if (kind == "page_scale") {
+    return SiteAdjustmentKind::kPageScale;
   }
   if (kind == "font_size_scale") {
     return SiteAdjustmentKind::kFontSizeScale;
@@ -386,6 +400,10 @@ SeoulCanvasPageHandler::SeoulCanvasPageHandler(
     boost_editor_request_subscription_ =
         runtime_->AddBoostEditorRequestCallback(base::BindRepeating(
             &SeoulCanvasPageHandler::OnBoostEditorRequested,
+            weak_factory_.GetWeakPtr()));
+    site_layers_changed_subscription_ =
+        runtime_->AddSiteLayersChangedCallback(base::BindRepeating(
+            &SeoulCanvasPageHandler::PushSiteLayerSnapshot,
             weak_factory_.GetWeakPtr()));
     runtime_->surfaces()->AddObserver(this);
     runtime_->tasks()->AddObserver(this);
@@ -667,6 +685,14 @@ void SeoulCanvasPageHandler::SubmitRealtimeToolCall(
   std::move(callback).Run(WriteJson(std::move(output)));
 }
 
+void SeoulCanvasPageHandler::GetTaskHistory(GetTaskHistoryCallback callback) {
+  std::string json = "{}";
+  if (runtime_ && ResolveBoundWindow().has_value()) {
+    base::JSONWriter::Write(runtime_->tasks()->TakePersistedState(), &json);
+  }
+  std::move(callback).Run(json);
+}
+
 void SeoulCanvasPageHandler::ListTasks(ListTasksCallback callback) {
   std::vector<std::string> snapshots_json;
   const std::optional<LiveWindowKey> window = ResolveBoundWindow();
@@ -681,6 +707,20 @@ void SeoulCanvasPageHandler::ListTasks(ListTasksCallback callback) {
     }
   }
   std::move(callback).Run(std::move(snapshots_json));
+}
+
+void SeoulCanvasPageHandler::GetContextGraph(GetContextGraphCallback callback) {
+  const auto window = ResolveBoundWindow();
+  std::move(callback).Run(runtime_ && window ?
+      WriteJson(runtime_->ContextGraphSnapshot(*window)) :
+      ErrorJson("window_unavailable"));
+}
+
+void SeoulCanvasPageHandler::ActivateContextTab(
+    const std::string& node_id, ActivateContextTabCallback callback) {
+  const auto window = ResolveBoundWindow();
+  std::move(callback).Run(runtime_ && window && node_id.size() <= 128 &&
+      runtime_->ActivateContextTab(*window, node_id));
 }
 
 void SeoulCanvasPageHandler::PauseTask(const std::string &task_id) {
@@ -1301,14 +1341,28 @@ std::string SeoulCanvasPageHandler::SiteLayerSnapshotJson() const {
     active_page.Set("customizable", false);
   }
 
+  const auto* prefs = profile_->GetPrefs();
+  const bool boosts_enabled = prefs->GetBoolean(kSeoulBoostsEnabledPref);
+  const bool javascript_enabled =
+      prefs->GetBoolean(kSeoulBoostJavaScriptEnabledPref);
+  const auto scene = runtime_->ActiveSceneForWindow(*window);
   base::ListValue layers;
   int matching_enabled_count = 0;
-  for (const SiteLayer *layer : runtime_->site_layers()->List()) {
-    base::DictValue value = SiteLayerToValue(*layer);
+  for (const SiteLayer* layer : runtime_->site_layers()->List()) {
+    base::DictValue value = SiteLayerToValue(*layer, false);
     const bool matches_active = active.has_value() && !active->origin.empty() &&
                                 SiteLayerMatchesOrigin(*layer, active->origin);
     value.Set("matches_active_page", matches_active);
-    if (matches_active && layer->enabled && layer->scene_scope.empty()) {
+    const bool matches_scene =
+        layer->scene_scope.empty() || layer->scene_scope == scene;
+    value.Set("matches_active_scene", matches_scene);
+    value.Set("has_custom_css", !layer->custom_css.empty());
+    value.Set("has_custom_javascript", !layer->custom_javascript.empty());
+    const bool has_permitted_content =
+        !layer->adjustments.empty() || !layer->custom_css.empty() ||
+        (javascript_enabled && !layer->custom_javascript.empty());
+    if (boosts_enabled && matches_active && layer->enabled && matches_scene &&
+        has_permitted_content) {
       ++matching_enabled_count;
     }
     layers.Append(std::move(value));
@@ -1317,6 +1371,10 @@ std::string SeoulCanvasPageHandler::SiteLayerSnapshotJson() const {
   base::DictValue snapshot;
   snapshot.Set("status", "ready");
   snapshot.Set("schema_version", 1);
+  snapshot.Set("revision",
+               base::NumberToString(runtime_->site_layers_revision()));
+  snapshot.Set("boosts_enabled", boosts_enabled);
+  snapshot.Set("javascript_enabled", javascript_enabled);
   snapshot.Set("active_page", std::move(active_page));
   snapshot.Set("matching_enabled_count", matching_enabled_count);
   snapshot.Set("layers", std::move(layers));
@@ -1328,10 +1386,40 @@ void SeoulCanvasPageHandler::GetSiteLayerSnapshot(
   std::move(callback).Run(SiteLayerSnapshotJson());
 }
 
+void SeoulCanvasPageHandler::PushSiteLayerSnapshot() {
+  if (page_ && ResolveBoundWindow().has_value())
+    page_->PushSiteLayerSnapshot(SiteLayerSnapshotJson());
+}
+
+void SeoulCanvasPageHandler::SetBoostsEnabled(
+    bool enabled,
+    SetBoostsEnabledCallback callback) {
+  if (!runtime_ || !profile_ || !ResolveBoundWindow().has_value()) {
+    std::move(callback).Run(ErrorJson("window_unbound"));
+    return;
+  }
+  profile_->GetPrefs()->SetBoolean(kSeoulBoostsEnabledPref, enabled);
+  std::move(callback).Run(SiteLayerSnapshotJson());
+}
+
+void SeoulCanvasPageHandler::SetBoostJavaScriptEnabled(
+    bool enabled,
+    SetBoostJavaScriptEnabledCallback callback) {
+  if (!runtime_ || !profile_ || !ResolveBoundWindow().has_value()) {
+    std::move(callback).Run(ErrorJson("window_unbound"));
+    return;
+  }
+  profile_->GetPrefs()->SetBoolean(kSeoulBoostJavaScriptEnabledPref, enabled);
+  std::move(callback).Run(SiteLayerSnapshotJson());
+}
+
 void SeoulCanvasPageHandler::UpsertSiteLayer(
-    const std::string &layer_id, const std::string &expected_tab_id,
-    const std::string &expected_page_origin, const std::string &name,
-    const std::string &origin_pattern, const std::string &scene_scope,
+    const std::string& layer_id,
+    const std::string& expected_tab_id,
+    const std::string& expected_page_origin,
+    const std::string& name,
+    const std::string& origin_pattern,
+    const std::string& scene_scope,
     bool enabled,
     std::vector<canvas::mojom::SiteLayerAdjustmentInputPtr> adjustments,
     UpsertSiteLayerCallback callback) {
@@ -1356,6 +1444,12 @@ void SeoulCanvasPageHandler::UpsertSiteLayer(
   layer.origin_pattern = origin_pattern;
   layer.scene_scope = scene_scope;
   layer.enabled = enabled;
+  // The appearance editor does not edit code. Merge the latest authored code
+  // in the browser process instead of round-tripping a stale WebUI snapshot.
+  if (const auto* existing = runtime_->site_layers()->Find(layer.id)) {
+    layer.custom_css = existing->custom_css;
+    layer.custom_javascript = existing->custom_javascript;
+  }
   layer.adjustments.reserve(adjustments.size());
   for (const canvas::mojom::SiteLayerAdjustmentInputPtr &input : adjustments) {
     std::optional<SiteAdjustment> adjustment = SiteAdjustmentFromMojo(input);
@@ -1485,6 +1579,7 @@ std::string SeoulCanvasPageHandler::StudioSnapshotJson() const {
   base::DictValue provider_routes;
   provider_routes.Set("local", std::move(local));
   provider_routes.Set("cloud", std::move(cloud));
+  provider_routes.Set("error", ProviderStatusMessage(providers));
 
   base::ListValue scenes;
   for (const SceneDefinition *scene : runtime_->scenes()->List()) {
@@ -2008,6 +2103,7 @@ void SeoulCanvasPageHandler::OnTaskNeedsApproval(const TaskId &task_id,
 
 void SeoulCanvasPageHandler::OnTaskFinished(const TaskId &task_id) {
   PushTaskSnapshot(task_id);
+  if (BoundTask(task_id.value()).has_value()) PushStatus("task_finished");
   auto thread = task_threads_.find(task_id.value());
   if (thread == task_threads_.end() || !runtime_ || !runtime_->threads()) {
     return;
@@ -2024,6 +2120,10 @@ void SeoulCanvasPageHandler::OnTaskFinished(const TaskId &task_id) {
       runtime_->threads()->AttachItem(thread->second, std::move(output));
   PushThreadSnapshot(thread->second);
   task_threads_.erase(thread);
+}
+
+void SeoulCanvasPageHandler::OnLiveWindowStateProviderDestroying() {
+  live_window_observation_.Reset();
 }
 
 void SeoulCanvasPageHandler::OnLiveWindowSnapshotChanged(
@@ -2137,6 +2237,7 @@ void SeoulCanvasPageHandler::PushStatus(const std::string &detail) {
     const ProviderStateSnapshot providers = runtime_->providers()->Snapshot();
     status.Set("local_ready", providers.local_healthy);
     status.Set("cloud_ready", runtime_->providers()->cloud_available());
+    status.Set("provider_error", ProviderStatusMessage(providers));
     status.Set("route", providers.local_healthy ? "local" : "cloud");
     status.Set("active_task_count",
                static_cast<int>(runtime_->tasks()->task_count()));

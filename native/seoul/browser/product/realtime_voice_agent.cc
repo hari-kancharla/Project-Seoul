@@ -44,7 +44,7 @@ std::string RealtimeClientSecretsUrl() {
 }
 
 std::string RealtimeConnectUrl() {
-  return RealtimeOrigin() + "/v1/realtime";
+  return RealtimeOrigin() + "/v1/realtime/calls";
 }
 
 // Assembled from fragments for the same source-hygiene reason as

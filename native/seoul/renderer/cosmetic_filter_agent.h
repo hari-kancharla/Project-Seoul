@@ -1,4 +1,4 @@
-// Project Seoul asynchronous, CSS-only cosmetic filtering agent.
+// Project Seoul cosmetic filtering and document-start scriptlet agent.
 
 #ifndef SEOUL_RENDERER_COSMETIC_FILTER_AGENT_H_
 #define SEOUL_RENDERER_COSMETIC_FILTER_AGENT_H_
@@ -11,6 +11,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/timer/timer.h"
 #include "content/public/renderer/render_frame_observer.h"
+#include "content/public/renderer/render_frame_observer_tracker.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "seoul/browser/adblock/cosmetic_filter.mojom.h"
 #include "third_party/blink/public/web/web_document.h"
@@ -21,9 +22,12 @@ class RenderFrame;
 
 namespace seoul::renderer {
 
-class CosmeticFilterAgent final : public content::RenderFrameObserver {
+class CosmeticFilterAgent final
+    : public content::RenderFrameObserver,
+      public content::RenderFrameObserverTracker<CosmeticFilterAgent> {
  public:
   static void Create(content::RenderFrame* render_frame);
+  static void RunAtDocumentStart(content::RenderFrame* render_frame);
 
   explicit CosmeticFilterAgent(content::RenderFrame* render_frame);
   ~CosmeticFilterAgent() override;
@@ -34,6 +38,7 @@ class CosmeticFilterAgent final : public content::RenderFrameObserver {
   // content::RenderFrameObserver:
   void DidCreateNewDocument() override;
   void DidCreateDocumentElement() override;
+  void DidDispatchDOMContentLoadedEvent() override;
   void DidSetPageLifecycleState(
       blink::BFCacheStateChange bfcache_change) override;
   void DidObserveLoadingBehavior(blink::LoadingBehaviorFlag behavior) override;
@@ -63,6 +68,7 @@ class CosmeticFilterAgent final : public content::RenderFrameObserver {
   void ReplaceSelectors(const std::vector<std::string>& default_selectors,
                         const std::vector<std::string>& additional_selectors);
   void ExecuteIsolatedScript(const std::string& script);
+  void ExecuteMainWorldScript(const std::string& script);
   void InstallProceduralRules(
       const std::vector<std::string>& default_actions,
       const std::vector<std::string>& additional_actions);
@@ -88,6 +94,7 @@ class CosmeticFilterAgent final : public content::RenderFrameObserver {
   size_t style_sheet_bytes_ = 0;
   std::set<std::string> selectors_;
   std::set<std::string> executed_isolated_scripts_;
+  bool document_scripts_installed_ = false;
   std::string style_sheet_;
   blink::WebStyleSheetKey style_sheet_key_;
   base::RepeatingTimer poll_timer_;

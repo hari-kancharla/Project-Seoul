@@ -316,6 +316,26 @@ TEST(SiteLayerCompilerTest, OutOfRangeColorSliderIsRejected) {
 // Arc's Code editor. Author CSS is appended after the compiled controls so it
 // wins on equal specificity - overriding what the controls produced is the
 // reason to drop to code at all.
+TEST(SiteLayerCompilerTest, PageScalePersistsWithoutChangingSelectorTextSizing) {
+  SiteLayer layer = ReadableLayer();
+  layer.adjustments.clear();
+  SiteAdjustment page;
+  page.kind = SiteAdjustmentKind::kPageScale;
+  page.numeric_value = 1.2;
+  layer.adjustments.push_back(page);
+  auto saved = SiteLayerFromValue(base::Value(SiteLayerToValue(layer)));
+  ASSERT_TRUE(saved.has_value());
+  auto css = CompileSiteLayer(*saved);
+  ASSERT_TRUE(css.has_value());
+  EXPECT_NE(css->find("html { zoom: 1.2"), std::string::npos);
+  EXPECT_EQ(css->find("font-size"), std::string::npos);
+  layer.adjustments[0].selectors = {"p"};
+  EXPECT_EQ(CompileSiteLayer(layer).error(), SiteLayerError::kSelectorNotAllowed);
+  layer.adjustments[0].selectors.clear();
+  layer.adjustments[0].numeric_value = 0;
+  EXPECT_EQ(CompileSiteLayer(layer).error(), SiteLayerError::kInvalidNumericValue);
+}
+
 TEST(SiteLayerCompilerTest, AuthorCssIsAppendedAfterTheTypedAdjustments) {
   SiteLayer layer;
   layer.id = "boost-code";

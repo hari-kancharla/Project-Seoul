@@ -267,8 +267,8 @@
     },
     {
       "id": "seoul-neutral-address-prompt",
-      "description": "Replace the default-search-provider advertising in Seoul's resting address pill with the neutral localized prompt “Search or enter an address,” while preserving keyword, AI-mode, and contextual-task placeholders.",
-      "rationale": "The integrated rail must not display “Search Google” as product chrome. A dedicated localized Seoul string keeps the command/address field provider-neutral without changing the user's configured search engine or URL/search behavior.",
+      "description": "Replace the default-search-provider advertising in Seoul's resting address pill with the neutral localized prompt \u201cSearch or enter an address,\u201d while preserving keyword, AI-mode, and contextual-task placeholders.",
+      "rationale": "The integrated rail must not display \u201cSearch Google\u201d as product chrome. A dedicated localized Seoul string keeps the command/address field provider-neutral without changing the user's configured search engine or URL/search behavior.",
       "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
       "order": 11,
       "file": "0011-seoul-neutral-address-prompt.patch",
@@ -1065,6 +1065,265 @@
       "sha256": "fb2699c4a15b116742e5114791d5fc29562487e0dfc8dead29ddbd76a0dda998",
       "applyVerify": "git apply --check",
       "reverseVerify": "git apply -R --check",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-assistant-panel-lifecycle",
+      "description": "Keep the Seoul assistant panel out of Chromium toolbar pinning; its native sidebar button owns discovery and toggling.",
+      "rationale": "The Seoul entry intentionally has no toolbar ActionId. Once its renderer signals readiness, upstream toolbar activation otherwise CHECK-fails on that missing ID. Exempt only this non-pinnable entry and preserve all Chromium action checks for other panels.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 42,
+      "file": "0042-seoul-assistant-panel-lifecycle.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/views/side_panel/side_panel_toolbar_pinning_controller.cc",
+        "chrome/browser/ui/views/side_panel/side_panel_helper.cc"
+      ],
+      "dependencies": [
+        "seoul-native-core"
+      ],
+      "sha256": "4a1427c81081f558292ca2de4e1c75cbce465c38ca7affbcd2dba5d320caa9a8",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-sky-palette",
+      "description": "Unify default native surfaces with the sky-blue WebUI and replace the Boost glyph.",
+      "rationale": "Apply the requested sky identity while preserving explicit user accents and opaque contrast endpoints.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 43,
+      "file": "0043-seoul-sky-palette-and-boost-glyph.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/color/chrome_color_mixers.cc",
+        "chrome/app/vector_icons/seoul_boost.icon"
+      ],
+      "dependencies": [
+        "seoul-native-core",
+        "seoul-boost-site-control-affordance"
+      ],
+      "sha256": "549495e43389ab964f10e8ade6078dad07dd9ca79dbc6ac6d5b34e640497a418",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-scriptlet-document-start",
+      "description": "Dispatch Seoul page scriptlets from the renderer document-start execution hook.",
+      "rationale": "The document-element observer fires before script execution is ready. Use the browser execution hook before page inline scripts, with a tracker lookup safe after extension-driven frame detachment.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 44,
+      "file": "0044-seoul-scriptlet-document-start.patch",
+      "affectedPaths": [
+        "chrome/renderer/chrome_content_renderer_client.cc"
+      ],
+      "dependencies": [
+        "seoul-native-core"
+      ],
+      "sha256": "ed25ee0b7f7071735c4f26e225e2c8820162ecb413645041dbc2f2cfe80d9213",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-sidebar-clarity",
+      "description": "Keep the sky tint and make collapsed navigation readable.",
+      "rationale": "Retain the material with a stronger product tint, hide New Tab text in the icon rail, and mark the active collapsed tab with a persistent shape.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 45,
+      "file": "0045-seoul-sidebar-clarity.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/color/chrome_color_provider_utils.h",
+        "chrome/browser/ui/views/tabs/vertical/vertical_tab_strip_bottom_container.cc",
+        "chrome/browser/ui/views/tabs/shared/tab_strip_flat_edge_button.cc",
+        "chrome/browser/ui/views/tabs/vertical/vertical_tab_view.cc"
+      ],
+      "dependencies": [
+        "seoul-sky-palette"
+      ],
+      "sha256": "0567c22474fdab5a76d6bb179495990d41870999481b3c086b281e0236b6c083",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-observer-shutdown",
+      "description": "Detach native browser observers before the profile state provider is destroyed.",
+      "rationale": "Profile shutdown can precede BrowserView destruction; its scoped observation otherwise dereferences a destroyed live-window provider while the window closes.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 46,
+      "file": "0046-seoul-observer-shutdown.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/views/frame/browser_view.h",
+        "chrome/browser/ui/views/frame/browser_view.cc"
+      ],
+      "dependencies": [
+        "seoul-zen-interaction-and-visual-fidelity"
+      ],
+      "sha256": "8177b93af180f28e001580f823711bbe0e36775264f6c2ec2800f039bf3a22a9",
+      "applyVerify": "git apply --check",
+      "reverseVerify": "git apply -R --check",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-container-restore-and-field-shapes",
+      "description": "Preserve each container tab's actual storage identity and session storage through close/reopen and browser restore; give every address-bar layout a bounded rectangular corner radius.",
+      "rationale": "Default-partition session hooks lose container state; maximum-emphasis location bars create pills outside the floating layout. Keep existing Chromium restoration and drawing owners and correct these shared seams.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 47,
+      "file": "0047-seoul-container-restore-and-field-shapes.patch",
+      "affectedPaths": [
+        "chrome/browser/sessions/session_restore.cc",
+        "chrome/browser/sessions/session_service_base.cc",
+        "chrome/browser/ui/browser_tabrestore.cc",
+        "chrome/browser/ui/views/location_bar/location_bar_view.cc",
+        "components/sessions/content/content_platform_specific_tab_data.cc",
+        "content/public/browser/BUILD.gn",
+        "content/public/browser/session_storage_namespace_utils.cc",
+        "content/public/browser/session_storage_namespace_utils.h"
+      ],
+      "dependencies": [
+        "seoul-space-container-partitions",
+        "seoul-observer-shutdown"
+      ],
+      "sha256": "a8e281d0dd9a6c740c360d1f85d0e59565c5cb51d837e290507ec4e78a078653",
+      "applyVerify": "git apply --check after patches 1 through 46",
+      "reverseVerify": "git apply -R --check after applying patch 47",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-settings-and-downloads",
+      "description": "Give Settings and Downloads Seoul navigation, layout preferences, rectangular controls and sky-blue surfaces.",
+      "rationale": "Keep the existing settings policy and download lifecycle handlers while replacing their presentation and exposing the actual Seoul browser layout preferences.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 48,
+      "file": "0048-seoul-settings-and-downloads.patch",
+      "affectedPaths": [
+        "chrome/browser/extensions/api/settings_private/prefs_util.cc",
+        "chrome/browser/resources/downloads/item.css",
+        "chrome/browser/resources/downloads/manager.css",
+        "chrome/browser/resources/downloads/manager.html.ts",
+        "chrome/browser/resources/downloads/toolbar.css",
+        "chrome/browser/resources/downloads/toolbar.html.ts",
+        "chrome/browser/resources/downloads/toolbar.ts",
+        "chrome/browser/resources/settings/appearance_page/appearance_page.html",
+        "chrome/browser/resources/settings/downloads_page/downloads_page.html",
+        "chrome/browser/resources/settings/route.ts",
+        "chrome/browser/resources/settings/settings_menu/settings_menu.html",
+        "chrome/browser/resources/settings/settings_menu/settings_menu.ts",
+        "chrome/browser/resources/settings/settings_page/settings_section.html",
+        "chrome/browser/resources/settings/settings_shared.css",
+        "chrome/browser/resources/settings/settings_ui/settings_ui.html",
+        "chrome/browser/resources/settings/settings_vars.css",
+        "chrome/browser/ui/webui/downloads/downloads_ui.cc",
+        "chrome/browser/ui/webui/settings/settings_localized_strings_provider.cc",
+        "chrome/test/data/webui/downloads/toolbar_test.ts",
+        "chrome/test/data/webui/settings/settings_menu_test.ts",
+        "ui/webui/resources/cr_elements/cr_shared_style_lit.css",
+        "ui/webui/resources/cr_elements/cr_toolbar/cr_toolbar.css",
+        "ui/webui/resources/cr_elements/cr_toolbar/cr_toolbar_search_field.css"
+      ],
+      "dependencies": [
+        "seoul-container-restore-and-field-shapes"
+      ],
+      "sha256": "70c69994f6af915bb70c3d1c31bc8e76b25d2c4f77e85d8f4c42bdeac8c3d9b9",
+      "applyVerify": "git apply --check after patches 1 through 47",
+      "reverseVerify": "git apply -R --check after applying patch 48",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-mac-keyboard-redispatch",
+      "description": "Stop synchronous re-entry into a window keyboard redispatch before AppKit can recurse until the process stack overflows.",
+      "rationale": "Two container browser tests exposed the same macOS native event recursion. Replace the debug-only invariant with a release guard; the regression reproduces AppKit re-entry for key-down, key-up and modifier events and verifies subsequent events still dispatch.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 49,
+      "file": "0049-seoul-mac-keyboard-redispatch.patch",
+      "affectedPaths": [
+        "ui/base/cocoa/command_dispatcher.mm"
+      ],
+      "dependencies": [],
+      "sha256": "9ec18b045b4473e57ca169d67e902300654f8312c30905e5b72c88cf7bc5fc12",
+      "applyVerify": "git apply --check after patches 0001 through 0048",
+      "reverseVerify": "git apply -R --check before reversing earlier patches",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-sidebar-caption-clearance",
+      "description": "Keep the New Tab row below the native window controls when the browser toolbar is moved out of Seoul\u2019s sidebar.",
+      "rationale": "Native visual review found New Tab underneath macOS window controls in Top toolbar mode. Preserve the overlap height already calculated by Chromium layout after hiding its stock top container, without adding a second inset to compact mode or the integrated toolbar.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 50,
+      "file": "0050-seoul-sidebar-caption-clearance.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc"
+      ],
+      "dependencies": [
+        "seoul-native-core"
+      ],
+      "sha256": "52ad01145971a099f7efc4be4cfee5f4c209586486c95e3b1308a080839ba92e",
+      "applyVerify": "git apply --check after patches 0001 through 0049",
+      "reverseVerify": "git apply -R --check before reversing earlier patches",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-new-tab-input-consistency",
+      "description": "Keep repeated New Tab commands focused on the existing input without clearing the query; align the address-field focus path with its rounded-rectangle background.",
+      "rationale": "Native keyboard review reproduced a second New Tab command closing the input, causing the following paste to target the page. Escape remains the explicit dismissal command. The previous pill highlight also contradicted the rectangular field geometry.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 51,
+      "file": "0051-seoul-new-tab-input-consistency.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/views/frame/browser_view.cc",
+        "chrome/browser/ui/views/location_bar/location_bar_view.cc"
+      ],
+      "dependencies": [
+        "seoul-zen-interaction-and-visual-fidelity",
+        "seoul-container-restore-and-field-shapes"
+      ],
+      "sha256": "e23e4df7a31bdf1e88003a03b3d91381742ddabde57a59aacd6bb473b445b366",
+      "applyVerify": "git apply --check after patches 0001 through 0050",
+      "reverseVerify": "git apply -R --check before reversing earlier patches",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-native-settings-window",
+      "description": "Route the primary macOS Settings command to the dedicated native Seoul Settings window, and register its distinct profile keepalive origin. Specialized advanced settings routes remain available.",
+      "rationale": "A separate native window removes browser chrome from primary Settings while retaining authoritative profile preferences and explicit lifecycle accounting.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 52,
+      "file": "0052-seoul-native-settings-window.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/chrome_pages.cc",
+        "chrome/browser/profiles/keep_alive/profile_keep_alive_types.h",
+        "chrome/browser/profiles/keep_alive/profile_keep_alive_types.cc",
+        "tools/metrics/histograms/metadata/profile/enums.xml"
+      ],
+      "dependencies": [
+        "seoul-native-core"
+      ],
+      "sha256": "ea0e3f1bc8adae018287cb6668ea6a0a912171087e7f6cc6fcba85335b3fab88",
+      "applyVerify": "git apply --check after patches 0001-0051",
+      "reverseVerify": "git apply -R --check after application",
+      "reviewable": true
+    },
+    {
+      "id": "seoul-site-controls-menu",
+      "description": "Group Boost, Phone view, Shields and site information behind one native site-controls menu; preserve security warnings.",
+      "rationale": "Preserve address readability while keeping page tools discoverable in one contextual entry.",
+      "baseRevision": "6a7b3dbec3b2ca25877c2553b5473b2f277ef644",
+      "order": 53,
+      "file": "0053-seoul-site-controls-menu.patch",
+      "affectedPaths": [
+        "chrome/browser/ui/views/location_bar/location_bar_view.cc",
+        "chrome/browser/ui/views/location_bar/location_bar_view.h",
+        "chrome/app/vector_icons/BUILD.gn",
+        "chrome/app/vector_icons/seoul_site_controls.icon"
+      ],
+      "dependencies": [
+        "seoul-native-core"
+      ],
+      "sha256": "ed5ce62ad35dd9acfffd87a092ad509d623ebd78767b0833481474cbe3b07ba0",
+      "applyVerify": "git apply --check after patches 0001-0052",
+      "reverseVerify": "git apply -R --check after application",
       "reviewable": true
     }
   ]

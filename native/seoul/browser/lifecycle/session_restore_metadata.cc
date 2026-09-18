@@ -9,8 +9,14 @@
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "components/sessions/content/session_tab_helper.h"
 #include "components/sessions/core/session_id.h"
+#include "content/public/browser/browser_context.h"
+#include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/site_instance.h"
+#include "content/public/browser/storage_partition.h"
+#include "content/public/browser/storage_partition_config.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_user_data.h"
+#include "seoul/browser/containers/space_container.h"
 #include "seoul/browser/lifecycle/new_tab_placeholder_provenance.h"
 #include "seoul/browser/organization/organization_limits.h"
 #include "url/gurl.h"
@@ -44,6 +50,19 @@ class SeoulSessionMetadata
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(SeoulSessionMetadata);
 
+std::string ContainerForTab(const content::WebContents* contents) {
+  auto* site_instance = contents->GetPrimaryMainFrame()->GetSiteInstance();
+  const auto& config = site_instance->GetBrowserContext()
+                           ->GetStoragePartition(site_instance)
+                           ->GetConfig();
+  if (config.partition_domain() != containers::kPartitionDomain ||
+      !config.partition_name().starts_with("space-")) {
+    return std::string();
+  }
+  const std::string id = config.partition_name().substr(6);
+  return containers::IsIsolatableWorkspaceId(id) ? id : std::string();
+}
+
 void SetMembership(content::WebContents* contents,
                    const TabMembershipId& membership) {
   if (!contents || !membership.is_valid()) {
@@ -58,6 +77,11 @@ void SetMembership(content::WebContents* contents,
 
 }  // namespace
 
+WorkspaceId ContainerWorkspaceForTab(const content::WebContents* contents) {
+  return contents ? WorkspaceId::FromString(ContainerForTab(contents))
+                  : WorkspaceId();
+}
+
 void PopulateSeoulSessionMetadata(
     const content::WebContents* contents,
     std::map<std::string, std::string>* extra_data) {
@@ -68,6 +92,9 @@ void PopulateSeoulSessionMetadata(
   if (membership.is_valid()) {
     (*extra_data)[kSeoulMembershipSessionKey] = membership.value();
   }
+  // Always write an explicit empty identity for the ordinary partition. This
+  // prevents a later restore from guessing a container from the active Space.
+  (*extra_data)[kSeoulContainerSessionKey] = ContainerForTab(contents);
   if (HasSyntheticNewTabPlaceholderProvenance(contents) &&
       contents->GetLastCommittedURL() == GURL(url::kAboutBlankURL)) {
     (*extra_data)[kSeoulSyntheticNewTabPlaceholderSessionKey] = "1";
@@ -129,6 +156,8 @@ bool PersistSeoulSessionMetadata(BrowserWindowInterface* browser,
   }
   session_service->AddTabExtraData(window, tab, kSeoulMembershipSessionKey,
                                    membership.value());
+  session_service->AddTabExtraData(window, tab, kSeoulContainerSessionKey,
+                                 ContainerForTab(contents));
   return true;
 }
 

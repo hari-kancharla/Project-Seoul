@@ -1,5 +1,14 @@
 # Native Chromium baseline
 
+Product build configuration update, 2026-09-07: the baseline now sets
+`disable_fieldtrial_testing_config = true`. Unbranded Chromium otherwise loads
+upstream testing studies, including the experimental macOS WebUI toolbar, into
+ordinary launches. Seoul uses normal feature defaults so its native UI does not
+silently combine with that testing configuration. See the current
+[reliability investigation](../product/seoul-feature-reliability-2026-09-07.md)
+for verification and remaining startup work. The historical counts below are
+not validation of later changes.
+
 Current as of 2026-08-09. The live product and release verdict is maintained in
 `../release/seoul-product-readiness.md`.
 

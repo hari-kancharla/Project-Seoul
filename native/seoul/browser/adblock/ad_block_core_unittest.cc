@@ -931,7 +931,7 @@ TEST_F(AdBlockAsyncTest, CosmeticResourcesRespectModeAndEngineGroup) {
                             standard_future.GetCallback());
   const AdBlockCosmeticResources standard = standard_future.Take();
   EXPECT_TRUE(standard.enabled);
-  EXPECT_EQ(std::vector<std::string>({".default-ad"}),
+  EXPECT_EQ(std::vector<std::string>({".card:has(.sponsor)", ".default-ad"}),
             standard.default_rules.selectors);
   EXPECT_EQ(std::vector<std::string>({".additional-ad"}),
             standard.additional_rules.selectors);

@@ -8,10 +8,12 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "components/sessions/core/session_id.h"
+#include "content/public/browser/browser_url_handler.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/storage_partition_config.h"
 #include "seoul/browser/containers/space_container.h"
 #include "seoul/browser/lifecycle/lifecycle_identity.h"
+#include "seoul/browser/lifecycle/session_restore_metadata.h"
 #include "seoul/browser/organization/organization_model.h"
 #include "seoul/browser/organization/seoul_organization_service.h"
 #include "seoul/browser/organization/seoul_organization_service_factory.h"
@@ -70,8 +72,54 @@ scoped_refptr<content::SiteInstance> SiteInstanceForNewTabInActiveSpace(
       content::StoragePartitionConfig::Create(
           profile, containers::kPartitionDomain, partition_name,
           /*in_memory=*/false);
-  return content::SiteInstance::CreateForFixedStoragePartition(profile, url,
-                                                               config);
+  // Match tab_util::GetSiteInstanceForNewTab: virtual browser URLs such as
+  // chrome://newtab must resolve to their actual WebUI before selecting a site.
+  GURL effective_url = url;
+  content::BrowserURLHandler::GetInstance()->RewriteURLIfNecessary(
+      &effective_url, profile);
+  return content::SiteInstance::CreateForFixedStoragePartition(
+      profile, effective_url, config);
+}
+
+scoped_refptr<content::SiteInstance> SiteInstanceForRestoredSeoulTab(
+    Profile* profile,
+    const GURL& url,
+    const std::map<std::string, std::string>& extra_data) {
+  if (!profile || !profile->IsRegularProfile()) {
+    return nullptr;
+  }
+  std::string workspace_id;
+  const auto saved = extra_data.find(kSeoulContainerSessionKey);
+  if (saved != extra_data.end()) {
+    workspace_id = saved->second;
+  } else {
+    // Older sessions recorded only membership. Recover its original Space,
+    // never whichever Space happens to be active during browser startup.
+    const auto membership = extra_data.find(kSeoulMembershipSessionKey);
+    auto* service = SeoulOrganizationServiceFactory::GetForProfile(profile);
+    if (membership != extra_data.end() && service) {
+      const auto* record = service->model().FindMembership(
+          TabMembershipId::FromString(membership->second));
+      const auto* space =
+          record ? service->model().FindWorkspace(record->workspace_id)
+                 : nullptr;
+      if (space && space->isolated) {
+        workspace_id = space->id.value();
+      }
+    }
+  }
+  const std::string partition =
+      containers::PartitionNameForWorkspace(workspace_id);
+  if (partition.empty()) {
+    return nullptr;
+  }
+  GURL effective_url = url;
+  content::BrowserURLHandler::GetInstance()->RewriteURLIfNecessary(
+      &effective_url, profile);
+  return content::SiteInstance::CreateForFixedStoragePartition(
+      profile, effective_url,
+      content::StoragePartitionConfig::Create(
+          profile, containers::kPartitionDomain, partition, false));
 }
 
 }  // namespace seoul

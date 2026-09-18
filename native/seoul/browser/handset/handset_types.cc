@@ -31,14 +31,11 @@ HandsetProfile::HandsetProfile(const HandsetProfile&) = default;
 HandsetProfile& HandsetProfile::operator=(const HandsetProfile&) = default;
 HandsetProfile::~HandsetProfile() = default;
 
-// The device catalogue is generated, not curated: Chromium's own DevTools
-// emulated-device list (which Google keeps current with real phones) merged
-// with a small overlay for devices newer than the pinned checkout. See
-// scripts/generate-handset-profiles.mjs; check:handset-profiles fails CI when
-// the generated list is stale for the checkout, so a Chromium roll that adds
-// a phone adds it here too. CSS-pixel portrait sizes and device pixel ratios
-// are the layout viewport the real device reports - a site's breakpoints see
-// exactly what they would see on the device.
+// Pinned DevTools presets plus an explicit, source-documented overlay. These
+// are browser preview configurations. Physical devices may expose different
+// viewport metrics with browser controls, screen zoom, or resolution settings.
+// Regeneration checks consistency with the pinned input, not market freshness
+// or fidelity to the operating system and rendering engine of a real phone.
 const std::vector<HandsetProfile>& HandsetProfiles() {
   return GeneratedHandsetProfiles();
 }
@@ -57,9 +54,7 @@ const HandsetProfile* FindHandsetProfile(const std::string& id) {
 }
 
 const HandsetProfile& DefaultHandsetProfile() {
-  // The standard-phone width. Anything narrower under-reports what most
-  // visitors see; anything wider hides the layout the site actually ships to
-  // phones.
+  // Preserve the existing default and persisted identity across catalog rolls.
   const HandsetProfile* profile = FindHandsetProfile("iphone");
   return profile ? *profile : HandsetProfiles().front();
 }

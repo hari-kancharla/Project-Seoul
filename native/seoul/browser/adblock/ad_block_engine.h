@@ -53,6 +53,7 @@ struct AdBlockCosmeticEngineResources {
   std::vector<std::string> hide_selectors;
   std::vector<std::string> exceptions;
   std::string isolated_script;
+  std::string main_world_script;
   std::vector<std::string> procedural_actions;
   bool generichide = false;
 };

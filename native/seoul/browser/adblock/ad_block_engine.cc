@@ -141,6 +141,7 @@ AdBlockCosmeticEngineResources AdBlockEngine::GetUrlCosmeticResources(
   result.hide_selectors = ToStringVector(resources.hide_selectors);
   result.exceptions = ToStringVector(resources.exceptions);
   result.isolated_script = ToString(resources.isolated_script);
+  result.main_world_script = ToString(resources.main_world_script);
   result.procedural_actions = ToStringVector(resources.procedural_actions);
   result.generichide = resources.generichide;
   return result;

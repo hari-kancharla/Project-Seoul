@@ -43,6 +43,7 @@ if (launchBlocked) {
     browser = await puppeteer.launch({
       executablePath: binary,
       headless: true,
+      ignoreDefaultArgs: true,
       userDataDir: profile,
       protocolTimeout: 60000,
       defaultViewport: {
@@ -51,10 +52,13 @@ if (launchBlocked) {
         deviceScaleFactor: 1,
       },
       args: [
+        `--user-data-dir=${profile}`,
+        '--headless=new',
         '--no-first-run',
         '--no-default-browser-check',
         '--use-mock-keychain',
         '--force-prefers-reduced-motion',
+        'about:blank',
       ],
     });
     browser.on('disconnected', () => {
@@ -90,6 +94,7 @@ if (launchBlocked) {
         library: '.library-view[aria-label="Library"]',
         boards: '.library-view[aria-label="Boards"]',
         studio: '.studio-view',
+        graph: '.context-map',
       };
       const readySelector = viewSelectors[requestedView];
       if (!readySelector) {
@@ -102,9 +107,10 @@ if (launchBlocked) {
         const app = document.querySelector('seoul-canvas-app');
         const root = app?.shadowRoot;
         if (!app || !root) return false;
-        const button = [...root.querySelectorAll('.view-switcher button')]
-            .find(candidate => candidate.textContent.trim().toLowerCase() === view);
+        const button = [...root.querySelectorAll('.tools-menu-items button')]
+            .find(candidate => candidate.dataset.view === view);
         if (!button) return false;
+        root.querySelector('.tools-menu').open = true;
         button.click();
         await app.updateComplete;
         return true;
@@ -138,8 +144,9 @@ if (launchBlocked) {
             composed: true,
           }));
         };
-        const boardsTab = [...root.querySelectorAll('.view-switcher button')]
+        const boardsTab = [...root.querySelectorAll('.tools-menu-items button')]
             .find(button => button.textContent.trim() === 'Boards');
+        root.querySelector('.tools-menu').open = true;
         boardsTab?.click();
         const boardInput = await waitFor(
             () => root.querySelector('.board-create input'));
@@ -192,7 +199,7 @@ if (launchBlocked) {
           canvasScrollTop: canvasRoot?.scrollTop ?? null,
           header: bounds('.canvas-header'),
           heading: bounds('.canvas-header h1'),
-          switcher: bounds('.view-switcher'),
+          switcher: bounds('.tools-menu'),
           idle: bounds('.idle'),
         };
       });

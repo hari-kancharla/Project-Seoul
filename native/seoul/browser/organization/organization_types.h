@@ -69,6 +69,9 @@ struct WorkspaceRecord {
   // Off by default: turning it on for an existing Space would make every login
   // in it disappear, which must be the user's choice rather than a migration.
   bool isolated = false;
+  // Once a tab has used this Space, closed-tab history can still refer to its
+  // partition. Its account boundary must then remain stable across restarts.
+  bool storage_boundary_locked = false;
 };
 
 struct EssentialRecord {

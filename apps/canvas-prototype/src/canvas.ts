@@ -133,8 +133,8 @@ export function mountCanvas(root: HTMLElement): void {
   }
 
   function restoreFocus(capture: FocusCapture): void {
-    // 'instant' overrides the stack's scroll-behavior:smooth so restoration
-    // is deterministic (a smooth restore can be swallowed entirely headless).
+    // The renderer owns restoration; neither CSS smooth scrolling nor browser
+    // anchoring may continue moving this position on a later frame.
     window.scrollTo({ left: capture.windowX, top: capture.windowY, behavior: 'instant' });
     stack.scrollTo({ top: capture.stackScroll, behavior: 'instant' });
     if (capture.activeId !== null) {
@@ -351,8 +351,8 @@ export function mountCanvas(root: HTMLElement): void {
 
   function finishRun(): void {
     input.value = '';
-    stack.scrollTo({ top: stack.scrollHeight });
-    input.focus();
+    stack.scrollTo({ top: stack.scrollHeight, behavior: 'instant' });
+    input.focus({ preventScroll: true });
   }
 
   input.dataset['seoulFocus'] = 'composer';

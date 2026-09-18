@@ -13,6 +13,10 @@
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/button/label_button.h"
 
+namespace gfx {
+class FontList;
+}
+
 namespace seoul {
 
 // Corner radius shared by every Seoul chip - panels must not drift into
@@ -48,9 +52,14 @@ class SeoulChipButton final : public views::LabelButton {
   // one persistent highlight always means "this is the current choice".
   void SetProminent(bool prominent);
 
+  // A font chooser displays the actual family it applies.
+  void SetPreviewFont(const gfx::FontList& font);
+
  private:
   // views::LabelButton:
   void StateChanged(ButtonState old_state) override;
+  bool OnKeyPressed(const ui::KeyEvent& event) override;
+  bool SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) override;
   // views::Button. The base implementation removes the checked state on every
   // transition that is not "pressed", so merely hovering the selected chip
   // erased the row's only authoritative state. This writes it from `selected_`
@@ -62,6 +71,7 @@ class SeoulChipButton final : public views::LabelButton {
   bool selected_ = false;
   bool prominent_ = false;
   bool is_choice_ = false;
+  bool font_preview_ = false;
 };
 
 }  // namespace seoul

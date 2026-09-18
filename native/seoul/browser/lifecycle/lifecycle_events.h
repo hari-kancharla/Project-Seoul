@@ -8,6 +8,7 @@
 #ifndef SEOUL_BROWSER_LIFECYCLE_LIFECYCLE_EVENTS_H_
 #define SEOUL_BROWSER_LIFECYCLE_LIFECYCLE_EVENTS_H_
 
+#include <optional>
 #include <string>
 
 #include "seoul/browser/lifecycle/lifecycle_identity.h"
@@ -80,6 +81,9 @@ struct NormalizedEvent {
   // Durable Seoul membership carried through Chromium's tab-session metadata.
   // Present only for a restored/existing tab that was previously organized.
   TabMembershipId restored_membership;
+  // nullopt is an adapter without storage information; an empty id is the
+  // ordinary partition, and a valid id is the page's actual container Space.
+  std::optional<WorkspaceId> storage_workspace;
 
   TabInsertKind insert_kind = TabInsertKind::kUnknown;
   TabRemovalKind removal_kind = TabRemovalKind::kUnknown;

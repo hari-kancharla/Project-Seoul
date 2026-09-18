@@ -270,7 +270,7 @@ MutationStatus OrganizationModel::EnsureDefaultWorkspace() {
 // --- Workspaces ---
 
 MutationResult<WorkspaceId> OrganizationModel::CreateWorkspace(
-    std::string_view name) {
+    std::string_view name, bool isolated) {
   if (notifying_) {
     return Err(OrganizationError::kNoOpRejected);
   }
@@ -283,6 +283,7 @@ MutationResult<WorkspaceId> OrganizationModel::CreateWorkspace(
   WorkspaceRecord w;
   w.id = WorkspaceId::GenerateNew();
   w.name = std::string(name);
+  w.isolated = isolated;
   w.order = NextWorkspaceOrder();
   w.created_at = Now();
   w.last_active_at = w.created_at;
@@ -327,9 +328,50 @@ MutationStatus OrganizationModel::SetWorkspaceIsolated(const WorkspaceId& id,
   if (it->second.isolated == isolated) {
     return Err(OrganizationError::kNoOpRejected);
   }
+  // A live WebContents cannot change its StoragePartition. Never change the
+  // Space's account boundary underneath existing or archived tabs.
+  if (it->second.is_default) {
+    return Err(OrganizationError::kDefaultWorkspaceProtected);
+  }
+  if (it->second.storage_boundary_locked || MembershipsInWorkspace(id) > 0 ||
+      std::ranges::any_of(archived_, [&](const auto& entry) {
+        return entry.second.workspace_id == id;
+      })) {
+    return Err(OrganizationError::kResourceInUse);
+  }
   it->second.isolated = isolated;
   Notify({OrganizationChangeType::kWorkspaceIsolationChanged, id,
           TabMembershipId()});
+  return Ok();
+}
+
+MutationStatus OrganizationModel::RecoverContainerWorkspace(
+    const WorkspaceId& id) {
+  if (notifying_) {
+    return Err(OrganizationError::kNoOpRejected);
+  }
+  if (!id.is_valid()) {
+    return Err(OrganizationError::kInvalidId);
+  }
+  if (const auto* existing = FindWorkspace(id)) {
+    if (!existing->isolated) {
+      return Err(OrganizationError::kCrossContainerMove);
+    }
+    return existing->archived ? RestoreWorkspace(id) : Ok();
+  }
+  if (workspaces_.size() >= kMaxWorkspaces) {
+    return Err(OrganizationError::kLimitExceeded);
+  }
+  WorkspaceRecord workspace;
+  workspace.id = id;
+  workspace.name = "Recovered Container";
+  workspace.isolated = true;
+  workspace.storage_boundary_locked = true;
+  workspace.order = NextWorkspaceOrder();
+  workspace.created_at = Now();
+  workspace.last_active_at = workspace.created_at;
+  workspaces_.emplace(id, std::move(workspace));
+  Notify({OrganizationChangeType::kWorkspaceCreated, id, TabMembershipId()});
   return Ok();
 }
 
@@ -431,6 +473,14 @@ MutationStatus OrganizationModel::DeleteWorkspace(const WorkspaceId& id) {
   // Cascade: remove memberships (and their tab index entries), splits, and
   // routing rules scoped to this workspace. Atomic: all removals happen
   // together.
+  // A live container tab cannot fall back to the shared Space: its renderer
+  // still owns the isolated partition. Close/archive those tabs first.
+  if (it->second.isolated &&
+      std::ranges::any_of(memberships_, [&id](const auto& entry) {
+        return entry.second.workspace_id == id;
+      })) {
+    return Err(OrganizationError::kResourceInUse);
+  }
   for (auto m = memberships_.begin(); m != memberships_.end();) {
     if (m->second.workspace_id == id) {
       tab_index_.erase(m->second.tab_key);
@@ -539,6 +589,7 @@ MutationResult<TabMembershipId> OrganizationModel::AddTabMembership(
   const TabMembershipId id = m.id;
   tab_index_[m.tab_key] = id;
   memberships_.emplace(id, std::move(m));
+  workspaces_.at(workspace_id).storage_boundary_locked = true;
   Notify({OrganizationChangeType::kMembershipAdded, workspace_id, id});
   return id;
 }
@@ -594,6 +645,12 @@ MutationStatus OrganizationModel::MoveTabToWorkspace(
   if (it->second.workspace_id == target_workspace) {
     return Err(OrganizationError::kNoOpRejected);
   }
+  const WorkspaceRecord* source = FindWorkspace(it->second.workspace_id);
+  if ((source && source->isolated) || target->isolated) {
+    // Moving organization metadata does not move cookies or the live page.
+    // Opening a fresh tab in the destination is the explicit account switch.
+    return Err(OrganizationError::kCrossContainerMove);
+  }
   if (MembershipsInWorkspace(target_workspace) >= kMaxMembershipsPerWorkspace) {
     return Err(OrganizationError::kLimitExceeded);
   }
@@ -614,6 +671,7 @@ MutationStatus OrganizationModel::MoveTabToWorkspace(
     }
   }
   it->second.workspace_id = target_workspace;
+  workspaces_.at(target_workspace).storage_boundary_locked = true;
   // A folder belongs to one workspace, so a tab leaving that workspace leaves
   // the folder too rather than holding a reference across the boundary.
   it->second.folder_id = FolderId();

@@ -13,27 +13,46 @@
 #include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_isolated_world_ids.h"
+#include "components/prefs/pref_service.h"
+#include "content/public/browser/document_user_data.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
-#include "chrome/browser/profiles/profile.h"
-#include "components/prefs/pref_service.h"
-#include "seoul/browser/site_layers/site_layer_types.h"
 #include "seoul/browser/product/browser/boost_web_preferences.h"
 #include "seoul/browser/site_layers/site_layer_compiler.h"
 #include "seoul/browser/site_layers/site_layer_registry.h"
+#include "seoul/browser/site_layers/site_layer_types.h"
 #include "url/origin.h"
 
 namespace seoul {
 
 namespace {
 
-bool IsCustomizableUrl(const GURL &url) {
+// Retained with each document across back/forward cache, and discarded with
+// that document. A tab-level cache loses the old page's enabled state when the
+// user changes Boost settings while it is in history.
+class AppliedBoostState : public content::DocumentUserData<AppliedBoostState> {
+ public:
+  ~AppliedBoostState() override = default;
+  std::string css;
+  std::string javascript;
+  bool tint = false;
+
+ private:
+  explicit AppliedBoostState(content::RenderFrameHost* frame)
+      : content::DocumentUserData<AppliedBoostState>(frame) {}
+  friend content::DocumentUserData<AppliedBoostState>;
+  DOCUMENT_USER_DATA_KEY_DECL();
+};
+DOCUMENT_USER_DATA_KEY_IMPL(AppliedBoostState);
+
+bool IsCustomizableUrl(const GURL& url) {
   return url.is_valid() && url.SchemeIsHTTPOrHTTPS();
 }
 
-std::u16string BuildApplyScript(const std::string &css, bool tint_enabled) {
+std::u16string BuildApplyScript(const std::string& css, bool tint_enabled) {
   // JSONWriter is the only interpolation boundary. CSS has already passed the
   // Site Layer compiler, and the encoded JSON string is passed only to
   // CSSStyleSheet.replaceSync; it is never parsed or evaluated as script.
@@ -49,22 +68,29 @@ std::u16string BuildApplyScript(const std::string &css, bool tint_enabled) {
       ";"
       "const k='__seoulSiteLayerSheetV1';"
       "const tk='__seoulBoostTintElementV1';"
+      "const ck='__seoulSiteLayerCssV1';"
       "const old=globalThis[k];"
-      "if(old){document.adoptedStyleSheets="
-      "document.adoptedStyleSheets.filter(s=>s!==old);delete globalThis[k];}"
       "let tint=globalThis[tk];"
       "if(tint&&!tint.isConnected){delete globalThis[tk];tint=null;}"
       "if(!p.tint){if(tint)tint.remove();delete globalThis[tk];}"
-      "else if(!tint){tint=document.createElement('div');"
+      "else if(!tint&&document.documentElement){"
+      "tint=document.createElement('div');"
       "tint.setAttribute('data-seoul-browser-boost-tint-v1','');"
       "tint.setAttribute('aria-hidden','true');"
-      "(document.documentElement||document).appendChild(tint);"
+      "document.documentElement.appendChild(tint);"
       "globalThis[tk]=tint;}"
+      "if(old&&p.css&&globalThis[ck]===p.css){"
+      "if(!document.adoptedStyleSheets.includes(old))"
+      "document.adoptedStyleSheets=[...document.adoptedStyleSheets,old];"
+      "return true;}"
+      "if(old){document.adoptedStyleSheets="
+      "document.adoptedStyleSheets.filter(s=>s!==old);delete globalThis[k];}"
+      "delete globalThis[ck];"
       "if(!p.css)return true;"
       "const sheet=new CSSStyleSheet();"
       "sheet.replaceSync(p.css);"
       "document.adoptedStyleSheets=[...document.adoptedStyleSheets,sheet];"
-      "globalThis[k]=sheet;"
+      "globalThis[k]=sheet;globalThis[ck]=p.css;"
       "return document.adoptedStyleSheets.includes(sheet);"
       "})()";
   return base::UTF8ToUTF16(script);
@@ -77,6 +103,7 @@ std::u16string BuildZapScript() {
   // ASCII identifiers plus :nth-of-type(N).
   return uR"JS(
     (() => {
+      if (!document.documentElement) return false;
       const key = '__seoulBoostZapV1';
       const resultKey = '__seoulBoostZapResultV1';
       if (globalThis[key]?.cancel) globalThis[key].cancel();
@@ -94,7 +121,7 @@ std::u16string BuildZapScript() {
         background: 'rgba(138,180,248,.16)',
         boxShadow: '0 0 0 1px rgba(0,0,0,.28)',
       });
-      (document.documentElement || document).appendChild(overlay);
+      document.documentElement.appendChild(overlay);
       const captureTypes =
           ['pointerdown', 'mousedown', 'touchstart', 'contextmenu'];
       const suppress = event => {
@@ -206,34 +233,34 @@ std::u16string BuildReadZapResultScript() {
   )JS";
 }
 
-} // namespace
+}  // namespace
 
 namespace {
 
 // Reads Arc's Settings > Advanced switch for the profile owning this page.
 // Absent profile or pref service fails open, because a Boost the user already
 // created should keep working rather than silently stop.
-bool BoostJavaScriptEnabledForWebContents(content::WebContents *contents) {
-  Profile *const profile =
+bool BoostJavaScriptEnabledForWebContents(content::WebContents* contents) {
+  Profile* const profile =
       Profile::FromBrowserContext(contents->GetBrowserContext());
-  PrefService *const prefs = profile ? profile->GetPrefs() : nullptr;
+  PrefService* const prefs = profile ? profile->GetPrefs() : nullptr;
   // Fails CLOSED, unlike the CSS switch: absent a pref service there is no
   // record that the user turned author JavaScript on, and it must not run on
   // an assumption.
   return prefs && prefs->GetBoolean(kSeoulBoostJavaScriptEnabledPref);
 }
 
-bool BoostsEnabledForWebContents(content::WebContents *contents) {
-  Profile *const profile =
+bool BoostsEnabledForWebContents(content::WebContents* contents) {
+  Profile* const profile =
       Profile::FromBrowserContext(contents->GetBrowserContext());
-  PrefService *const prefs = profile ? profile->GetPrefs() : nullptr;
+  PrefService* const prefs = profile ? profile->GetPrefs() : nullptr;
   return !prefs || prefs->GetBoolean(kSeoulBoostsEnabledPref);
 }
 
 }  // namespace
 
-SiteLayerApplicator::SiteLayerApplicator(content::WebContents *web_contents,
-                                         SiteLayerRegistry *registry)
+SiteLayerApplicator::SiteLayerApplicator(content::WebContents* web_contents,
+                                         SiteLayerRegistry* registry)
     : content::WebContentsObserver(web_contents), registry_(registry) {}
 
 SiteLayerApplicator::~SiteLayerApplicator() {
@@ -241,13 +268,13 @@ SiteLayerApplicator::~SiteLayerApplicator() {
   SetBoostAutomaticDarkMode(web_contents(), false);
 }
 
-void SiteLayerApplicator::Refresh(const std::string &scene_id) {
+void SiteLayerApplicator::Refresh(const std::string& scene_id) {
   scene_id_ = scene_id;
   compiled_css_.clear();
   custom_javascript_.clear();
   tint_enabled_ = false;
   bool automatic_dark_mode = false;
-  content::WebContents *contents = web_contents();
+  content::WebContents* contents = web_contents();
   // Arc's global switch, checked here because Refresh() is the one place every
   // Boost reaches the page. Off means no Boost applies anywhere, and none is
   // deleted: flipping it back restores every one of them.
@@ -282,10 +309,11 @@ void SiteLayerApplicator::Refresh(const std::string &scene_id) {
 
 void SiteLayerApplicator::BeginZap(ZapCallback callback) {
   CancelZap();
-  content::WebContents *contents = web_contents();
-  content::RenderFrameHost *frame =
+  content::WebContents* contents = web_contents();
+  content::RenderFrameHost* frame =
       contents ? contents->GetPrimaryMainFrame() : nullptr;
   if (!frame || !frame->IsRenderFrameLive() ||
+      contents->GetVisibility() == content::Visibility::HIDDEN ||
       !IsCustomizableUrl(contents->GetLastCommittedURL())) {
     std::move(callback).Run(std::nullopt);
     return;
@@ -300,7 +328,7 @@ void SiteLayerApplicator::BeginZap(ZapCallback callback) {
 }
 
 void SiteLayerApplicator::DidFinishNavigation(
-    content::NavigationHandle *navigation_handle) {
+    content::NavigationHandle* navigation_handle) {
   if (!navigation_handle || !navigation_handle->HasCommitted() ||
       !navigation_handle->IsInPrimaryMainFrame() ||
       navigation_handle->IsSameDocument()) {
@@ -311,13 +339,18 @@ void SiteLayerApplicator::DidFinishNavigation(
 }
 
 void SiteLayerApplicator::DOMContentLoaded(
-    content::RenderFrameHost *render_frame_host) {
+    content::RenderFrameHost* render_frame_host) {
   if (!render_frame_host || !render_frame_host->IsInPrimaryMainFrame()) {
     return;
   }
   // Reapply once the head exists. This also repairs pages that replace their
   // head during early boot without waiting for another navigation.
-  ApplyToPrimaryMainFrame();
+  ApplyToPrimaryMainFrame(true);
+}
+
+void SiteLayerApplicator::OnVisibilityChanged(content::Visibility visibility) {
+  if (visibility == content::Visibility::HIDDEN && zap_callback_)
+    CancelZap();
 }
 
 void SiteLayerApplicator::WebContentsDestroyed() {
@@ -330,19 +363,19 @@ void SiteLayerApplicator::WebContentsDestroyed() {
 
 void SiteLayerApplicator::CancelZap() {
   ++zap_generation_;
-  if (zap_callback_) {
-    std::move(zap_callback_).Run(std::nullopt);
-  }
-  content::WebContents *contents = web_contents();
-  content::RenderFrameHost *frame =
+  auto callback = std::move(zap_callback_);
+  content::WebContents* contents = web_contents();
+  content::RenderFrameHost* frame =
       contents ? contents->GetPrimaryMainFrame() : nullptr;
-  if (!frame || !frame->IsRenderFrameLive()) {
-    return;
+  if (frame && frame->IsRenderFrameLive()) {
+    frame->ExecuteJavaScriptInIsolatedWorld(
+        u"(() => { globalThis.__seoulBoostZapV1?.cancel?.(); "
+        u"delete globalThis.__seoulBoostZapResultV1; return true; })()",
+        base::DoNothing(), ISOLATED_WORLD_ID_CHROME_INTERNAL);
   }
-  frame->ExecuteJavaScriptInIsolatedWorld(
-      u"(() => { globalThis.__seoulBoostZapV1?.cancel?.(); "
-      u"delete globalThis.__seoulBoostZapResultV1; return true; })()",
-      base::DoNothing(), ISOLATED_WORLD_ID_CHROME_INTERNAL);
+  // The callback can update the registry or destroy the owning runtime.
+  if (callback)
+    std::move(callback).Run(std::nullopt);
 }
 
 void SiteLayerApplicator::OnZapInstalled(uint64_t generation,
@@ -361,8 +394,8 @@ void SiteLayerApplicator::PollZap(uint64_t generation) {
   if (generation != zap_generation_ || !zap_callback_) {
     return;
   }
-  content::WebContents *contents = web_contents();
-  content::RenderFrameHost *frame =
+  content::WebContents* contents = web_contents();
+  content::RenderFrameHost* frame =
       contents ? contents->GetPrimaryMainFrame() : nullptr;
   if (!frame || !frame->IsRenderFrameLive()) {
     std::move(zap_callback_).Run(std::nullopt);
@@ -383,7 +416,7 @@ void SiteLayerApplicator::OnZapPoll(uint64_t generation, base::Value result) {
     std::move(zap_callback_).Run(std::nullopt);
     return;
   }
-  const base::DictValue &dict = result.GetDict();
+  const base::DictValue& dict = result.GetDict();
   if (!dict.FindBool("done").value_or(false)) {
     base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
@@ -393,7 +426,7 @@ void SiteLayerApplicator::OnZapPoll(uint64_t generation, base::Value result) {
     return;
   }
   std::optional<std::string> selector;
-  const std::string *value = dict.FindString("selector");
+  const std::string* value = dict.FindString("selector");
   if (value && IsSafeSelector(*value)) {
     selector = *value;
   }
@@ -406,44 +439,53 @@ namespace {
 // the way a userscript engine does, and takes the element straight back out so
 // it leaves no trace in the DOM. JSON-encoding the body is what keeps the
 // author's quotes and newlines from breaking out of the literal.
-std::u16string BuildAuthorScript(const std::string &author_javascript) {
+std::u16string BuildAuthorScript(const std::string& author_javascript) {
   std::string encoded;
   base::JSONWriter::Write(base::Value(author_javascript), &encoded);
   return base::UTF8ToUTF16(
       "(() => { try {"
-      "  const body = " + encoded + ";"
-      "  const element = document.createElement('script');"
-      "  element.textContent = body;"
-      "  (document.head || document.documentElement).appendChild(element);"
-      "  element.remove();"
-      "} catch (e) {} return true; })()");
+      "const body=" +
+      encoded +
+      ";"
+      "const parent=document.head||document.documentElement;"
+      "if(!parent)return false;"
+      "const element=document.createElement('script');"
+      "element.textContent=body;parent.appendChild(element);element.remove();"
+      "} catch(e) {} return true; })()");
 }
 
 }  // namespace
 
-void SiteLayerApplicator::ApplyToPrimaryMainFrame() {
-  content::WebContents *contents = web_contents();
-  if (!contents) {
+void SiteLayerApplicator::ApplyToPrimaryMainFrame(bool repair_style) {
+  auto* contents = web_contents();
+  auto* frame = contents ? contents->GetPrimaryMainFrame() : nullptr;
+  if (!frame || !frame->IsRenderFrameLive())
     return;
-  }
-  content::RenderFrameHost *frame = contents->GetPrimaryMainFrame();
-  if (!frame || !frame->IsRenderFrameLive()) {
-    return;
-  }
-  frame->ExecuteJavaScriptInIsolatedWorld(
-      BuildApplyScript(compiled_css_, tint_enabled_), base::DoNothing(),
-      ISOLATED_WORLD_ID_CHROME_INTERNAL);
-
-  // The author's own script, after the styling it may depend on. It runs in
-  // the page's world rather than the isolated one, because a Boost script is
-  // written against the page's own globals and would be useless without them
-  // - which is also precisely why it is behind a switch that defaults off.
-  // Wrapped so a throw in the author's code cannot abort the rest of the page.
-  if (!custom_javascript_.empty()) {
+  auto* state = AppliedBoostState::GetForCurrentDocument(frame);
+  if (!state && compiled_css_.empty() && custom_javascript_.empty() &&
+      !tint_enabled_)
+    return;  // Ordinary pages need no Boost state or renderer work.
+  if (!state)
+    state = AppliedBoostState::GetOrCreateForCurrentDocument(frame);
+  if (compiled_css_ != state->css || tint_enabled_ != state->tint ||
+      (repair_style && (!compiled_css_.empty() || tint_enabled_))) {
+    state->css = compiled_css_;
+    state->tint = tint_enabled_;
     frame->ExecuteJavaScriptInIsolatedWorld(
-        BuildAuthorScript(custom_javascript_), base::DoNothing(),
+        BuildApplyScript(compiled_css_, tint_enabled_), base::DoNothing(),
         ISOLATED_WORLD_ID_CHROME_INTERNAL);
+  }
+  // Author code runs after the DOM exists, once per unchanged program. A font
+  // edit, rename, or tab switch must not repeat arbitrary page-side effects.
+  // An explicit code edit or disable/re-enable permits a new execution.
+  if (frame->IsDOMContentLoaded() && custom_javascript_ != state->javascript) {
+    state->javascript = custom_javascript_;
+    if (!custom_javascript_.empty()) {
+      frame->ExecuteJavaScriptInIsolatedWorld(
+          BuildAuthorScript(custom_javascript_), base::DoNothing(),
+          ISOLATED_WORLD_ID_CHROME_INTERNAL);
+    }
   }
 }
 
-} // namespace seoul
+}  // namespace seoul

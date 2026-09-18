@@ -1,0 +1,204 @@
+diff --git a/chrome/browser/sessions/session_restore.cc b/chrome/browser/sessions/session_restore.cc
+--- a/chrome/browser/sessions/session_restore.cc
++++ b/chrome/browser/sessions/session_restore.cc
+@@ -97,6 +97,8 @@
+ #include "content/public/browser/render_widget_host.h"
+ #include "content/public/browser/render_widget_host_view.h"
+ #include "content/public/browser/session_storage_namespace.h"
++#include "content/public/browser/site_instance.h"
++#include "seoul/browser/product/browser/space_partition_resolver.h"
+ #include "content/public/browser/storage_partition.h"
+ #include "content/public/browser/web_contents.h"
+ #include "extensions/browser/extension_registry.h"
+@@ -999,9 +1001,13 @@
+     // Associate sessionStorage (if any) to the restored tab.
+     scoped_refptr<content::SessionStorageNamespace> session_storage_namespace;
+     if (!tab.session_storage_persistent_id.empty()) {
++      auto restored_site = seoul::SiteInstanceForRestoredSeoulTab(
++          profile_, tab.navigations[selected_index].virtual_url(), tab.extra_data);
++      auto* partition = restored_site
++          ? profile_->GetStoragePartition(restored_site.get())
++          : profile_->GetDefaultStoragePartition();
+       session_storage_namespace =
+-          profile_->GetDefaultStoragePartition()
+-              ->GetDOMStorageContext()
++          partition->GetDOMStorageContext()
+               ->RecreateSessionStorage(tab.session_storage_persistent_id);
+     }
+ 
+diff --git a/chrome/browser/sessions/session_service_base.cc b/chrome/browser/sessions/session_service_base.cc
+--- a/chrome/browser/sessions/session_service_base.cc
++++ b/chrome/browser/sessions/session_service_base.cc
+@@ -48,6 +48,7 @@
+ #include "content/public/browser/navigation_details.h"
+ #include "content/public/browser/navigation_entry.h"
+ #include "content/public/browser/session_storage_namespace.h"
++#include "content/public/browser/session_storage_namespace_utils.h"
+ #include "ui/base/mojom/window_show_state.mojom.h"
+ 
+ #if BUILDFLAG(IS_MAC)
+@@ -278,11 +279,9 @@
+   // Record the association between the SessionStorageNamespace and the
+   // tab.
+   //
+-  // TODO(ajwong): This should be processing the whole map rather than
+-  // just the default. This in particular will not work for tabs with only
+-  // isolated apps which won't have a default partition.
++  // Use the actual page partition, including Seoul container tabs.
+   content::SessionStorageNamespace* session_storage_namespace =
+-      contents->GetController().GetDefaultSessionStorageNamespace();
++      content::SessionStorageForWebContents(contents);
+   ScheduleCommand(sessions::CreateSessionStorageAssociatedCommand(
+       session_tab_helper->session_id(), session_storage_namespace->id()));
+   session_storage_namespace->SetShouldPersist(true);
+@@ -298,7 +297,7 @@
+   // Allow the associated sessionStorage to get deleted; it won't be needed
+   // in the session restore.
+   content::SessionStorageNamespace* session_storage_namespace =
+-      contents->GetController().GetDefaultSessionStorageNamespace();
++      content::SessionStorageForWebContents(contents);
+   session_storage_namespace->SetShouldPersist(false);
+   sessions::SessionTabHelper* session_tab_helper =
+       sessions::SessionTabHelper::FromWebContents(contents);
+@@ -663,7 +662,7 @@
+ 
+   // Record the association between the sessionStorage namespace and the tab.
+   content::SessionStorageNamespace* session_storage_namespace =
+-      tab->GetController().GetDefaultSessionStorageNamespace();
++      content::SessionStorageForWebContents(tab);
+   ScheduleCommand(sessions::CreateSessionStorageAssociatedCommand(
+       session_tab_helper->session_id(), session_storage_namespace->id()));
+ }
+diff --git a/chrome/browser/ui/browser_tabrestore.cc b/chrome/browser/ui/browser_tabrestore.cc
+--- a/chrome/browser/ui/browser_tabrestore.cc
++++ b/chrome/browser/ui/browser_tabrestore.cc
+@@ -34,8 +34,11 @@
+ #include "content/public/browser/render_widget_host_view.h"
+ #include "content/public/browser/restore_type.h"
+ #include "content/public/browser/session_storage_namespace.h"
++#include "content/public/browser/site_instance.h"
++#include "content/public/browser/storage_partition.h"
+ #include "content/public/browser/web_contents.h"
+ #include "seoul/browser/lifecycle/session_restore_metadata.h"
++#include "seoul/browser/product/browser/space_partition_resolver.h"
+ #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
+ #include "ui/gfx/geometry/size.h"
+ #include "ui/gfx/range/range.h"
+@@ -68,12 +71,18 @@
+   // SessionStorageNamespace objects. Also remove the
+   // session_storage_namespace.h include since we only need that to assign
+   // into the map.
+-  content::SessionStorageNamespaceMap session_storage_namespace_map =
+-      content::CreateMapWithDefaultSessionStorageNamespace(
+-          browser->profile(), session_storage_namespace);
++  auto initial_site_instance = seoul::SiteInstanceForRestoredSeoulTab(
++      browser->profile(), restore_url, extra_data);
++  if (!initial_site_instance) {
++    initial_site_instance =
++        tab_util::GetSiteInstanceForNewTab(browser->profile(), restore_url);
++  }
++  content::SessionStorageNamespaceMap session_storage_namespace_map;
++  session_storage_namespace_map[
++      browser->profile()->GetStoragePartition(initial_site_instance.get())
++          ->GetConfig()] = session_storage_namespace;
+   WebContents::CreateParams create_params(
+-      browser->profile(),
+-      tab_util::GetSiteInstanceForNewTab(browser->profile(), restore_url));
++      browser->profile(), initial_site_instance);
+   create_params.initially_hidden = initially_hidden;
+   create_params.desired_renderer_state =
+       WebContents::CreateParams::kNoRendererProcess;
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.cc b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.cc
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+@@ -728,8 +728,9 @@
+ 
+ // static
+ int LocationBarView::ComputeBorderRadius(gfx::Size size) {
+-  return ChromeLayoutProvider::Get()->GetCornerRadiusMetric(
+-      views::Emphasis::kMaximum, size);
++  // Shared by every toolbar arrangement and the omnibox popup. A bounded
++  // radius keeps Seoul's address field rectangular at every window width.
++  return std::max(0, std::min({10, size.width() / 2, size.height() / 2}));
+ }
+ 
+ // static
+diff --git a/components/sessions/content/content_platform_specific_tab_data.cc b/components/sessions/content/content_platform_specific_tab_data.cc
+--- a/components/sessions/content/content_platform_specific_tab_data.cc
++++ b/components/sessions/content/content_platform_specific_tab_data.cc
+@@ -6,15 +6,14 @@
+ 
+ #include "content/public/browser/navigation_controller.h"
+ #include "content/public/browser/web_contents.h"
++#include "content/public/browser/session_storage_namespace.h"
++#include "content/public/browser/session_storage_namespace_utils.h"
+ 
+ namespace sessions {
+ 
+ ContentPlatformSpecificTabData::ContentPlatformSpecificTabData(
+     content::WebContents* web_contents)
+-    :  // TODO(ajwong): This does not correctly handle storage for isolated
+-       // apps.
+-      session_storage_namespace_(web_contents->GetController()
+-                                     .GetDefaultSessionStorageNamespace()) {}
++    : session_storage_namespace_(content::SessionStorageForWebContents(web_contents)) {}
+ 
+ ContentPlatformSpecificTabData::ContentPlatformSpecificTabData() = default;
+ ContentPlatformSpecificTabData::~ContentPlatformSpecificTabData() = default;
+diff --git a/content/public/browser/BUILD.gn b/content/public/browser/BUILD.gn
+--- a/content/public/browser/BUILD.gn
++++ b/content/public/browser/BUILD.gn
+@@ -421,6 +421,8 @@
+     "service_worker_version_base_info.h",
+     "session_storage_namespace.cc",
+     "session_storage_namespace.h",
++    "session_storage_namespace_utils.cc",
++    "session_storage_namespace_utils.h",
+     "session_storage_usage_info.h",
+     "shape_detection_service.h",
+     "shared_cors_origin_access_list.h",
+diff --git a/content/public/browser/session_storage_namespace_utils.cc b/content/public/browser/session_storage_namespace_utils.cc
+new file mode 100644
+--- /dev/null
++++ b/content/public/browser/session_storage_namespace_utils.cc
+@@ -0,0 +1,22 @@
++// Copyright 2021 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "content/public/browser/session_storage_namespace_utils.h"
++
++#include "content/browser/renderer_host/navigation_controller_impl.h"
++#include "content/public/browser/render_frame_host.h"
++#include "content/public/browser/storage_partition.h"
++#include "content/public/browser/web_contents.h"
++
++namespace content {
++
++SessionStorageNamespace* SessionStorageForWebContents(WebContents* contents) {
++  return static_cast<NavigationControllerImpl&>(contents->GetController())
++      .GetSessionStorageNamespace(
++          contents->GetPrimaryMainFrame()->GetStoragePartition()->GetConfig());
++}
++
++
++
++}  // namespace content
+diff --git a/content/public/browser/session_storage_namespace_utils.h b/content/public/browser/session_storage_namespace_utils.h
+new file mode 100644
+--- /dev/null
++++ b/content/public/browser/session_storage_namespace_utils.h
+@@ -0,0 +1,13 @@
++// Copyright 2026 The Project Seoul Authors
++#ifndef CONTENT_PUBLIC_BROWSER_SESSION_STORAGE_NAMESPACE_UTILS_H_
++#define CONTENT_PUBLIC_BROWSER_SESSION_STORAGE_NAMESPACE_UTILS_H_
++#include "content/common/content_export.h"
++namespace content {
++class SessionStorageNamespace;
++class WebContents;
++// The controller retains this namespace. Select the primary page's actual
++// partition, so container tabs do not save or restore the default session.
++CONTENT_EXPORT SessionStorageNamespace* SessionStorageForWebContents(
++    WebContents* contents);
++}  // namespace content
++#endif

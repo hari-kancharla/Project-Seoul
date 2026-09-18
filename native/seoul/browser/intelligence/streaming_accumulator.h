@@ -27,8 +27,8 @@ class StreamingAccumulator {
   ~StreamingAccumulator();
 
   // Feeds a raw transport chunk. Returns false and records an error if the
-  // stream overflowed or a payload was malformed after the first token
-  // (malformed keep-alives before any content are tolerated by the caller).
+  // stream overflowed or a data payload was malformed. SSE comments are
+  // handled by the parser and do not reach the payload decoder.
   bool Feed(std::string_view chunk);
 
   // Builds the final result from what was accumulated. `truncated` is set when

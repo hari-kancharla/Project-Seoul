@@ -11,14 +11,14 @@
 #include "base/json/json_reader.h"
 #include "base/logging.h"
 #include "base/strings/string_util.h"
-#include "base/values.h"
+#include "base/test/run_until.h"
 #include "base/test/test_future.h"
 #include "base/time/time.h"
+#include "base/values.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "base/test/run_until.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
@@ -26,6 +26,7 @@
 #include "net/http/http_status_code.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
+#include "seoul/browser/adblock/ad_block_baseline_rules.h"
 #include "seoul/browser/adblock/ad_block_engine_host.h"
 #include "seoul/browser/adblock/ad_block_resource_catalog.h"
 #include "seoul/browser/adblock/ad_block_service.h"
@@ -49,6 +50,7 @@ class AdBlockBrowserTest : public InProcessBrowserTest {
   void SetUpOnMainThread() override {
     InProcessBrowserTest::SetUpOnMainThread();
     host_resolver()->AddRule("*", "127.0.0.1");
+    embedded_test_server()->ServeFilesFromSourceDirectory("content/test/data");
     embedded_test_server()->RegisterRequestHandler(base::BindRepeating(
         &AdBlockBrowserTest::HandleRequest, base::Unretained(this)));
     ASSERT_TRUE(embedded_test_server()->Start());
@@ -77,19 +79,36 @@ class AdBlockBrowserTest : public InProcessBrowserTest {
   std::unique_ptr<net::test_server::HttpResponse> HandleRequest(
       const net::test_server::HttpRequest& request) {
     auto response = std::make_unique<net::test_server::BasicHttpResponse>();
+    if (request.relative_url.starts_with("/youtubei/v1/get_watch") ||
+        request.relative_url.starts_with("/ordinary-json")) {
+      response->set_content_type("application/json");
+      response->AddCustomHeader("X-Fixture", "preserved");
+      response->set_content(
+          R"JSON([{"playerResponse":{"adSlots":[{"id":"ad"}],"adPlacements":[1],"playerAds":[2],"videoDetails":{"videoId":"content-video"},"streamingData":{"url":"content-stream"}},"response":{"recommendations":["ordinary-video"]}}])JSON");
+      return response;
+    }
+    if (request.relative_url == "/early-player.html") {
+      response->set_content_type("text/html");
+      response->set_content(R"HTML(<!doctype html><html><head><script>
+        window.player = {adSlots: ['ad'], content: 'video'};
+        window.initialAdSlots = window.player.adSlots;
+        window.initialParsed = JSON.parse('{"adPlacements":[1],"content":"video"}');
+      </script></head><body><div class="card" id="sponsored"><span class="sponsor">Ad</span></div>
+      <div class="card" id="regular">A normal recommendation</div></body></html>)HTML");
+      return response;
+    }
     if (request.relative_url == "/player.html") {
       // A synthetic player in the video.js ads convention: an ad-state marker
       // and a skip control that records presses. Real enough for the player-ad
       // treatment, with none of a real ad server's nondeterminism.
       response->set_content_type("text/html");
       response->set_content(
-          "<html><body>"
+          "<html><body><script>window.__skips=0;</script>"
           "<div class=\"vjs-ad-playing\">"
           "  <video muted></video>"
           "  <button class=\"vjs-skip-button\" "
           "onclick=\"window.__skips=(window.__skips||0)+1\">Skip</button>"
           "</div>"
-          "<script>window.__skips=0;</script>"
           "</body></html>");
       return response;
     }
@@ -190,7 +209,8 @@ class AdBlockBrowserTest : public InProcessBrowserTest {
           "   sum = (sum * 31 + bytes[i]) >>> 0; }"
           "  return String(sum); };"
           " const canvas = new OffscreenCanvas(64, 32);"
-          " const context = canvas.getContext('2d', {willReadFrequently: true});"
+          " const context = canvas.getContext('2d', {willReadFrequently: "
+          "true});"
           " context.fillStyle = '#a1b2c3'; context.fillRect(0, 0, 64, 32);"
           " context.fillStyle = '#102030'; context.font = '16px sans-serif';"
           " context.fillText('Seoul', 4, 20);"
@@ -261,7 +281,9 @@ class AdBlockBrowserTest : public InProcessBrowserTest {
       response->set_content(
           "<script>window.hostLoaded = true;</script><iframe id=\"ad\" "
           "src=\"" +
-          embedded_test_server()->GetURL("ads.example", "/ad-frame.html").spec() +
+          embedded_test_server()
+              ->GetURL("ads.example", "/ad-frame.html")
+              .spec() +
           "\"></iframe><iframe id=\"ok\" src=\"" +
           embedded_test_server()
               ->GetURL("widgets.example", "/ok-frame.html")
@@ -397,8 +419,8 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
       << "the ad iframe's document load was not filtered";
 
   // And it leaves no reserved gap where the ad would have been.
-  EXPECT_EQ(0, content::EvalJs(
-                   contents, "document.getElementById('ad').clientHeight"));
+  EXPECT_EQ(0, content::EvalJs(contents,
+                               "document.getElementById('ad').clientHeight"));
 
   // An unrelated third-party frame still loads - an over-broad sub_frame path
   // shows up right here.
@@ -449,14 +471,141 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
 // REAL injection path - service to host to isolated world - against a
 // synthetic player, because a live ad server decides for itself when to serve
 // and a test that only sometimes has an ad only sometimes tests.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
+                       PageScriptletsPrecedeInlinePlayerSetup) {
+  ReplaceRules(
+      "news.example##+js(set, player.adSlots, undefined)\n"
+      "news.example##+js(json-prune, adPlacements)\n"
+      "news.example##.card:has(.sponsor)\n");
+  const GURL url =
+      embedded_test_server()->GetURL("news.example", "/early-player.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  auto* contents = browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_EQ(true,
+            content::EvalJs(contents, "window.initialAdSlots === undefined"));
+  EXPECT_EQ(true,
+            content::EvalJs(contents,
+                            "window.initialParsed.adPlacements === undefined "
+                            "&& window.initialParsed.content === 'video'"));
+  EXPECT_EQ(true, content::EvalJs(contents,
+                                  "window.player.content === 'video' && typeof "
+                                  "window.scriptletGlobals === 'undefined'"));
+  EXPECT_EQ(
+      "none",
+      content::EvalJs(
+          contents,
+          "getComputedStyle(document.getElementById('sponsored')).display"));
+  EXPECT_NE(
+      "none",
+      content::EvalJs(
+          contents,
+          "getComputedStyle(document.getElementById('regular')).display"));
+  EXPECT_EQ("none", content::EvalJs(contents, R"JS((async () => {
+    const card = document.createElement('div'); card.className = 'card';
+    card.innerHTML = '<span class="sponsor">Sponsored</span>'; document.body.append(card);
+    await new Promise(requestAnimationFrame); return getComputedStyle(card).display;
+  })())JS"));
+  AdBlockServiceFactory::GetForProfile(browser()->profile())
+      ->SetSiteMode(url, AdBlockMode::kOff);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  EXPECT_EQ(true,
+            content::EvalJs(contents,
+                            "window.initialAdSlots.length === 1 && "
+                            "window.initialParsed.adPlacements.length === 1"));
+  EXPECT_NE(
+      "none",
+      content::EvalJs(
+          contents,
+          "getComputedStyle(document.getElementById('sponsored')).display"));
+}
+
+// YouTube's next-video route wraps the player in an array. Exercise the
+// shipped baseline through fetch and XHR, with an unrelated request as control.
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
+                       PlayerResponsesPrunedAcrossSameDocumentNavigation) {
+  ReplaceRules(kSeoulBaselineDefaultRules);
+  const GURL url =
+      embedded_test_server()->GetURL("www.youtube.com", "/early-player.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  auto* contents = browser()->tab_strip_model()->GetActiveWebContents();
+  constexpr char kProbe[] = R"JS((async () => {
+    const hasAds = data => !!data[0].playerResponse.adSlots;
+    const valid = data => {
+      const player = data[0].playerResponse;
+      return !player.adSlots && !player.adPlacements && !player.playerAds &&
+        player.videoDetails.videoId === 'content-video' &&
+        player.streamingData.url === 'content-stream' &&
+        data[0].response.recommendations[0] === 'ordinary-video';
+    };
+    const request = async () => {
+      const response = await fetch('/youtubei/v1/get_watch?prettyPrint=false');
+      if (response.status !== 200 || response.headers.get('X-Fixture') !== 'preserved' || !response.url.includes('/get_watch')) return false;
+      return valid(await response.json());
+    };
+    if (!await request()) return 'initial-fetch';
+    history.pushState({}, '', '/watch?v=next-video');
+    if (!await request()) return 'next-video-fetch';
+    for (const responseType of ['', 'json']) {
+      const data = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest(); xhr.open('POST', '/youtubei/v1/get_watch');
+        xhr.responseType = responseType;
+        xhr.onload = () => resolve(responseType === 'json' ? xhr.response : JSON.parse(xhr.responseText));
+        xhr.onerror = reject; xhr.send('{}');
+      });
+      if (!valid(data)) return 'xhr-' + responseType;
+    }
+    const ordinary = await (await fetch('/ordinary-json')).json();
+    if (!hasAds(ordinary)) return 'unrelated-response-modified';
+    return 'ok';
+  })())JS";
+  EXPECT_EQ("ok", content::EvalJs(contents, kProbe));
+  AdBlockServiceFactory::GetForProfile(browser()->profile())
+      ->SetSiteMode(url, AdBlockMode::kOff);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  EXPECT_EQ(true, content::EvalJs(contents, R"JS((async () => {
+    const data = await (await fetch('/youtubei/v1/get_watch')).json();
+    return data[0].playerResponse.adSlots[0].id === 'ad';
+  })())JS"));
+}
+
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
+                       PlayerFallbackHandlesInsertedSkipAndRestoresMute) {
+  const GURL url =
+      embedded_test_server()->GetURL("news.example", "/early-player.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+  auto* contents = browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_EQ("ok", content::EvalJs(contents, R"JS((async () => {
+    const root = document.createElement('div'); root.className = 'vjs-ad-playing';
+    root.style.cssText = 'width:300px;height:200px';
+    const video = document.createElement('video'); video.muted = false;
+    video.src = '/media/bear-320x240-video-only.webm';
+    const loaded = new Promise((resolve, reject) => { video.onloadedmetadata = resolve; video.onerror = reject; });
+    root.append(video); document.body.append(root);
+    await loaded;
+    await new Promise(resolve => setTimeout(resolve, 25));
+    if (!video.muted) return 'ad-not-muted';
+    const button = document.createElement('button'); button.className = 'vjs-skip-button';
+    button.textContent = 'Skip'; let presses = 0;
+    button.onclick = () => { presses++; root.className = 'video-content'; };
+    const start = performance.now(); root.append(button);
+    for (let i = 0; i < 20 && !presses; i++) await new Promise(resolve => setTimeout(resolve, 10));
+    await new Promise(resolve => setTimeout(resolve, 10));
+    if (presses !== 1) return 'skip-count';
+    if (performance.now() - start > 250) return 'late-skip';
+    if (video.muted) return 'content-still-muted';
+    return 'ok';
+  })())JS"));
+}
+
 IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, PlayerAdTreatmentPressesSkip) {
-  const GURL url = embedded_test_server()->GetURL("ads.example", "/player.html");
+  const GURL url =
+      embedded_test_server()->GetURL("ads.example", "/player.html");
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
   content::WebContents* contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   ASSERT_TRUE(contents);
 
-  // The treatment observes and polls at 500ms; wait for the press to land.
+  // Wait for the event-driven treatment to press the inserted control.
   ASSERT_TRUE(base::test::RunUntil([&]() {
     return content::EvalJs(contents, "window.__skips").ExtractInt() > 0;
   })) << "the isolated-world treatment must press the player's skip control";
@@ -752,23 +901,23 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, DomScriptletLibraryActsOnThePage) {
 // instead of plain blocks.
 IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, GaRedirectStubKeepsPageCodeAlive) {
   ReplaceRules(
-      "/ga\\.js(?:\\?|$)/$script,redirect=ga.js,important,domain=news.example\n");
+      "/ga\\.js(?:\\?|$)/"
+      "$script,redirect=ga.js,important,domain=news.example\n");
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(),
       embedded_test_server()->GetURL("news.example", "/ga-consumer.html")));
   content::WebContents* contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   ASSERT_TRUE(contents);
-  EXPECT_EQ("stubbed",
-            content::EvalJs(contents,
-                            "new Promise(resolve => {"
-                            " const check = () => {"
-                            "  if (window.gaOutcome === 'stubbed') {"
-                            "   resolve(window.gaOutcome); return;"
-                            "  }"
-                            "  requestAnimationFrame(check);"
-                            " }; check();"
-                            "})"));
+  EXPECT_EQ("stubbed", content::EvalJs(contents,
+                                       "new Promise(resolve => {"
+                                       " const check = () => {"
+                                       "  if (window.gaOutcome === 'stubbed') {"
+                                       "   resolve(window.gaOutcome); return;"
+                                       "  }"
+                                       "  requestAnimationFrame(check);"
+                                       " }; check();"
+                                       "})"));
 }
 
 // ---- Fingerprinting protection --------------------------------------------
@@ -1005,7 +1154,8 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
   const auto probe = [&]() {
     EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), site));
     contents = browser()->tab_strip_model()->GetActiveWebContents();
-    return ParseProbe(content::EvalJs(contents, kHardwareProbe).ExtractString());
+    return ParseProbe(
+        content::EvalJs(contents, kHardwareProbe).ExtractString());
   };
 
   service->SetDefaultFingerprintMode(FingerprintMode::kOff);
@@ -1013,7 +1163,8 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
   const int real_cores = *truth.FindInt("cores");
   const double real_memory = *truth.FindDouble("memory");
   ASSERT_GE(real_cores, 1);
-  ASSERT_GT(real_memory, 0.0) << "deviceMemory must be exposed on a secure context";
+  ASSERT_GT(real_memory, 0.0)
+      << "deviceMemory must be exposed on a secure context";
 
   service->SetDefaultFingerprintMode(FingerprintMode::kBalanced);
   const base::DictValue farbled = probe();
@@ -1186,9 +1337,8 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
   const std::string webgl =
       content::EvalJs(contents, kWebGLProbe).ExtractString();
   if (webgl != "unavailable") {
-    ASSERT_TRUE(base::test::RunUntil([&]() {
-      return service->stats()->GetFarbledReads(page).webgl >= 1;
-    }));
+    ASSERT_TRUE(base::test::RunUntil(
+        [&]() { return service->stats()->GetFarbledReads(page).webgl >= 1; }));
     EXPECT_EQ(1u, service->stats()->GetFarbledReads(page).webgl);
   }
 
@@ -1211,13 +1361,15 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, NewIdentityChangesWhatTheSiteSees) {
   ASSERT_TRUE(service);
   // localhost is a secure context, so deviceMemory is exposed too.
   const GURL site = embedded_test_server()->GetURL("localhost", "/farble.html");
-  const GURL other = embedded_test_server()->GetURL("a.example", "/farble.html");
+  const GURL other =
+      embedded_test_server()->GetURL("a.example", "/farble.html");
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), site));
   content::WebContents* contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   const std::string scope = AdBlockService::IdentityScopeFor(contents);
   const auto seen_hardware = [&]() {
-    return ParseProbe(content::EvalJs(contents, kHardwareProbe).ExtractString());
+    return ParseProbe(
+        content::EvalJs(contents, kHardwareProbe).ExtractString());
   };
   const auto canvas_url = [&]() -> std::string {
     const base::DictValue dict =
@@ -1259,7 +1411,8 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, NewIdentityChangesWhatTheSiteSees) {
 // all it took to turn the protection off. And a WebGL read into a pixel-pack
 // buffer landed in GPU memory the farbling never touched, so getBufferSubData
 // handed back the real drawing buffer.
-IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, WideAndBufferedReadbacksCannotEscape) {
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
+                       WideAndBufferedReadbacksCannotEscape) {
   AdBlockService* service =
       AdBlockServiceFactory::GetForProfile(browser()->profile());
   ASSERT_TRUE(service);
@@ -1318,8 +1471,7 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, WideAndBufferedReadbacksCannotEscape)
     gl.readPixels(0, 0, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, 0);
     return String(gl.getError());
   })())";
-  const std::string packed =
-      content::EvalJs(go(), kPackBuffer).ExtractString();
+  const std::string packed = content::EvalJs(go(), kPackBuffer).ExtractString();
   if (packed == "unavailable") {
     LOG(WARNING) << "WebGL2 is unavailable here; the pixel-pack path was not "
                     "exercised by this run";
@@ -1405,7 +1557,6 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
           "})"));
 }
 
-
 // ---- `$csp` end-to-end -----------------------------------------------------
 // Each case asserts renderer-observable behavior, never just a header string.
 
@@ -1421,8 +1572,7 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, CspRuleBlocksInlineScript) {
 
   // With the rule the very same script is refused by Blink's CSP machinery,
   // which proves the policy arrived before the document was processed.
-  ASSERT_NO_FATAL_FAILURE(
-      ReplaceRules("||news.test^$csp=script-src 'none'\n"));
+  ASSERT_NO_FATAL_FAILURE(ReplaceRules("||news.test^$csp=script-src 'none'\n"));
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
   contents = browser()->tab_strip_model()->GetActiveWebContents();
   EXPECT_EQ(false, content::EvalJs(contents, "window.scriptRan === true"));
@@ -1434,15 +1584,13 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, CspExceptionSuppressesInjection) {
                    "@@||news.test^$csp\n"));
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL("news.test", "/csp.html")));
-  EXPECT_EQ(true,
-            content::EvalJs(
-                browser()->tab_strip_model()->GetActiveWebContents(),
-                "window.scriptRan === true"));
+  EXPECT_EQ(true, content::EvalJs(
+                      browser()->tab_strip_model()->GetActiveWebContents(),
+                      "window.scriptRan === true"));
 }
 
 IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, ExistingSiteCspIsPreserved) {
-  ASSERT_NO_FATAL_FAILURE(
-      ReplaceRules("||news.test^$csp=script-src 'none'\n"));
+  ASSERT_NO_FATAL_FAILURE(ReplaceRules("||news.test^$csp=script-src 'none'\n"));
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(),
       embedded_test_server()->GetURL("news.test", "/csp_existing.html")));
@@ -1453,28 +1601,26 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, ExistingSiteCspIsPreserved) {
   EXPECT_EQ(false, content::EvalJs(contents, "window.scriptRan === true"));
   // The site's own `img-src 'none'` is still enforced, so it was neither
   // replaced nor relaxed by the injection.
-  EXPECT_EQ(0, content::EvalJs(
-                   contents,
-                   "document.getElementById('img').naturalWidth"));
+  EXPECT_EQ(0, content::EvalJs(contents,
+                               "document.getElementById('img').naturalWidth"));
 }
 
 IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, ReportOnlyCspIsNotPromoted) {
   // The site's report-only policy must stay report-only: with no matching
   // blocker rule the script still runs.
-  ASSERT_NO_FATAL_FAILURE(ReplaceRules("||other.test^$csp=script-src 'none'\n"));
+  ASSERT_NO_FATAL_FAILURE(
+      ReplaceRules("||other.test^$csp=script-src 'none'\n"));
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(),
       embedded_test_server()->GetURL("news.test", "/csp_report_only.html")));
-  EXPECT_EQ(true,
-            content::EvalJs(
-                browser()->tab_strip_model()->GetActiveWebContents(),
-                "window.scriptRan === true"));
+  EXPECT_EQ(true, content::EvalJs(
+                      browser()->tab_strip_model()->GetActiveWebContents(),
+                      "window.scriptRan === true"));
 }
 
 IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, MultipleCspRulesCombine) {
   // One directive from each engine group; both must take effect.
-  ASSERT_NO_FATAL_FAILURE(
-      ReplaceRules("||news.test^$csp=script-src 'none'\n"));
+  ASSERT_NO_FATAL_FAILURE(ReplaceRules("||news.test^$csp=script-src 'none'\n"));
   ASSERT_NO_FATAL_FAILURE(
       ReplaceAdditionalRules("||news.test^$csp=img-src 'none'\n"));
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
@@ -1483,15 +1629,13 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, MultipleCspRulesCombine) {
   content::WebContents* contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   EXPECT_EQ(false, content::EvalJs(contents, "window.scriptRan === true"));
-  EXPECT_EQ(0, content::EvalJs(
-                   contents,
-                   "document.getElementById('img').naturalWidth"));
+  EXPECT_EQ(0, content::EvalJs(contents,
+                               "document.getElementById('img').naturalWidth"));
 }
 
 IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, OffModeSuppressesCspInjection) {
   const GURL url = embedded_test_server()->GetURL("news.test", "/csp.html");
-  ASSERT_NO_FATAL_FAILURE(
-      ReplaceRules("||news.test^$csp=script-src 'none'\n"));
+  ASSERT_NO_FATAL_FAILURE(ReplaceRules("||news.test^$csp=script-src 'none'\n"));
 
   AdBlockService* service =
       AdBlockServiceFactory::GetForProfile(browser()->profile());
@@ -1504,21 +1648,18 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, OffModeSuppressesCspInjection) {
   ASSERT_EQ(AdBlockMode::kOff, service->GetSiteSettings(url).effective_mode);
 
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
-  EXPECT_EQ(true,
-            content::EvalJs(
-                browser()->tab_strip_model()->GetActiveWebContents(),
-                "window.scriptRan === true"));
+  EXPECT_EQ(true, content::EvalJs(
+                      browser()->tab_strip_model()->GetActiveWebContents(),
+                      "window.scriptRan === true"));
 }
 
 IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, NonMatchingPageIsUnaffected) {
-  ASSERT_NO_FATAL_FAILURE(
-      ReplaceRules("||ads.test^$csp=script-src 'none'\n"));
+  ASSERT_NO_FATAL_FAILURE(ReplaceRules("||ads.test^$csp=script-src 'none'\n"));
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL("news.test", "/csp.html")));
-  EXPECT_EQ(true,
-            content::EvalJs(
-                browser()->tab_strip_model()->GetActiveWebContents(),
-                "window.scriptRan === true"));
+  EXPECT_EQ(true, content::EvalJs(
+                      browser()->tab_strip_model()->GetActiveWebContents(),
+                      "window.scriptRan === true"));
 }
 
 IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
@@ -1547,12 +1688,13 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, CspUsesFinalUrlAfterRedirect) {
       browser(),
       embedded_test_server()->GetURL("start.test", "/csp_redirect")));
   ASSERT_EQ(embedded_test_server()->GetURL("final.test", "/csp.html"),
-            browser()->tab_strip_model()->GetActiveWebContents()
+            browser()
+                ->tab_strip_model()
+                ->GetActiveWebContents()
                 ->GetLastCommittedURL());
-  EXPECT_EQ(false,
-            content::EvalJs(
-                browser()->tab_strip_model()->GetActiveWebContents(),
-                "window.scriptRan === true"));
+  EXPECT_EQ(false, content::EvalJs(
+                       browser()->tab_strip_model()->GetActiveWebContents(),
+                       "window.scriptRan === true"));
 }
 
 IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
@@ -1565,28 +1707,26 @@ IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
       browser(),
       embedded_test_server()->GetURL("start.test", "/csp_redirect")));
   ASSERT_EQ(embedded_test_server()->GetURL("final.test", "/csp.html"),
-            browser()->tab_strip_model()->GetActiveWebContents()
+            browser()
+                ->tab_strip_model()
+                ->GetActiveWebContents()
                 ->GetLastCommittedURL());
-  EXPECT_EQ(true,
-            content::EvalJs(
-                browser()->tab_strip_model()->GetActiveWebContents(),
-                "window.scriptRan === true"));
+  EXPECT_EQ(true, content::EvalJs(
+                      browser()->tab_strip_model()->GetActiveWebContents(),
+                      "window.scriptRan === true"));
 }
 
-IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest,
-                       CspPolicyDoesNotLeakToNextDocument) {
+IN_PROC_BROWSER_TEST_F(AdBlockBrowserTest, CspPolicyDoesNotLeakToNextDocument) {
   // Each navigation defers and resumes independently. After leaving a filtered
   // document, the next one must be evaluated on its own terms - a stale policy
   // from the previous response must not survive.
-  ASSERT_NO_FATAL_FAILURE(
-      ReplaceRules("||news.test^$csp=script-src 'none'\n"));
+  ASSERT_NO_FATAL_FAILURE(ReplaceRules("||news.test^$csp=script-src 'none'\n"));
 
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL("news.test", "/csp.html")));
-  EXPECT_EQ(false,
-            content::EvalJs(
-                browser()->tab_strip_model()->GetActiveWebContents(),
-                "window.scriptRan === true"));
+  EXPECT_EQ(false, content::EvalJs(
+                       browser()->tab_strip_model()->GetActiveWebContents(),
+                       "window.scriptRan === true"));
 
   const GURL second = embedded_test_server()->GetURL("other.test", "/csp.html");
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), second));

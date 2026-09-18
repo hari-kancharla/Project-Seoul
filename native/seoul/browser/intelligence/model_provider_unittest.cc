@@ -142,5 +142,76 @@ TEST(CloudModelProviderTest, MapsHttpErrorBodies) {
   EXPECT_NE(result.error().find("401"), std::string::npos);
 }
 
+// This transport deliberately delivers after cancellation, as a queued network
+// callback can. It exercises actual provider lifetime, not synchronous fakes.
+class DeferredTransport : public HttpTransport {
+ public:
+  int Start(const HttpRequest&, HttpStreamCallbacks callbacks) override {
+    calls.push_back(std::move(callbacks));
+    return static_cast<int>(calls.size());
+  }
+  void Cancel(int) override {}
+  std::vector<HttpStreamCallbacks> calls;
+};
+
+TEST(LocalModelProviderTest, ConcurrentRequestDoesNotReplaceTheFirstCallback) {
+  DeferredTransport transport;
+  LocalModelConfig config;
+  config.endpoint_url = "http://localhost:11434/v1/chat/completions";
+  LocalModelProvider provider(config, &transport);
+  bool first_finished = false;
+  provider.Generate(GenerationRequest(), base::BindLambdaForTesting(
+      [&](base::expected<GenerationResult, std::string> result) {
+        first_finished = true;
+        ASSERT_TRUE(result.has_value());
+        EXPECT_EQ(result->text, "First");
+      }));
+  auto second = RunToCompletion(provider, GenerationRequest());
+  ASSERT_FALSE(second.has_value());
+  EXPECT_EQ(transport.calls.size(), 1u);
+  EXPECT_FALSE(first_finished);
+  transport.calls[0].on_chunk.Run(
+      "data: {\"choices\":[{\"delta\":{\"content\":\"First\"}}]}\n\n"
+      "data: [DONE]\n\n");
+  std::move(transport.calls[0].on_complete).Run(200, "");
+  EXPECT_TRUE(first_finished);
+}
+
+TEST(CloudModelProviderTest, LateCallbacksAfterDestructionAreIgnored) {
+  DeferredTransport transport;
+  FakeCredentialStore credentials;
+  credentials.Set("cloud", "test-key");
+  bool called = false;
+  {
+    CloudModelConfig config;
+    config.endpoint_url = "https://api.provider.test/v1/messages";
+    config.credential_account = "cloud";
+    CloudModelProvider provider(config, &transport, &credentials);
+    provider.Generate(GenerationRequest(), base::BindLambdaForTesting(
+        [&](base::expected<GenerationResult, std::string>) { called = true; }));
+  }
+  ASSERT_EQ(transport.calls.size(), 1u);
+  transport.calls[0].on_chunk.Run("data: {}\n\n");
+  std::move(transport.calls[0].on_complete).Run(200, "");
+  EXPECT_FALSE(called);
+}
+
+TEST(CloudModelProviderTest, ErrorEventsAndIncompleteStreamsCannotSucceed) {
+  FakeHttpTransport transport;
+  FakeCredentialStore credentials;
+  credentials.Set("cloud", "test-key");
+  CloudModelConfig config;
+  config.endpoint_url = "https://api.provider.test/v1/messages";
+  config.credential_account = "cloud";
+  CloudModelProvider provider(config, &transport, &credentials);
+  for (const char* stream : {
+           "data: {\"type\":\"error\",\"error\":{\"message\":\"overloaded\"}}\n\n",
+           "data: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"partial\"}}\n\n",
+           "data: {\"type\":\"message_stop\"}\n\n"}) {
+    transport.SetResponse({stream}, 200);
+    EXPECT_FALSE(RunToCompletion(provider, GenerationRequest()).has_value());
+  }
+}
+
 }  // namespace
 }  // namespace seoul

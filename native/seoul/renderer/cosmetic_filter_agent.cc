@@ -1,4 +1,4 @@
-// Project Seoul asynchronous, CSS-only cosmetic filtering agent.
+// Project Seoul cosmetic and scriptlet filtering agent.
 
 #include "seoul/renderer/cosmetic_filter_agent.h"
 
@@ -9,6 +9,7 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/location.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/common/chrome_isolated_world_ids.h"
@@ -70,7 +71,7 @@ constexpr char kInstallDiscoveryScript[] = R"JS(
       if (classes.size === maxPending && ids.size === maxPending) break;
     }
   };
-  const observer = new MutationObserver(records => {
+  const collect = records => {
     for (const record of records) {
       if (record.type === 'attributes') {
         addElement(record.target);
@@ -79,7 +80,8 @@ constexpr char kInstallDiscoveryScript[] = R"JS(
       }
       if (classes.size === maxPending && ids.size === maxPending) break;
     }
-  });
+  };
+  const observer = new MutationObserver(collect);
   const state = {
     observer,
     observing: false,
@@ -98,6 +100,7 @@ constexpr char kInstallDiscoveryScript[] = R"JS(
     },
     drain(limit) {
       this.start();
+      collect(observer.takeRecords());
       const take = set => {
         const values = [];
         for (const value of set) {
@@ -245,8 +248,10 @@ constexpr char kInstallProceduralScriptSuffix[] = R"JS(;
       attributeFilter: ['class', 'id']
     });
   }
+  document.addEventListener('DOMContentLoaded', run, {once: true});
   globalThis[key] = {
     stop() {
+      document.removeEventListener('DOMContentLoaded', run);
       observer.disconnect();
       if (timer) clearTimeout(timer);
       timer = 0;
@@ -343,7 +348,8 @@ void CosmeticFilterAgent::Create(content::RenderFrame* render_frame) {
 }
 
 CosmeticFilterAgent::CosmeticFilterAgent(content::RenderFrame* render_frame)
-    : RenderFrameObserver(render_frame) {
+    : RenderFrameObserver(render_frame),
+      RenderFrameObserverTracker<CosmeticFilterAgent>(render_frame) {
   EnsureIsolatedWorldInitialized();
 }
 
@@ -353,10 +359,36 @@ void CosmeticFilterAgent::DidCreateNewDocument() {
   ClearForNewDocument();
 }
 
-void CosmeticFilterAgent::DidCreateDocumentElement() {
-  if (!document_request_started_) {
-    BeginForCurrentDocument(/*refresh=*/false);
+void CosmeticFilterAgent::RunAtDocumentStart(content::RenderFrame* frame) {
+  // The tracker lookup does not dereference the frame. An extension may have
+  // detached it earlier in the document-start hook.
+  auto* agent = CosmeticFilterAgent::Get(frame);
+  if (agent && !agent->document_request_started_) {
+    agent->BeginForCurrentDocument(/*refresh=*/false);
   }
+}
+
+void CosmeticFilterAgent::DidCreateDocumentElement() {
+  // Non-Chrome renderer test clients do not dispatch the product document-start
+  // hook. A deferred fallback keeps those embedders functional, and the guard
+  // prevents a second install in Chrome. Never execute scripts inside Blink's
+  // document-element notification: its script state is not ready yet.
+  const uint64_t generation = generation_;
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](base::WeakPtr<CosmeticFilterAgent> agent, uint64_t generation) {
+            if (agent && agent->generation_ == generation &&
+                !agent->document_request_started_)
+              agent->BeginForCurrentDocument(/*refresh=*/false);
+          },
+          weak_factory_.GetWeakPtr(), generation));
+}
+
+void CosmeticFilterAgent::DidDispatchDOMContentLoadedEvent() {
+  // Document-start installation precedes the parser's class/id attributes.
+  // Drain them once parsing finishes instead of waiting for the polling timer.
+  PollIdentifiers();
 }
 
 void CosmeticFilterAgent::DidSetPageLifecycleState(
@@ -448,6 +480,7 @@ void CosmeticFilterAgent::ClearForNewDocument() {
   query_generics_ = false;
   selectors_.clear();
   executed_isolated_scripts_.clear();
+  document_scripts_installed_ = false;
   style_sheet_.clear();
   style_sheet_bytes_ = 0;
 }
@@ -489,6 +522,13 @@ void CosmeticFilterAgent::RequestResources(uint64_t generation, bool refresh) {
     render_frame()->GetBrowserInterfaceBroker().GetInterface(
         host_.BindNewPipeAndPassReceiver());
   }
+  if (!refresh) {
+    adblock::mojom::CosmeticResourcesPtr resources;
+    if (host_->GetCosmeticResources(&resources)) {
+      OnGotResources(generation, refresh, std::move(resources));
+    }
+    return;
+  }
   host_->GetCosmeticResources(
       base::BindOnce(&CosmeticFilterAgent::OnGotResources,
                      weak_factory_.GetWeakPtr(), generation, refresh));
@@ -504,6 +544,8 @@ void CosmeticFilterAgent::OnGotResources(
   request_in_flight_ = false;
   if (!resources->enabled || !resources->default_rules ||
       !resources->additional_rules) {
+    ExecuteIsolatedScript("globalThis.__seoulPlayerAdTreatment?.stop();");
+    executed_isolated_scripts_.clear();
     RemoveDiscoveryScript();
     RemoveProceduralRules();
     ReplaceSelectors({}, {});
@@ -525,8 +567,17 @@ void CosmeticFilterAgent::OnGotResources(
   if (default_styled || additional_styled) {
     ApplyStyleSheet();
   }
-  ExecuteIsolatedScript(resources->default_rules->isolated_script);
-  ExecuteIsolatedScript(resources->additional_rules->isolated_script);
+  // Upstream dependency order is intentionally unspecified. Deduplicating the
+  // assembled source text would install the same hooks repeatedly when only
+  // declaration order changes. Page hooks install once per document; changes
+  // to scriptlet rules take effect on reload, as with other page setup code.
+  if (!document_scripts_installed_) {
+    ExecuteMainWorldScript(resources->default_rules->main_world_script);
+    ExecuteMainWorldScript(resources->additional_rules->main_world_script);
+    ExecuteIsolatedScript(resources->default_rules->isolated_script);
+    ExecuteIsolatedScript(resources->additional_rules->isolated_script);
+    document_scripts_installed_ = true;
+  }
   InstallProceduralRules(resources->default_rules->procedural_actions,
                          resources->additional_rules->procedural_actions);
   query_generics_ = resources->default_rules->query_generics ||
@@ -677,12 +728,32 @@ void CosmeticFilterAgent::ExecuteIsolatedScript(const std::string& script) {
       !render_frame()->GetWebFrame()) {
     return;
   }
-  const std::string wrapped = "(() => {\n'use strict';\n" + script + "\n})();";
+  const std::string wrapped =
+      "(() => { const run = () => {\n'use strict';\nconst scriptletGlobals = "
+      "new Map();\n" +
+      script +
+      "\n}; if (document.readyState === 'loading') "
+      "document.addEventListener('DOMContentLoaded', run, {once:true}); else "
+      "run(); })();";
   render_frame()->GetWebFrame()->ExecuteScriptInIsolatedWorld(
       ISOLATED_WORLD_ID_SEOUL_COSMETIC_FILTERS,
       blink::WebScriptSource(blink::WebString::FromUtf8(wrapped)),
       blink::BackForwardCacheAware::kAllow);
   executed_isolated_scripts_.insert(script);
+}
+
+void CosmeticFilterAgent::ExecuteMainWorldScript(const std::string& script) {
+  if (script.empty() || script.size() > 256 * 1024 ||
+      script.find('\0') != std::string::npos || !render_frame() ||
+      !render_frame()->GetWebFrame())
+    return;
+  // Only compiled resource functions and engine-escaped arguments reach this
+  // realm. It receives page authority, no Mojo bindings or browser APIs.
+  const std::string wrapped =
+      "(() => {\n'use strict';\nconst scriptletGlobals = new Map();\n" +
+      script + "\n})();";
+  render_frame()->GetWebFrame()->ExecuteScript(
+      blink::WebScriptSource(blink::WebString::FromUtf8(wrapped)));
 }
 
 void CosmeticFilterAgent::InstallProceduralRules(

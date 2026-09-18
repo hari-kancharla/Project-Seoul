@@ -235,6 +235,30 @@ TEST(AdBlockEngineTest, SerializedEngineRoundTrips) {
                   .matched);
 }
 
+TEST(AdBlockEngineTest, MaintainedScriptletsResolveDependenciesAndStayUntrusted) {
+  auto engine = Build("news.example##+js(set, player.adSlots, undefined)\n"
+                      "news.example##+js(json-prune, adPlacements)\n"
+                      "news.example##+js(trusted-set-cookie, session, unsafe)\n");
+  ASSERT_TRUE(engine);
+  const auto resources = engine->GetUrlCosmeticResources("https://news.example/");
+  EXPECT_NE(resources.main_world_script.find("function setConstant"), std::string::npos);
+  EXPECT_NE(resources.main_world_script.find("function safeSelf"), std::string::npos);
+  EXPECT_NE(resources.main_world_script.find("function jsonPrune"), std::string::npos);
+  EXPECT_EQ(resources.main_world_script.find("unsafe"), std::string::npos);
+  EXPECT_TRUE(resources.isolated_script.empty());
+  EXPECT_TRUE(engine->GetUrlCosmeticResources("https://other.example/").main_world_script.empty());
+  auto restored = Build("");
+  ASSERT_TRUE(restored->Deserialize(engine->Serialize()));
+  const auto restored_script = restored->GetUrlCosmeticResources("https://news.example/").main_world_script;
+  EXPECT_NE(restored_script.find("function jsonPrune"), std::string::npos);
+  EXPECT_NE(restored_script.find("function setConstant"), std::string::npos);
+  EXPECT_NE(restored_script.find("player.adSlots"), std::string::npos);
+  EXPECT_EQ(restored_script.find("unsafe"), std::string::npos);
+  const std::vector<uint8_t> corrupt = {'S','E','L','2',255,255,255,255,255,255,255,255};
+  EXPECT_FALSE(restored->Deserialize(corrupt));
+  EXPECT_NE(restored->GetUrlCosmeticResources("https://news.example/").main_world_script.find("player.adSlots"), std::string::npos);
+}
+
 TEST(AdBlockEngineTest, RejectsInvalidUtf8WithoutCrashing) {
   const std::vector<uint8_t> invalid_utf8 = {0xff, 0xfe};
   std::string error;

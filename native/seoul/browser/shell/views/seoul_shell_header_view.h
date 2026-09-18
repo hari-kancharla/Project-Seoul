@@ -30,7 +30,7 @@ class BoxLayout;
 class Label;
 class LabelButton;
 class MenuRunner;
-} // namespace views
+}  // namespace views
 
 namespace seoul {
 
@@ -40,31 +40,32 @@ class ShellController;
 class SeoulShellHeaderView : public views::View, public ShellObserver {
   METADATA_HEADER(SeoulShellHeaderView, views::View)
 
-public:
-  using CachedFaviconLookupForTesting = base::RepeatingCallback<void(
-      const GURL &, favicon_base::FaviconImageCallback)>;
+ public:
+  using CachedFaviconLookupForTesting =
+      base::RepeatingCallback<void(const GURL&,
+                                   favicon_base::FaviconImageCallback)>;
 
-  SeoulShellHeaderView(ShellController *controller,
-                       BrowserWindowInterface *browser_window,
-                       Profile *profile);
-  SeoulShellHeaderView(const SeoulShellHeaderView &) = delete;
-  SeoulShellHeaderView &operator=(const SeoulShellHeaderView &) = delete;
+  SeoulShellHeaderView(ShellController* controller,
+                       BrowserWindowInterface* browser_window,
+                       Profile* profile);
+  SeoulShellHeaderView(const SeoulShellHeaderView&) = delete;
+  SeoulShellHeaderView& operator=(const SeoulShellHeaderView&) = delete;
   ~SeoulShellHeaderView() override;
 
-  void BindController(ShellController *controller);
-  void BindBrowserContext(BrowserWindowInterface *browser_window,
-                          Profile *profile);
+  void BindController(ShellController* controller);
+  void BindBrowserContext(BrowserWindowInterface* browser_window,
+                          Profile* profile);
   // Changes only the way the shell is presented. The durable expanded/
   // collapsed mode remains owned by ShellController; compact-mode hover uses
   // this to reveal the same full hierarchy without mutating product state.
   void SetPresentationCollapsed(bool collapsed);
-  void OnShellSnapshotChanged(const ShellChange &change,
-                              const ShellSnapshot &snapshot) override;
+  void OnShellSnapshotChanged(const ShellChange& change,
+                              const ShellSnapshot& snapshot) override;
 
   void SetCachedFaviconLookupForTesting(CachedFaviconLookupForTesting lookup);
-  ui::ImageModel EssentialIconForTesting(const EssentialId &id) const;
+  ui::ImageModel EssentialIconForTesting(const EssentialId& id) const;
 
-private:
+ private:
   enum class EssentialIconSource {
     kFallback,
     kCachePending,
@@ -75,10 +76,10 @@ private:
 
   struct EssentialIconBinding {
     EssentialIconBinding();
-    EssentialIconBinding(const EssentialIconBinding &);
-    EssentialIconBinding(EssentialIconBinding &&);
-    EssentialIconBinding &operator=(const EssentialIconBinding &);
-    EssentialIconBinding &operator=(EssentialIconBinding &&);
+    EssentialIconBinding(const EssentialIconBinding&);
+    EssentialIconBinding(EssentialIconBinding&&);
+    EssentialIconBinding& operator=(const EssentialIconBinding&);
+    EssentialIconBinding& operator=(EssentialIconBinding&&);
     ~EssentialIconBinding();
 
     raw_ptr<views::LabelButton> button = nullptr;
@@ -91,25 +92,28 @@ private:
     EssentialIconSource source = EssentialIconSource::kFallback;
   };
 
-  void RebuildFromSnapshot(const ShellSnapshot &snapshot);
+  void RebuildFromSnapshot(const ShellSnapshot& snapshot);
   void CancelAllFaviconRequestsAndInvalidateCallbacks();
-  void CancelFaviconRequest(EssentialIconBinding &binding);
-  void ResolveEssentialIcon(EssentialIconBinding &binding,
-                            const ShellEssentialItem &essential);
-  void StartCachedFaviconLookup(EssentialIconBinding &binding);
-  void OnCachedFaviconAvailable(EssentialId id, GURL requested_url,
+  void CancelFaviconRequest(EssentialIconBinding& binding);
+  void ResolveEssentialIcon(EssentialIconBinding& binding,
+                            const ShellEssentialItem& essential);
+  void StartCachedFaviconLookup(EssentialIconBinding& binding);
+  void OnCachedFaviconAvailable(EssentialId id,
+                                GURL requested_url,
                                 uint64_t generation,
-                                const favicon_base::FaviconImageResult &result);
-  ui::ImageModel FindLiveFavicon(const LiveTabKey &live_tab) const;
-  void ApplyEssentialIcon(views::LabelButton *button,
-                          const ui::ImageModel &icon);
-  void ApplyDefaultEssentialIcon(views::LabelButton *button);
+                                const favicon_base::FaviconImageResult& result);
+  ui::ImageModel FindLiveFavicon(const LiveTabKey& live_tab) const;
+  void ApplyEssentialIcon(views::LabelButton* button,
+                          const ui::ImageModel& icon);
+  void ApplyDefaultEssentialIcon(views::LabelButton* button);
   void OnEssentialsOverflowPressed();
   void ShowSplitChooser();
+  void ExpandSidebar();
 
   raw_ptr<ShellController> controller_ = nullptr;
   raw_ptr<BrowserWindowInterface> browser_window_ = nullptr;
   raw_ptr<Profile> profile_ = nullptr;
+  raw_ptr<views::LabelButton> expand_sidebar_button_ = nullptr;
   raw_ptr<views::View> essentials_container_ = nullptr;
   raw_ptr<views::BoxLayout> essentials_layout_ = nullptr;
   raw_ptr<views::LabelButton> essentials_overflow_button_ = nullptr;
@@ -127,6 +131,6 @@ private:
   base::WeakPtrFactory<SeoulShellHeaderView> weak_factory_{this};
 };
 
-} // namespace seoul
+}  // namespace seoul
 
-#endif // SEOUL_BROWSER_SHELL_VIEWS_SEOUL_SHELL_HEADER_VIEW_H_
+#endif  // SEOUL_BROWSER_SHELL_VIEWS_SEOUL_SHELL_HEADER_VIEW_H_

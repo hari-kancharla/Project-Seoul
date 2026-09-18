@@ -4,6 +4,7 @@
 #define SEOUL_BROWSER_SHELL_VIEWS_SEOUL_SHELL_FOOTER_VIEW_H_
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
@@ -12,10 +13,16 @@
 #include "seoul/browser/shell/shell_types.h"
 #include "ui/views/view.h"
 
+namespace ui {
+class Event;
+class SimpleMenuModel;
+}  // namespace ui
+
 namespace views {
 class BoxLayout;
 class Label;
 class LabelButton;
+class MenuRunner;
 }  // namespace views
 
 namespace seoul {
@@ -39,12 +46,8 @@ class SeoulShellFooterView : public views::View, public ShellObserver {
   void SetPresentationCollapsed(bool collapsed);
   void OnShellSnapshotChanged(const ShellChange& change,
                               const ShellSnapshot& snapshot) override;
-  // Opens the same native palette as the footer button. This is intentionally
-  // public so the window-level accelerator can route through the owning shell
-  // host instead of falling back to Chromium's search shortcut.
+  // The keyboard command palette is independent of the footer creation menu.
   bool ShowCommandLauncher();
-  // Mirrors Zen's create-new affordance: the plus rotates into a close glyph
-  // for exactly as long as the command surface is open.
   void SetCommandLauncherVisible(bool visible);
 
   views::View* controls_row_for_testing() const { return controls_row_; }
@@ -61,6 +64,9 @@ class SeoulShellFooterView : public views::View, public ShellObserver {
   views::LabelButton* downloads_button_for_testing() const {
     return downloads_button_;
   }
+  views::LabelButton* assistant_button_for_testing() const {
+    return assistant_button_;
+  }
 
   views::LabelButton* create_new_button_for_testing() const {
     return create_new_button_;
@@ -69,6 +75,7 @@ class SeoulShellFooterView : public views::View, public ShellObserver {
   bool is_command_launcher_visible_for_testing() const {
     return command_launcher_visible_;
   }
+  bool is_create_menu_running_for_testing() const;
 
  private:
   void RebuildFromSnapshot(const ShellSnapshot& snapshot);
@@ -78,7 +85,10 @@ class SeoulShellFooterView : public views::View, public ShellObserver {
   void OnSpaceScrollSwitch(int direction);
   void OnSpacePressed(WorkspaceId workspace_id);
   void OnDownloadsPressed();
-  void OnCreateNewPressed();
+  void OnAssistantPressed();
+  void OnCreateNewPressed(const ui::Event& event);
+  void OnCreateActionSelected(ShellUtilityAction action);
+  void OnCreateMenuClosed();
   void ShowSplitChooser();
   void OnReconcilePressed();
 
@@ -86,6 +96,7 @@ class SeoulShellFooterView : public views::View, public ShellObserver {
   raw_ptr<views::View> controls_row_ = nullptr;
   raw_ptr<views::BoxLayout> controls_layout_ = nullptr;
   raw_ptr<views::LabelButton> downloads_button_ = nullptr;
+  raw_ptr<views::LabelButton> assistant_button_ = nullptr;
   raw_ptr<views::View> spaces_container_ = nullptr;
   raw_ptr<views::BoxLayout> spaces_layout_ = nullptr;
   raw_ptr<views::LabelButton> create_new_button_ = nullptr;
@@ -93,6 +104,10 @@ class SeoulShellFooterView : public views::View, public ShellObserver {
   raw_ptr<views::Label> status_label_ = nullptr;
   std::vector<raw_ptr<views::LabelButton>> space_buttons_;
   std::unique_ptr<SeoulSplitChooserView> split_chooser_;
+  // The runner references the model and must be destroyed first.
+  std::unique_ptr<ui::SimpleMenuModel> create_menu_model_;
+  std::unique_ptr<views::MenuRunner> create_menu_runner_;
+  std::optional<ShellUtilityAction> pending_create_action_;
   std::vector<ShellSpaceItem> rendered_spaces_;
   bool presentation_collapsed_ = false;
   bool command_launcher_visible_ = false;

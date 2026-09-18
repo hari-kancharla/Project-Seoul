@@ -7,6 +7,9 @@
 
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
+#include "chrome/browser/ui/browser_window/public/browser_window_features.h"
+#include "chrome/browser/ui/side_panel/side_panel_entry_id.h"
+#include "chrome/browser/ui/side_panel/side_panel_ui.h"  // nogncheck
 #include "chrome/browser/ui/webui/webui_embedding_context.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/web_contents.h"
@@ -87,5 +90,19 @@ void SeoulCanvasUI::CreatePageHandler(
 }
 
 WEB_UI_CONTROLLER_TYPE_IMPL(SeoulCanvasUI)
+
+void SeoulCanvasUI::ShowUI(ShowUICallback callback) {
+  if (embedder()) embedder()->ShowUI();
+  std::move(callback).Run(!!embedder());
+}
+
+void SeoulCanvasUI::CloseUI() {
+  BrowserWindowInterface* window =
+      webui::GetBrowserWindowInterface(web_ui()->GetWebContents());
+  SidePanelUI* panel = window ? window->GetFeatures().side_panel_ui() : nullptr;
+  if (embedder() && panel &&
+      panel->GetCurrentEntryId() == SidePanelEntryId::kSeoulCanvas)
+    panel->Close();
+}
 
 }  // namespace seoul

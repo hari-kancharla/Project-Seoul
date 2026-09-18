@@ -37,7 +37,10 @@ SiteLayerStatusResult ValidateSiteLayer(const SiteLayer &layer);
 // validate.
 SiteLayerResult<std::string> CompileSiteLayer(const SiteLayer &layer);
 
-base::DictValue SiteLayerToValue(const SiteLayer &layer);
+// Persist full authored code by default. Read-only UI summaries can omit code
+// bodies while retaining the appearance metadata.
+base::DictValue SiteLayerToValue(const SiteLayer &layer,
+                                bool include_custom_code = true);
 SiteLayerResult<SiteLayer> SiteLayerFromValue(const base::Value &value);
 
 } // namespace seoul

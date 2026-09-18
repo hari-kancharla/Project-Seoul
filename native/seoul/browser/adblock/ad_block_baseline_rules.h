@@ -89,7 +89,24 @@ inline constexpr char kSeoulBaselineDefaultRules[] =
     "! --- Common third-party beacon and pixel paths ---\n"
     "||*/collect?v=*$image,third-party\n"
     "||*/pixel.gif$image,third-party\n"
-    "||*/beacon.js$script,third-party\n";
+    "||*/beacon.js$script,third-party\n"
+    "! YouTube first-navigation safety floor; maintained upstream lists still apply.\n"
+    "youtube.com##+js(set, ytInitialPlayerResponse.adPlacements, undefined)\n"
+    "youtube.com##+js(set, ytInitialPlayerResponse.playerAds, undefined)\n"
+    "youtube.com##+js(set, ytInitialPlayerResponse.adSlots, undefined)\n"
+    "youtube.com##+js(json-prune, adPlacements playerAds adSlots playerResponse.adPlacements playerResponse.playerAds playerResponse.adSlots [].playerResponse.adPlacements [].playerResponse.playerAds [].playerResponse.adSlots)\n"
+    "youtube.com##+js(json-prune-fetch-response, adPlacements playerAds adSlots playerResponse.adPlacements playerResponse.playerAds playerResponse.adSlots [].playerResponse.adPlacements [].playerResponse.playerAds [].playerResponse.adSlots, , propsToMatch, url:youtubei/v1/player)\n"
+    "youtube.com##+js(json-prune-fetch-response, adPlacements playerAds adSlots playerResponse.adPlacements playerResponse.playerAds playerResponse.adSlots [].playerResponse.adPlacements [].playerResponse.playerAds [].playerResponse.adSlots, , propsToMatch, url:youtubei/v1/get_watch)\n"
+    "youtube.com##+js(json-prune-xhr-response, adPlacements playerAds adSlots playerResponse.adPlacements playerResponse.playerAds playerResponse.adSlots [].playerResponse.adPlacements [].playerResponse.playerAds [].playerResponse.adSlots, , propsToMatch, url:youtubei/v1/player)\n"
+    "youtube.com##+js(json-prune-xhr-response, adPlacements playerAds adSlots playerResponse.adPlacements playerResponse.playerAds playerResponse.adSlots [].playerResponse.adPlacements [].playerResponse.playerAds [].playerResponse.adSlots, , propsToMatch, url:youtubei/v1/get_watch)\n"
+    "youtube.com##ytd-ad-slot-renderer\n"
+    "youtube.com##ytd-display-ad-renderer\n"
+    "youtube.com##ytd-in-feed-ad-layout-renderer\n"
+    "youtube.com##ytd-promoted-sparkles-web-renderer\n"
+    "youtube.com##ytd-promoted-video-renderer\n"
+    "youtube.com##ytm-promoted-video-renderer\n"
+    "youtube.com###player-ads\n"
+    "youtube.com##ytd-rich-item-renderer:has(ytd-ad-slot-renderer)\n";
 
 // The additional-engine floor. Empty of rules on purpose: the additional engine
 // carries opt-in subscriptions and user rules, and shipping defaults there

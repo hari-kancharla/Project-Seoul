@@ -92,7 +92,8 @@ TEST_F(OrganizationModelTest, CreateRenameReorder) {
 // absence cost an afternoon: the browser-level cookie test could only say the
 // containers did not work, not which of four layers had dropped the flag.
 TEST_F(OrganizationModelTest, WorkspaceIsolationSetsReadsAndRoundTrips) {
-  const WorkspaceId id = InitDefault();
+  InitDefault();
+  const WorkspaceId id = model_.CreateWorkspace("Accounts").value();
   const WorkspaceRecord* record = model_.FindWorkspace(id);
   ASSERT_TRUE(record);
   EXPECT_FALSE(record->isolated) << "a Space is not isolated until asked";
@@ -105,8 +106,7 @@ TEST_F(OrganizationModelTest, WorkspaceIsolationSetsReadsAndRoundTrips) {
   // Through a snapshot and back, which is the path persistence takes.
   const OrganizationSnapshot snap = model_.ToSnapshot();
   auto isolated_in_snapshot = std::ranges::find_if(
-      snap.workspaces,
-      [&id](const WorkspaceRecord& w) { return w.id == id; });
+      snap.workspaces, [&id](const WorkspaceRecord& w) { return w.id == id; });
   ASSERT_NE(isolated_in_snapshot, snap.workspaces.end());
   EXPECT_TRUE(isolated_in_snapshot->isolated)
       << "the flag must survive ToSnapshot, or persistence loses it";
@@ -124,6 +124,61 @@ TEST_F(OrganizationModelTest, WorkspaceIsolationSetsReadsAndRoundTrips) {
   record = model_.FindWorkspace(id);
   ASSERT_TRUE(record);
   EXPECT_FALSE(record->isolated);
+}
+
+TEST_F(OrganizationModelTest, ContainerMovesCannotRelabelAnExistingSession) {
+  const auto shared = InitDefault();
+  const auto work = model_.CreateWorkspace("Work", true).value();
+  const auto personal = model_.CreateWorkspace("Personal", true).value();
+  const auto ordinary = model_.CreateWorkspace("Reading").value();
+  const auto tab =
+      model_.AddTabMembership(shared, "tab-1", TabRole::kTemporary).value();
+  EXPECT_EQ(OrganizationError::kCrossContainerMove,
+            model_.MoveTabToWorkspace(tab, work).error());
+  EXPECT_EQ(shared, model_.FindMembership(tab)->workspace_id);
+  EXPECT_TRUE(model_.MoveTabToWorkspace(tab, ordinary).has_value());
+  const auto isolated_tab =
+      model_.AddTabMembership(work, "tab-2", TabRole::kRetained).value();
+  EXPECT_EQ(OrganizationError::kCrossContainerMove,
+            model_.MoveTabToWorkspace(isolated_tab, personal).error());
+  EXPECT_EQ(OrganizationError::kCrossContainerMove,
+            model_.MoveTabToWorkspace(isolated_tab, shared).error());
+  EXPECT_EQ(OrganizationError::kResourceInUse,
+            model_.SetWorkspaceIsolated(work, false).error());
+  EXPECT_EQ(OrganizationError::kResourceInUse,
+            model_.SetWorkspaceIsolated(ordinary, true).error());
+  ASSERT_TRUE(
+      model_.ArchiveTab(isolated_tab, "https://example.com").has_value());
+  EXPECT_EQ(OrganizationError::kResourceInUse,
+            model_.SetWorkspaceIsolated(work, false).error());
+  EXPECT_TRUE(model_.FindWorkspace(work)->isolated);
+  ASSERT_TRUE(model_.RemoveTabMembership(tab).has_value());
+  EXPECT_EQ(OrganizationError::kResourceInUse,
+            model_.SetWorkspaceIsolated(ordinary, true).error());
+  EXPECT_EQ(OrganizationError::kDefaultWorkspaceProtected,
+            model_.SetWorkspaceIsolated(shared, true).error());
+  OrganizationModel reloaded;
+  ASSERT_TRUE(reloaded.LoadSnapshot(model_.ToSnapshot()).has_value());
+  EXPECT_EQ(OrganizationError::kResourceInUse,
+            reloaded.SetWorkspaceIsolated(ordinary, true).error());
+  ASSERT_TRUE(model_.DeleteWorkspace(personal).has_value());
+  ASSERT_TRUE(model_.RecoverContainerWorkspace(personal).has_value());
+  EXPECT_TRUE(model_.FindWorkspace(personal)->isolated);
+  EXPECT_TRUE(model_.FindWorkspace(personal)->storage_boundary_locked);
+}
+
+TEST_F(OrganizationModelTest, ContainerDeletionPreservesOpenTabBoundaries) {
+  InitDefault();
+  const auto work = model_.CreateWorkspace("Work", true).value();
+  const auto tab =
+      model_.AddTabMembership(work, "open-work-tab", TabRole::kTemporary).value();
+  ASSERT_TRUE(model_.SetActiveWorkspaceForWindow("window", work).has_value());
+  EXPECT_EQ(OrganizationError::kResourceInUse,
+            model_.DeleteWorkspace(work).error());
+  EXPECT_EQ(work, model_.FindMembership(tab)->workspace_id);
+  EXPECT_EQ(work, model_.ActiveWorkspaceForWindow("window"));
+  ASSERT_TRUE(model_.RemoveTabMembership(tab).has_value());
+  EXPECT_TRUE(model_.DeleteWorkspace(work).has_value());
 }
 
 TEST_F(OrganizationModelTest, SetAndClearWorkspaceIcon) {

@@ -19,7 +19,7 @@ bool CanBoostWebContents(content::WebContents *web_contents);
 // Boost bubble needs the same answer the side-panel opener used.
 BrowserWindowInterface *EligibleBrowserFor(content::WebContents *web_contents);
 
-// Opens Seoul Canvas on Boosts for the current HTTP(S) tab. Unsupported and
+// Opens the native site-control bubble for the current HTTP(S) tab. Unsupported and
 // internal pages are rejected without opening an editor on a different site.
 bool OpenBoostEditorForWebContents(content::WebContents *web_contents);
 

@@ -41,7 +41,7 @@ TEST_F(ProviderRegistryTest, HealthCheckDiscoversModels) {
   ProviderRegistry registry(&local_transport_, &cloud_transport_,
                             &credentials_);
   ASSERT_TRUE(
-      registry.ConfigureLocal("http://127.0.0.1:8080/v1", "some-model"));
+      registry.ConfigureLocal("http://127.0.0.1:8080/v1", "model-a"));
   local_transport_.SetResponse(
       {R"({"data": [{"id": "model-a"}, {"id": "model-b"}]})"}, 200);
   base::test::TestFuture<bool> future;
@@ -68,6 +68,86 @@ TEST_F(ProviderRegistryTest, UnhealthyEndpointReportsOfflineState) {
   EXPECT_FALSE(future.Get());
   EXPECT_FALSE(registry.local_available());
   EXPECT_FALSE(registry.Snapshot().last_error.empty());
+}
+
+TEST_F(ProviderRegistryTest, SuccessfulHttpResponseMustListTheSelectedModel) {
+  ProviderRegistry registry(&local_transport_, &cloud_transport_, &credentials_);
+  ASSERT_TRUE(registry.ConfigureLocal("http://localhost:8080/v1", "selected-model"));
+  for (const std::string& response : {std::string("<html>Not an API</html>"),
+      std::string(R"({"data":[{"id":"different-model"}]})")}) {
+    local_transport_.SetResponse({response}, 200);
+    base::test::TestFuture<bool> health;
+    registry.CheckLocalHealth(health.GetCallback());
+    EXPECT_FALSE(health.Get());
+    EXPECT_FALSE(registry.local_available());
+    EXPECT_FALSE(registry.Snapshot().last_error.empty());
+  }
+  local_transport_.SetResponse({R"({"data":[{"id":"selected-model"}]})"}, 200);
+  base::test::TestFuture<bool> health;
+  registry.CheckLocalHealth(health.GetCallback());
+  EXPECT_TRUE(health.Get());
+  EXPECT_TRUE(registry.Snapshot().last_error.empty());
+}
+
+TEST_F(ProviderRegistryTest, LocalDiscoveryAndGenerationUseOneNormalizedBase) {
+  for (const char* endpoint : {"http://127.0.0.1:11434/v1",
+                               "http://127.0.0.1:11434/v1/",
+                               "http://127.0.0.1:11434/v1/chat/completions",
+                               "http://127.0.0.1:11434"}) {
+    SCOPED_TRACE(endpoint);
+    ProviderRegistry registry(&local_transport_, &cloud_transport_, &credentials_);
+    ASSERT_TRUE(registry.ConfigureLocal(endpoint, "test-model"));
+    local_transport_.SetResponse({R"({"data":[{"id":"test-model"}]})"}, 200);
+    base::test::TestFuture<bool> health;
+    registry.CheckLocalHealth(health.GetCallback());
+    ASSERT_TRUE(health.Get());
+    EXPECT_EQ(local_transport_.last_request().url,
+              "http://127.0.0.1:11434/v1/models");
+    local_transport_.SetResponse({
+        "data: {\"choices\":[{\"delta\":{\"content\":\"Ready\"}}]}\n\n",
+        "data: [DONE]\n\n"}, 200);
+    base::test::TestFuture<base::expected<GenerationResult, std::string>> reply;
+    registry.Generate(GenerationRequest(), true, reply.GetCallback());
+    ASSERT_TRUE(reply.Get().has_value());
+    EXPECT_EQ(reply.Get()->text, "Ready");
+    EXPECT_EQ(local_transport_.last_request().url,
+              "http://127.0.0.1:11434/v1/chat/completions");
+  }
+}
+
+TEST_F(ProviderRegistryTest, RejectsAmbiguousLocalBasesWithoutReplacingSettings) {
+  ProviderRegistry registry(&local_transport_, &cloud_transport_, &credentials_);
+  ASSERT_TRUE(registry.ConfigureLocal("http://localhost:11434/v1", "model"));
+  for (const char* endpoint : {"http://localhost:11434/v1?key=secret",
+                               "http://localhost:11434/v1#fragment",
+                               "http://user:secret@localhost:11434/v1"}) {
+    EXPECT_FALSE(registry.ConfigureLocal(endpoint, "model"));
+    EXPECT_EQ(registry.Snapshot().local_endpoint, "http://localhost:11434/v1");
+  }
+}
+
+TEST_F(ProviderRegistryTest, CloudGenerationUsesTheSupportedMessagesContract) {
+  ProviderRegistry registry(&local_transport_, &cloud_transport_, &credentials_);
+  ASSERT_TRUE(credentials_.Set(kCloudReasoningCredentialAccount, "test-secret"));
+  ASSERT_TRUE(registry.ConfigureCloud("test-model", true));
+  cloud_transport_.SetResponse({
+      "data: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"Ready\"}}\n\n",
+      "data: {\"type\":\"message_stop\"}\n\n"}, 200);
+  base::test::TestFuture<base::expected<GenerationResult, std::string>> reply;
+  registry.Generate(GenerationRequest(), false, reply.GetCallback());
+  ASSERT_TRUE(reply.Get().has_value());
+  EXPECT_EQ(cloud_transport_.last_request().url,
+            "https://api.anthropic.com/v1/messages");
+  EXPECT_EQ(cloud_transport_.last_request().method, "POST");
+  bool version = false;
+  bool authentication = false;
+  for (const HttpHeader& header : cloud_transport_.last_request().headers) {
+    version |= header.name == "anthropic-version" && header.value == "2023-06-01";
+    authentication |= header.name == "Authorization" &&
+                      header.value == "Bearer test-secret";
+  }
+  EXPECT_TRUE(version);
+  EXPECT_TRUE(authentication);
 }
 
 TEST_F(ProviderRegistryTest, CloudRequiresCredentialAndEnabledSwitch) {

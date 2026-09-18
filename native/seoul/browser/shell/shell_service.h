@@ -8,6 +8,7 @@
 
 #include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "seoul/browser/organization/organization_observer.h"
 #include "seoul/browser/organization/organization_types.h"
 #include "seoul/browser/shell/shell_types.h"
@@ -97,6 +98,9 @@ class ShellService : public OrganizationModelObserver {
 
  private:
   ShellController& EnsureController(ShellWindowKey window);
+  bool ShowCreateWorkspaceDialog(ShellWindowKey window, bool isolated);
+  void CreateWorkspaceFromDialog(ShellWindowKey window, bool isolated,
+                                 std::string name);
 
   raw_ptr<Profile> profile_;
   raw_ptr<OrganizationModel> model_;
@@ -123,6 +127,7 @@ class ShellService : public OrganizationModelObserver {
   // window bindings; replaces the former process-global host map). The host
   // destructor detaches the shell child views.
   std::map<ShellWindowKey, std::unique_ptr<SeoulShellRegionHost>> hosts_;
+  base::WeakPtrFactory<ShellService> weak_factory_{this};
 };
 
 }  // namespace seoul

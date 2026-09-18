@@ -19,6 +19,7 @@ build_webui("build") {
     "canvas.ts",
     "canvas_types.ts",
     "canvas_visualizations.ts",
+    "context_graph.ts",
   ]
 
   css_files = [ "canvas.css" ]

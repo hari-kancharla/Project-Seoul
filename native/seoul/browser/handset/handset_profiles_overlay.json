@@ -1,5 +1,5 @@
 {
-  "comment": "Devices newer than the pinned Chromium's DevTools catalog. Entries here win title collisions with the catalog so their ids (persisted in prefs) stay stable when upstream catches up; the generator prints a note when that happens so an entry is retired deliberately. Adding tomorrow's phone is one entry here - metrics in CSS pixels, portrait. iOS platform_version is underscored; model is the Android client-hint model and empty for iOS.",
+  "comment": "Stable device IDs complement the pinned DevTools catalog. CSS viewport dimensions and DPR describe preview presets, not a physical-device certification. Existing IDs must never be reused for a different device. New records document their source and metric basis; manufacturer pixel resolution alone does not establish a phone browser viewport.",
   "devices": [
     {
       "id": "iphone-compact",
@@ -11,7 +11,7 @@
       "dpr": 2.0,
       "platform_version": "17_6_1",
       "model": "",
-      "featured": true
+      "featured": false
     },
     {
       "id": "iphone",
@@ -23,7 +23,7 @@
       "dpr": 3.0,
       "platform_version": "18_0",
       "model": "",
-      "featured": true
+      "featured": false
     },
     {
       "id": "iphone-max",
@@ -35,7 +35,7 @@
       "dpr": 3.0,
       "platform_version": "18_0",
       "model": "",
-      "featured": true
+      "featured": false
     },
     {
       "id": "android-compact",
@@ -47,7 +47,7 @@
       "dpr": 3.0,
       "platform_version": "15",
       "model": "SM-S911B",
-      "featured": true
+      "featured": false
     },
     {
       "id": "android",
@@ -59,7 +59,7 @@
       "dpr": 2.625,
       "platform_version": "15",
       "model": "Pixel 8",
-      "featured": true
+      "featured": false
     },
     {
       "id": "tablet-compact",
@@ -84,6 +84,81 @@
       "platform_version": "18_0",
       "model": "",
       "featured": true
+    },
+    {
+      "id": "iphone-17",
+      "label": "iPhone 17",
+      "platform": "iOS",
+      "form_factor": "phone",
+      "width": 402,
+      "height": 874,
+      "dpr": 3.0,
+      "platform_version": "26_0",
+      "model": "",
+      "featured": true,
+      "source": "https://www.apple.com/iphone-17/specs/",
+      "metrics_basis": "Reference preview: 1206 by 2622 manufacturer pixels at the selected 3x scale. Display Zoom, browser controls and physical Safari behavior are not reproduced.",
+      "reviewed": "2026-09-07"
+    },
+    {
+      "id": "iphone-17-pro",
+      "label": "iPhone 17 Pro",
+      "platform": "iOS",
+      "form_factor": "phone",
+      "width": 402,
+      "height": 874,
+      "dpr": 3.0,
+      "platform_version": "26_0",
+      "model": "",
+      "featured": false,
+      "source": "https://www.apple.com/iphone-17-pro/specs/",
+      "metrics_basis": "Reference preview: 1206 by 2622 manufacturer pixels at the selected 3x scale; not measured on a physical device.",
+      "reviewed": "2026-09-07"
+    },
+    {
+      "id": "iphone-17-pro-max",
+      "label": "iPhone 17 Pro Max",
+      "platform": "iOS",
+      "form_factor": "phone",
+      "width": 440,
+      "height": 956,
+      "dpr": 3.0,
+      "platform_version": "26_0",
+      "model": "",
+      "featured": true,
+      "source": "https://www.apple.com/iphone-17-pro/specs/",
+      "metrics_basis": "Reference preview: 1320 by 2868 manufacturer pixels at the selected 3x scale; not measured on a physical device.",
+      "reviewed": "2026-09-07"
+    },
+    {
+      "id": "pixel-10",
+      "label": "Pixel 10",
+      "platform": "Android",
+      "form_factor": "phone",
+      "width": 412,
+      "height": 924,
+      "dpr": 2.625,
+      "platform_version": "16",
+      "model": "Pixel 10",
+      "featured": true,
+      "source": "https://github.com/ChromeDevTools/devtools-frontend/blob/main/front_end/models/emulation/EmulatedDevices.ts",
+      "metrics_basis": "Google DevTools Pixel 10 portrait device entry, accessed 2026-09-07: 412 by 924, DPR 2.625, Android 16. Browser simulation, not physical-device certification.",
+      "reviewed": "2026-09-07"
+    },
+    {
+      "id": "galaxy-s26-ultra-qhd",
+      "label": "Galaxy S26 Ultra (QHD+ preview)",
+      "platform": "Android",
+      "form_factor": "phone",
+      "width": 384,
+      "height": 832,
+      "dpr": 3.75,
+      "platform_version": "16",
+      "model": "SM-S948W",
+      "featured": true,
+      "source": "https://www.samsung.com/ca/business/smartphones/galaxy-s/galaxy-s26-ultra-sm-s948wzdaxac/",
+      "metrics_basis": "Explicit reference configuration: Samsung 1440 by 3120 physical pixels divided by selected 3.75 DPR gives 384 by 832 CSS pixels. This DPR is a preview setting, not a manufacturer-confirmed default. Actual browser metrics vary with screen resolution and screen zoom. Physical-device comparison remains required.",
+      "reviewed": "2026-09-07"
     }
   ]
 }

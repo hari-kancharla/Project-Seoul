@@ -28,6 +28,7 @@ class SeoulRuntimeService;
 class SeoulRuntimeServiceFactory : public ProfileKeyedServiceFactory {
  public:
   static SeoulRuntimeService* GetForProfile(Profile* profile);
+  static SeoulRuntimeService* GetForProfileIfExists(Profile* profile);
   static SeoulRuntimeServiceFactory* GetInstance();
 
   SeoulRuntimeServiceFactory(const SeoulRuntimeServiceFactory&) = delete;

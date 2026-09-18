@@ -2,6 +2,7 @@
 
 #include "seoul/browser/product/provider_registry.h"
 
+#include <algorithm>
 #include <utility>
 
 #include "base/functional/bind.h"
@@ -9,6 +10,7 @@
 #include "seoul/browser/intelligence/cloud_model_provider.h"
 #include "seoul/browser/intelligence/local_model_provider.h"
 #include "seoul/browser/intelligence/provider_protocol.h"
+#include "url/gurl.h"
 
 namespace seoul {
 
@@ -85,14 +87,29 @@ bool ProviderRegistry::ConfigureLocal(const std::string& endpoint_url,
                                       const std::string& model_id) {
   // Local mode rejects deceptive non-loopback endpoints outright; there is no
   // override switch.
-  if (!IsLocalOnlyEndpoint(endpoint_url) || model_id.empty()) {
-    last_error_ = "Local endpoint must be a loopback address.";
+  const GURL endpoint(endpoint_url);
+  if (!IsLocalOnlyEndpoint(endpoint_url) || !endpoint.is_valid() ||
+      endpoint.has_username() || endpoint.has_password() ||
+      endpoint.has_query() || endpoint.has_ref() || endpoint_url.size() > 2048 ||
+      model_id.empty() || model_id.size() > 512) {
+    last_error_ = "Enter a local server address without credentials, a query "
+                  "or a fragment, and a model name.";
     return false;
   }
-  local_endpoint_ = endpoint_url;
+  // Store one API base for both discovery and generation. Accept the old
+  // full-generation setting as a migration, and normalize trailing slashes.
+  local_endpoint_ = endpoint.spec();
+  while (local_endpoint_.ends_with('/')) local_endpoint_.pop_back();
+  if (local_endpoint_.ends_with("/chat/completions")) {
+    local_endpoint_.resize(local_endpoint_.size() - 17);
+  } else if (endpoint.path() == "/") {
+    local_endpoint_ += "/v1";
+  }
   local_model_ = model_id;
+  ++local_health_generation_;
+  local_models_discovered_.clear();
   LocalModelConfig config;
-  config.endpoint_url = endpoint_url;
+  config.endpoint_url = local_endpoint_ + "/chat/completions";
   config.model_id = model_id;
   config.capabilities.text_generation = true;
   config.capabilities.structured_generation = true;
@@ -101,10 +118,12 @@ bool ProviderRegistry::ConfigureLocal(const std::string& endpoint_url,
   local_provider_ =
       std::make_unique<LocalModelProvider>(std::move(config), local_transport_);
   local_healthy_ = false;  // unknown until the next health check passes
+  last_error_.clear();
   return true;
 }
 
 void ProviderRegistry::ClearLocal() {
+  ++local_health_generation_;
   if (local_provider_) {
     local_provider_->Cancel();
   }
@@ -117,12 +136,14 @@ void ProviderRegistry::ClearLocal() {
 
 bool ProviderRegistry::ConfigureCloud(const std::string& model_id,
                                       bool enabled) {
-  if (model_id.empty()) {
+  if (model_id.empty() || model_id.size() > 512) {
     return false;
   }
   cloud_model_ = model_id;
   cloud_enabled_ = enabled;
   CloudModelConfig config;
+  config.endpoint_url = "https://api.anthropic.com/v1/messages";
+  config.api_version_header = "2023-06-01";
   config.model_id = model_id;
   config.credential_account = kCloudReasoningCredentialAccount;
   cloud_provider_ = std::make_unique<CloudModelProvider>(
@@ -145,6 +166,7 @@ void ProviderRegistry::ClearCloud() {
 
 void ProviderRegistry::CheckLocalHealth(
     base::OnceCallback<void(bool)> callback) {
+  const uint64_t generation = ++local_health_generation_;
   if (local_endpoint_.empty() || !local_transport_) {
     local_healthy_ = false;
     std::move(callback).Run(false);
@@ -153,26 +175,32 @@ void ProviderRegistry::CheckLocalHealth(
   HttpRequest request;
   request.method = "GET";
   request.url = local_endpoint_ + "/models";
-  auto body = std::make_unique<std::string>();
-  std::string* body_ptr = body.get();
+  auto body = std::make_shared<std::string>();
   HttpStreamCallbacks callbacks;
   callbacks.on_chunk = base::BindRepeating(
-      [](std::string* accumulated, std::string_view chunk) {
-        accumulated->append(chunk);
+      [](std::shared_ptr<std::string> accumulated, std::string_view chunk) {
+        constexpr size_t kLimit = 2 * 1024 * 1024;
+        if (accumulated->size() <= kLimit)
+          accumulated->append(chunk.substr(0, kLimit + 1 - accumulated->size()));
       },
-      body_ptr);
+      body);
   callbacks.on_complete = base::BindOnce(
-      [](std::unique_ptr<std::string> owned_body,
+      [](std::shared_ptr<std::string> owned_body,
          base::WeakPtr<ProviderRegistry> registry,
+         uint64_t generation,
          base::OnceCallback<void(bool)> callback, int http_status,
          const std::string& transport_error) {
         if (registry) {
+          if (registry->local_health_generation_ != generation) {
+            std::move(callback).Run(false);
+            return;
+          }
           registry->OnHealthResponse(std::move(callback),
-                                     std::move(*owned_body), http_status,
+                                     *owned_body, http_status,
                                      transport_error);
         }
       },
-      std::move(body), weak_factory_.GetWeakPtr(), std::move(callback));
+      body, weak_factory_.GetWeakPtr(), generation, std::move(callback));
   local_transport_->Start(request, std::move(callbacks));
 }
 
@@ -183,7 +211,8 @@ void ProviderRegistry::OnHealthResponse(base::OnceCallback<void(bool)> callback,
   if (shutting_down_) {
     return;
   }
-  local_healthy_ = http_status == 200 && transport_error.empty();
+  local_healthy_ = http_status == 200 && transport_error.empty() &&
+      body.size() <= 2 * 1024 * 1024;
   local_models_discovered_.clear();
   if (local_healthy_) {
     // Chat-completions convention: {"data": [{"id": "<model>"}, ...]}.
@@ -193,12 +222,18 @@ void ProviderRegistry::OnHealthResponse(base::OnceCallback<void(bool)> callback,
         for (const base::Value& entry : *data) {
           const base::DictValue* dict = entry.GetIfDict();
           const std::string* id = dict ? dict->FindString("id") : nullptr;
-          if (id && !id->empty() && local_models_discovered_.size() < 64) {
+          if (id && !id->empty() && id->size() <= 512 &&
+              local_models_discovered_.size() < 64) {
             local_models_discovered_.push_back(*id);
           }
         }
       }
     }
+    local_healthy_ = std::ranges::find(local_models_discovered_, local_model_) !=
+        local_models_discovered_.end();
+    if (local_healthy_) last_error_.clear();
+    else last_error_ = "The local server did not list the selected model. "
+                       "Check the model name and load it on your local server.";
   } else {
     last_error_ = transport_error.empty() ? "Local endpoint returned an error."
                                           : transport_error;
@@ -292,6 +327,12 @@ void ProviderRegistry::OnPlanGenerated(
     std::move(callback).Run(std::nullopt, origin);
     return;
   }
+  if (result->truncated || result->text.empty()) {
+    last_error_ = "The model response was interrupted or empty. Try again.";
+    std::move(callback).Run(std::nullopt, origin);
+    return;
+  }
+  last_error_.clear();
   if (result->structured.is_dict()) {
     std::move(callback).Run(result->structured.GetDict().Clone(), origin);
     return;
@@ -302,6 +343,7 @@ void ProviderRegistry::OnPlanGenerated(
     std::move(callback).Run(parsed->GetDict().Clone(), origin);
     return;
   }
+  last_error_ = "The model returned an invalid plan. Try again or use a browser command.";
   std::move(callback).Run(std::nullopt, origin);
 }
 

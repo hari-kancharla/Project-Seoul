@@ -21,6 +21,12 @@ class WebContents;
 namespace seoul {
 
 inline constexpr char kSeoulMembershipSessionKey[] = "seoul.membership_id";
+// Actual storage identity, independent of tab membership (which may be removed
+// when a tab is closed). Retained by Chromium's reopen/session-restore paths.
+inline constexpr char kSeoulContainerSessionKey[] = "seoul.container_space";
+
+// The live page's actual partition; an empty id denotes ordinary shared storage.
+WorkspaceId ContainerWorkspaceForTab(const content::WebContents* contents);
 inline constexpr char kSeoulSyntheticNewTabPlaceholderSessionKey[] =
     "seoul.synthetic_new_tab_placeholder";
 

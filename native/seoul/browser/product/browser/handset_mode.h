@@ -65,6 +65,10 @@ bool EnableHandsetMode(content::WebContents* web_contents,
 // Handset mode is already off.
 void DisableHandsetMode(content::WebContents* web_contents);
 
+// Rotates the current presentation, preserving a custom size by transposing
+// its dimensions. Does not enable Handset on a desktop tab.
+bool RotateHandsetMode(content::WebContents* web_contents);
+
 bool IsHandsetModeEnabled(content::WebContents* web_contents);
 
 // The live profile, or nullptr when Handset mode is off.

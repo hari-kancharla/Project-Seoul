@@ -96,6 +96,9 @@ base::expected<ProviderDelta, std::string> ParseStreamPayload(
   }
   const base::DictValue& dict = parsed->GetDict();
   ProviderDelta delta;
+  if (dict.FindDict("error")) {
+    return base::unexpected(messages::MapErrorResponse(200, payload));
+  }
   const base::ListValue* choices = dict.FindList("choices");
   if (choices && !choices->empty()) {
     const base::DictValue* choice = choices->front().GetIfDict();
@@ -150,6 +153,9 @@ base::expected<ProviderDelta, std::string> ParseStreamPayload(
   const std::string* type = dict.FindString("type");
   if (!type) {
     return base::unexpected("messages event missing type");
+  }
+  if (*type == "error") {
+    return base::unexpected(MapErrorResponse(200, payload));
   }
   if (*type == "content_block_delta") {
     if (const base::DictValue* d = dict.FindDict("delta")) {

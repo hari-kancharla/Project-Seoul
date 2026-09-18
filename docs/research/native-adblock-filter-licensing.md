@@ -1,63 +1,49 @@
-# Filter-list licensing and delivery decisions
+# Filter and scriptlet provenance
 
-Every licence below was read from the project's own published terms on
-2026-08-07, not inferred from the fact that another browser ships the list.
-The catalogue that these decisions govern is
-`native/seoul/browser/adblock/ad_block_filter_catalog.cc`.
+Updated September 7, 2026 against the actual catalogue and vendored resources.
+This records dependencies and release work; it is not a legal clearance for
+binary distribution. The earlier document's claims that uBlock/Brave lists were
+off by default and that runtime delivery removed licensing obligations were
+incorrect and have been removed.
 
-**No filter-list contents are vendored into this repository.** Seoul ships only
-rules it wrote itself; everything else is fetched from the upstream project at
-runtime.
+## Current delivery
 
-## Sources consulted
-
-| List | Source consulted | Licence found |
+| Content | Delivery and activation | Recorded upstream terms |
 | --- | --- | --- |
-| EasyList, EasyPrivacy | <https://easylist.to/pages/licence.html> | Dual: GPL-3.0-or-later **or** CC-BY-SA-3.0 |
-| uBlock Origin filters | <https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/LICENSE> | GNU GPL v3, 29 June 2007 |
-| Brave site compatibility | <https://github.com/brave/adblock-lists> | MPL-2.0 (repository) |
+| Seoul baseline | Bundled, enabled by default; network, cosmetic and narrow YouTube scriptlet rules | MPL-2.0 |
+| EasyList and EasyPrivacy | Runtime download, enabled by default | GPL-3.0-or-later OR CC-BY-SA-3.0 |
+| uBlock Origin filter set, including quick fixes and unbreak | Runtime download, enabled by default in the default engine | GPL-3.0-only in the catalogue |
+| Brave's own `brave-unbreak.txt` | Runtime download, enabled by default in the additional engine | MPL-2.0 in the catalogue |
+| Regional EasyList-family lists | Runtime download, activated by configured profile languages | Per-entry terms and attribution recorded in the catalogue |
+| uBlock scriptlet implementations from Brave's fork | Vendored source and generated resource bundle | GPL-3.0-or-later, retained source notices and full license |
 
-## Decisions
+The catalogue is `native/seoul/browser/adblock/ad_block_filter_catalog.cc`.
+Runtime rule files are distinct from the JavaScript resource implementations:
+the latter are now bundled in the browser. The Seoul baseline includes
+first-party YouTube cosmetic/scriptlet rules; it is no longer accurate to
+describe the entire baseline as third-party-only.
 
-### EasyList / EasyPrivacy — runtime download, enabled by default
+## Scriptlet source and build record
 
-Dual-licensed, so redistribution *is* permitted under either licence, subject to
-crediting "The EasyList authors" and to CC-BY-SA's share-alike condition.
+`native/seoul/third_party/ublock_scriptlets/source.json` pins
+`brave/uBlock` at `1fd62ee6c5a3eb89cf88e11b448eb20875ca7790`. The manifest contains a
+SHA-256 for every imported source file. `generate.mjs --check` verifies those
+inputs and the generated resource output. Original notices and `LICENSE.txt`
+are retained. Runtime subscriptions receive no trusted-scriptlet permissions;
+vendoring an implementation does not grant arbitrary filter feeds access to it.
 
-Seoul fetches these at runtime rather than bundling them. This is a
-**conservative choice, not a licensing impossibility**: bundling would be
-permitted with compliance, but runtime delivery keeps the share-alike and
-attribution obligations off the shipped binary and leaves the upstream project
-as the authoritative source. Attribution is recorded in the catalogue so the UI
-can display it wherever the lists are surfaced.
+## Distribution gate
 
-### uBlock Origin filters — runtime download, off by default
+Before distributing builds, inventory the actual bundled output, preserve its
+notices, and provide the source/license materials required by the selected
+upstream terms. Confirm compatibility with the intended Seoul distribution
+model, including the generated JavaScript resource bundle. Runtime downloads
+do not themselves establish an exemption from applicable terms. This revision
+has not completed a distribution compliance review.
 
-GPL-3.0-only. Redistribution is permitted under GPLv3 terms. Off by default
-because it overlaps EasyList heavily; it is a user opt-in and therefore lands in
-the *additional* engine, where it cannot silently alter vetted default
-protection.
+## Primary sources
 
-### Brave site compatibility — runtime download, off by default
-
-`brave/adblock-lists` is MPL-2.0, but the repository states that individual
-lists it contains may carry their own upstream licences. Only Brave's own
-`brave-unbreak.txt` is catalogued; the aggregated feeds that repository
-republishes are deliberately **not** catalogued, because their licensing is that
-of their original authors and has not been individually verified here.
-
-### Lists deliberately not used
-
-Any list whose redistribution terms were not verifiable from the project's own
-published terms is absent from the catalogue. Absence here means "not
-verified", not "not permitted" — adding one requires reading its licence first
-and recording it in the table above.
-
-## Seoul baseline — bundled
-
-`native/seoul/browser/adblock/filters/seoul-baseline.txt` is authored by Project
-Seoul and licensed MPL-2.0 with the rest of the tree. It is the only rule
-content shipped inside the signed component. It exists so that a first run with
-no network still blocks something, and so a rejected or failed update always has
-a known-good floor to fall back to. It is deliberately small and limited to
-third-party matches so it cannot break first-party site functionality.
+- [EasyList licensing](https://easylist.to/pages/licence.html)
+- [uAssets license](https://github.com/uBlockOrigin/uAssets/blob/master/LICENSE)
+- [Brave filter repository](https://github.com/brave/adblock-lists)
+- [Pinned scriptlet source](https://github.com/brave/uBlock/tree/1fd62ee6c5a3eb89cf88e11b448eb20875ca7790)

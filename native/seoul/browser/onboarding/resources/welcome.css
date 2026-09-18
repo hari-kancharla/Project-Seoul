@@ -16,19 +16,19 @@
 
 :host {
   /* Dark - the hero treatment. */
-  --ink: #f4f2ec;
-  --ink-dim: #a5a196;
-  --ink-faint: #6c6960;
-  --bg-0: #100f0e;
-  --bg-1: #191816;
+  --ink: #eef7ff;
+  --ink-dim: #a9c0d2;
+  --ink-faint: #829bac;
+  --bg-0: #0e1924;
+  --bg-1: #152737;
   --line: rgb(255 255 255 / 9%);
   --line-strong: rgb(255 255 255 / 18%);
-  --accent: #8fd6b0;
-  --accent-deep: #2c6f52;
-  --accent-glow: rgb(143 214 176 / 18%);
+  --accent: #7dd3fc;
+  --accent-deep: #0369a1;
+  --accent-glow: rgb(125 211 252 / 18%);
   --surface: rgb(255 255 255 / 4%);
   --surface-hi: rgb(255 255 255 / 8%);
-  --on-accent: #0a1a13;
+  --on-accent: #092334;
 
   /* One curve for everything that moves. A slightly overshooting ease-out
      reads as physical rather than mechanical; durations differ, feel does
@@ -47,18 +47,18 @@
 
 @media (prefers-color-scheme: light) {
   :host {
-    --ink: #16150f;
-    --ink-dim: #5d5a51;
-    --ink-faint: #8e8b81;
-    --bg-0: #f7f5ef;
-    --bg-1: #efece3;
-    --line: rgb(20 18 12 / 10%);
-    --line-strong: rgb(20 18 12 / 20%);
-    --accent: #2f6f57;
-    --accent-deep: #1d5540;
-    --accent-glow: rgb(47 111 87 / 12%);
-    --surface: rgb(20 18 12 / 4%);
-    --surface-hi: rgb(20 18 12 / 7%);
+    --ink: #172b3a;
+    --ink-dim: #536b7c;
+    --ink-faint: #647b8b;
+    --bg-0: #eef6fc;
+    --bg-1: #e3f1fb;
+    --line: rgb(25 70 102 / 10%);
+    --line-strong: rgb(25 70 102 / 20%);
+    --accent: #0369a1;
+    --accent-deep: #075985;
+    --accent-glow: rgb(3 105 161 / 12%);
+    --surface: rgb(25 70 102 / 4%);
+    --surface-hi: rgb(25 70 102 / 7%);
     --on-accent: #fff;
   }
 }
@@ -512,8 +512,8 @@ button:focus-visible {
   /* Everything that arrives does so in the same direction on the same curve,
      staggered by depth. `--i` orders elements within a screen. */
   .rise {
-    animation: rise 620ms var(--ease) backwards;
-    animation-delay: calc(var(--i, 0) * 80ms);
+    animation: rise 240ms var(--ease) backwards;
+    animation-delay: calc(var(--i, 0) * 24ms);
   }
 
   .win,

@@ -3,11 +3,14 @@
 #include "seoul/browser/shell/shell_service.h"
 
 #include "base/functional/bind.h"
+#include "chrome/app/chrome_command_ids.h"
+#include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_features.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/browser_window/public/profile_browser_collection.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/side_panel/side_panel_entry_id.h"
+#include "chrome/browser/ui/tabs/vertical_tab_strip_state_controller.h"
 // nogncheck: //chrome/browser/ui reaches this target through the side-panel
 // Canvas registration, so a declared dep would be a dependency cycle; the
 // symbols link through //chrome/browser like the other circular includes.
@@ -16,6 +19,8 @@
 #include "components/sessions/core/session_id.h"
 #include "seoul/browser/shell/shell_controller.h"
 #include "seoul/browser/shell/views/seoul_shell_region_host.h"
+#include "seoul/browser/shell/views/seoul_workspace_name_dialog.h"
+#include "seoul/browser/shell/workspace_icon_painter.h"
 #include "ui/base/base_window.h"
 
 namespace seoul {
@@ -72,6 +77,7 @@ void ShellService::Shutdown() {
     return;
   }
   shutting_down_ = true;
+  weak_factory_.InvalidateWeakPtrs();
   if (model_) {
     model_->RemoveObserver(this);
   }
@@ -166,6 +172,42 @@ ShellController& ShellService::EnsureController(ShellWindowKey window) {
   return *it->second;
 }
 
+bool ShellService::ShowCreateWorkspaceDialog(ShellWindowKey window,
+                                             bool isolated) {
+  auto* browser = FindBrowser(profile_, window);
+  if (shutting_down_ || !browser || !browser->GetWindow()) {
+    return false;
+  }
+  ShowWorkspaceNameDialog(
+      browser->GetWindow()->GetNativeWindow(),
+      isolated ? u"New Container Space" : u"New Space", u"Space name", u"",
+      base::BindOnce(&ShellService::CreateWorkspaceFromDialog,
+                     weak_factory_.GetWeakPtr(), window, isolated),
+      isolated
+          ? u"Keep accounts, cookies, and site data separate in this Space. "
+            u"History, bookmarks, and extensions remain shared."
+          : u"Organize tabs in a Space using your shared browser accounts.");
+  return true;
+}
+
+void ShellService::CreateWorkspaceFromDialog(ShellWindowKey window,
+                                             bool isolated,
+                                             std::string name) {
+  if (shutting_down_ || !FindBrowser(profile_, window) || !model_) {
+    return;
+  }
+  auto created = model_->CreateWorkspace(name, isolated);
+  if (created.has_value()) {
+    if (isolated) {
+      std::ignore = model_->SetWorkspaceIcon(
+          created.value(), WorkspaceBuiltinIconRef("lock-closed"));
+    }
+    if (auto* controller = GetController(window)) {
+      std::ignore = controller->SwitchWorkspace(created.value());
+    }
+  }
+}
+
 void ShellService::RegisterVerticalRegion(
     ShellWindowKey window,
     VerticalTabStripRegionView* region,
@@ -181,6 +223,25 @@ void ShellService::RegisterVerticalRegion(
     return;
   }
   ShellController& controller = EnsureController(window);
+  // The vertical region publishes its initial collapse state while building
+  // its tab tree, before this host exists. Seed from the live controller on
+  // every attachment instead of waiting for a subsequent collapse event.
+  const auto* vertical_tabs =
+      tabs::VerticalTabStripStateController::From(browser_window);
+  const bool collapsed = vertical_tabs && vertical_tabs->IsCollapsed();
+  controller.SetCollapsed(collapsed);
+  controller.SetNewTabInputCallback(base::BindRepeating(
+      [](Profile* profile, LiveWindowKey bound_window) {
+        auto* browser = FindBrowser(profile, bound_window);
+        return browser && chrome::ExecuteCommand(browser, IDC_NEW_TAB);
+      },
+      profile_.get(), window));
+  controller.SetCreateWorkspaceCallback(base::BindRepeating(
+      [](base::WeakPtr<ShellService> service, ShellWindowKey window,
+         bool isolated) {
+        return service && service->ShowCreateWorkspaceDialog(window, isolated);
+      },
+      weak_factory_.GetWeakPtr(), window));
   controller.SetBrowserPageCallbacks(
       base::BindRepeating(
           [](Profile* profile, LiveWindowKey bound_window) {
@@ -225,7 +286,12 @@ void ShellService::RegisterVerticalRegion(
         if (!side_panel) {
           return false;
         }
-        side_panel->Show(SidePanelEntryId::kSeoulCanvas);
+        if (side_panel->IsSidePanelShowing() &&
+            side_panel->GetCurrentEntryId() == SidePanelEntryId::kSeoulCanvas) {
+          side_panel->Close();
+        } else {
+          side_panel->Show(SidePanelEntryId::kSeoulCanvas);
+        }
         return true;
       },
       profile_.get(), window));
@@ -235,8 +301,7 @@ void ShellService::RegisterVerticalRegion(
   std::unique_ptr<SeoulShellRegionHost>& host = hosts_[window];
   host = std::make_unique<SeoulShellRegionHost>();
   host->Attach(region, &controller, browser_window, profile_);
-  host->SetPresentationCollapsed(controller.snapshot().mode ==
-                                 ShellMode::kCollapsed);
+  host->SetPresentationCollapsed(collapsed && !region->is_expanded_on_hover());
 }
 
 void ShellService::UnregisterVerticalRegion(ShellWindowKey window) {
@@ -262,7 +327,6 @@ SeoulShellFooterView* ShellService::GetFooterForTesting(ShellWindowKey window) {
              ? host->second->footer_for_testing()
              : nullptr;
 }
-
 
 void ShellService::OnCollapseStateChanged(ShellWindowKey window,
                                           bool collapsed) {

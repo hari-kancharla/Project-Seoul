@@ -2,10 +2,12 @@
 
 #include "seoul/browser/product/task_service.h"
 
+#include <set>
 #include <utility>
 
 #include "base/functional/bind.h"
 #include "base/json/json_writer.h"
+#include "seoul/browser/product/task_snapshot_wire.h"
 #include "seoul/browser/tasks/plan_validator.h"
 
 namespace seoul {
@@ -71,7 +73,7 @@ TaskId TaskService::StartTask(const std::string& goal,
                               bool allow_cloud_models,
                               bool user_gesture) {
   if (shutting_down_ || goal.empty() || goal.size() > kMaxGoalLength ||
-      tasks_.size() >= kMaxTasksInDeck) {
+      !ReserveTaskSlot()) {
     return TaskId();
   }
   const TaskId task_id = TaskId::GenerateNew();
@@ -85,6 +87,8 @@ TaskId TaskService::StartTask(const std::string& goal,
   task->allow_cloud_models = allow_cloud_models;
   task->user_gesture = user_gesture;
   tasks_[task_id] = std::move(task);
+  task_order_.push_back(task_id);
+  ArmPlanningTimeout(task_id);
   // Planning may involve a provider round trip. Publish immediately so the
   // Task Deck never appears idle while planning is already pending.
   NotifyUpdated(task_id);
@@ -101,7 +105,7 @@ TaskId TaskService::StartTaskWithPlan(const std::string& goal,
                                       const LiveWindowKey& window,
                                       const ToolPermissionContext& context,
                                       bool user_gesture) {
-  if (shutting_down_ || tasks_.size() >= kMaxTasksInDeck) {
+  if (shutting_down_ || goal.empty() || goal.size() > kMaxGoalLength) {
     return TaskId();
   }
   // Imported workflows and direct capability callers are untrusted plan
@@ -111,6 +115,7 @@ TaskId TaskService::StartTaskWithPlan(const std::string& goal,
   if (!ValidatePlan(plan, *registry_, context).has_value()) {
     return TaskId();
   }
+  if (!ReserveTaskSlot()) return TaskId();
   const TaskId task_id = TaskId::GenerateNew();
   auto task = std::make_unique<ActiveTask>();
   task->goal = goal;
@@ -126,6 +131,7 @@ TaskId TaskService::StartTaskWithPlan(const std::string& goal,
                           registry_.get()),
       clock_);
   tasks_[task_id] = std::move(task);
+  task_order_.push_back(task_id);
   tasks_[task_id]->execution->Start();
   Pump(task_id);
   return task_id;
@@ -133,28 +139,15 @@ TaskId TaskService::StartTaskWithPlan(const std::string& goal,
 
 void TaskService::OnPlanned(TaskId task_id, PlannerResult result) {
   ActiveTask* task = FindTask(task_id);
-  if (!task || shutting_down_) {
+  if (!task || shutting_down_ || task->planning_terminal_state) {
     return;
   }
+  task->planning_timer.Stop();
   if (!result.ok) {
-    // The task never became executable; represent that as a failed execution
-    // with the planner's reason so the deck can show it honestly.
-    Plan empty_plan;
-    empty_plan.goal = task->goal;
-    PlanStep unavailable;
-    unavailable.id = "planning";
-    unavailable.kind = PlanStepKind::kUserInput;
-    unavailable.prompt = result.failure;
-    empty_plan.steps.push_back(std::move(unavailable));
-    task->execution = std::make_unique<TaskExecution>(
-        task_id, std::move(empty_plan),
-        base::BindRepeating([](ToolRegistry* registry,
-                               const ToolId& id) { return registry->Find(id); },
-                            registry_.get()),
-        clock_);
-    task->execution->Start();
-    task->execution->Cancel();
-    task->pending_approval_prompt = result.failure;
+    task->planning_terminal_state = TaskState::kFailed;
+    task->pending_approval_prompt = result.failure.empty() ?
+        "Seoul could not prepare this request. Check your connection and try again." :
+        result.failure;
     NotifyUpdated(task_id);
     FinishNotify(task_id);
     return;
@@ -173,9 +166,10 @@ void TaskService::OnPlanned(TaskId task_id, PlannerResult result) {
 
 void TaskService::OnReplanned(TaskId task_id, PlannerResult result) {
   ActiveTask* task = FindTask(task_id);
-  if (!task || shutting_down_) {
+  if (!task || shutting_down_ || task->planning_terminal_state) {
     return;
   }
+  task->planning_timer.Stop();
   if (!result.ok) {
     const std::string failure =
         result.failure.empty()
@@ -534,6 +528,7 @@ void TaskService::Replan(const TaskId& task_id) {
                                 receipts.end());
   task->execution->Cancel();
   task->execution.reset();
+  ArmPlanningTimeout(task_id);
   NotifyUpdated(task_id);
   // Refresh the live registry through the same configured reasoning route as
   // the original task. Replanning never silently downgrades a model-backed
@@ -600,6 +595,7 @@ bool TaskService::ProvideInput(const TaskId& task_id,
   task->execution->Cancel();
   task->execution.reset();
   task->planning_goal = context;
+  ArmPlanningTimeout(task_id);
   ++task->replans_used;
   task->pending_approval_step.clear();
   task->pending_approval_prompt.clear();
@@ -635,8 +631,16 @@ bool TaskService::Resume(const TaskId& task_id) {
 
 bool TaskService::Cancel(const TaskId& task_id) {
   ActiveTask* task = FindTask(task_id);
-  if (!task || !task->execution) {
+  if (!task || task->planning_terminal_state) {
     return false;
+  }
+  task->planning_timer.Stop();
+  if (!task->execution) {
+    task->planning_terminal_state = TaskState::kCancelled;
+    task->pending_approval_prompt.clear();
+    NotifyUpdated(task_id);
+    FinishNotify(task_id);
+    return true;
   }
   for (auto& [step_id, timer] : task->step_timers) {
     const PlanStep* step = nullptr;
@@ -664,6 +668,66 @@ bool TaskService::Cancel(const TaskId& task_id) {
   return true;
 }
 
+base::DictValue TaskService::TakePersistedState() const {
+  constexpr size_t kMaxHistoryEntries = 100;
+  constexpr size_t kMaxHistoryBytes = 2 * 1024 * 1024;
+  std::vector<std::pair<TaskSnapshot, bool>> entries = history_;
+  for (const auto& id : task_order_) {
+    if (auto snapshot = Snapshot(id)) entries.emplace_back(std::move(*snapshot), false);
+  }
+  base::ListValue recent;
+  size_t bytes = 0;
+  // Save newest first so the bounds cannot evict the work just completed.
+  for (auto it = entries.rbegin(); it != entries.rend() &&
+       recent.size() < kMaxHistoryEntries; ++it) {
+    base::DictValue entry;
+    entry.Set("snapshot", TaskSnapshotToValue(it->first));
+    entry.Set("interrupted", it->second);
+    std::string serialized;
+    if (!base::JSONWriter::Write(entry, &serialized) ||
+        serialized.size() > kMaxHistoryBytes - bytes) continue;
+    bytes += serialized.size();
+    recent.Append(std::move(entry));
+  }
+  base::DictValue state;
+  state.Set("schema_version", 1);
+  state.Set("tasks", std::move(recent));
+  return state;
+}
+
+void TaskService::RestorePersistedState(const base::DictValue& state) {
+  if (shutting_down_ || !tasks_.empty() || !history_.empty() ||
+      state.FindInt("schema_version") != 1) return;
+  const base::ListValue* entries = state.FindList("tasks");
+  if (!entries || entries->size() > 100) return;
+  size_t bytes = 0;
+  std::set<TaskId> seen;
+  for (auto it = entries->rbegin(); it != entries->rend(); ++it) {
+    if (!it->is_dict()) continue;
+    std::string encoded;
+    if (!base::JSONWriter::Write(*it, &encoded) ||
+        encoded.size() > 2 * 1024 * 1024 - bytes) continue;
+    bytes += encoded.size();
+    const base::Value* value = it->GetDict().Find("snapshot");
+    if (!value) continue;
+    auto parsed = ParseTaskSnapshot(*value);
+    if (!parsed.has_value() || !seen.insert(parsed->id).second) continue;
+    bool interrupted = it->GetDict().FindBool("interrupted").value_or(false);
+    if (parsed->state != TaskState::kCompleted && parsed->state != TaskState::kFailed &&
+        parsed->state != TaskState::kCancelled) {
+      interrupted = true;
+      parsed->state = TaskState::kFailed;
+      parsed->failure = TaskFailureReason::kAssumptionInvalid;
+    }
+    // A persisted permission prompt is not permission to execute after restart.
+    parsed->pending_approval_step.clear();
+    parsed->pending_approval_prompt.clear();
+    parsed->pending_user_input = false;
+    parsed->has_semantic_result = false;
+    history_.emplace_back(std::move(*parsed), interrupted);
+  }
+}
+
 std::vector<TaskSnapshot> TaskService::Snapshots() const {
   std::vector<TaskSnapshot> out;
   out.reserve(tasks_.size());
@@ -689,6 +753,7 @@ std::vector<TaskStateSummary> TaskService::StateSummaries() const {
 }
 
 TaskState TaskService::EffectiveState(const ActiveTask& task) {
+  if (task.planning_terminal_state) return *task.planning_terminal_state;
   if (!task.execution) {
     return TaskState::kPlanning;
   }
@@ -715,6 +780,9 @@ std::optional<TaskSnapshot> TaskService::Snapshot(const TaskId& task_id) const {
   snapshot.pending_user_input = task->pending_user_input;
   snapshot.has_semantic_result = task->semantic.has_value();
   snapshot.receipts = task->carried_receipts;
+  if (task->planning_terminal_state)
+    snapshot.failure = *task->planning_terminal_state == TaskState::kCancelled ?
+        TaskFailureReason::kUserStopped : TaskFailureReason::kProviderUnavailable;
   if (task->execution) {
     snapshot.failure = task->execution->failure_reason();
     snapshot.usage = task->execution->usage();
@@ -761,6 +829,7 @@ void TaskService::Shutdown() {
   shutting_down_ = true;
   weak_factory_.InvalidateWeakPtrs();
   for (auto& [id, task] : tasks_) {
+    task->planning_timer.Stop();
     task->step_timers.clear();
     if (task->execution &&
         (task->execution->state() == TaskState::kExecuting ||
@@ -785,11 +854,11 @@ void TaskService::FinishNotify(const TaskId& task_id) {
     return;
   }
   const ActiveTask* task = FindTask(task_id);
-  if (!task || !task->execution) {
+  if (!task) {
     return;
   }
   ActiveTask* mutable_task = FindTask(task_id);
-  const TaskState state = task->execution->state();
+  const TaskState state = EffectiveState(*task);
   const bool terminal = state == TaskState::kCompleted ||
                         state == TaskState::kFailed ||
                         state == TaskState::kCancelled;
@@ -802,6 +871,37 @@ void TaskService::FinishNotify(const TaskId& task_id) {
   for (TaskServiceObserver& observer : observers_) {
     observer.OnTaskFinished(task_id);
   }
+  if (auto* finished = FindTask(task_id)) finished->eligible_for_eviction = true;
+}
+
+bool TaskService::ReserveTaskSlot() {
+  if (tasks_.size() < kMaxTasksInDeck) return true;
+  for (auto it = task_order_.begin(); it != task_order_.end(); ++it) {
+    const auto* task = FindTask(*it);
+    // Wait for terminal observers to finish before reclaiming its execution.
+    if (!task || !task->eligible_for_eviction || task->driving) continue;
+    if (auto snapshot = Snapshot(*it)) {
+      history_.emplace_back(std::move(*snapshot), false);
+      if (history_.size() > 100) history_.erase(history_.begin());
+    }
+    tasks_.erase(*it);
+    task_order_.erase(it);
+    return true;
+  }
+  return false;
+}
+
+void TaskService::ArmPlanningTimeout(const TaskId& task_id) {
+  auto* task = FindTask(task_id);
+  if (!task || task->execution || !task->use_model) return;
+  task->planning_timer.Start(FROM_HERE, base::Seconds(60), base::BindOnce(
+      [](base::WeakPtr<TaskService> service, TaskId id) {
+        if (!service) return;
+        PlannerResult result;
+        result.failure = "Planning timed out. No new action was started. "
+                         "Check the connection and try again.";
+        service->OnPlanned(id, std::move(result));
+      }, weak_factory_.GetWeakPtr(), task_id));
 }
 
 TaskService::ActiveTask* TaskService::FindTask(const TaskId& task_id) {

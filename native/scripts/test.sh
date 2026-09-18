@@ -136,6 +136,9 @@ run_browser_tests() {
   local filter
   filter="SeoulRuntimeSessionRestoreBrowserTest.*"
   filter="${filter}:SeoulRuntimeBrowserTest.*"
+  filter="${filter}:SeoulSettingsBrowserTest.*"
+  filter="${filter}:SeoulSettingsPolicyBrowserTest.*"
+  filter="${filter}:BoostCodeEditorBrowserTest.*"
   filter="${filter}:SeoulBoostDarkBrowserTest.*"
   # Design-review capture fixture: runs as a skip unless SEOUL_CAPTURE_DIR is
   # set, so CI pays milliseconds and a design pass gets real pixels.
@@ -145,6 +148,7 @@ run_browser_tests() {
   filter="${filter}:ChromiumMutationAdapterBrowserTest.*"
   filter="${filter}:VerticalPresentationBrowserTest.*"
   filter="${filter}:SeoulShellBrowserTest.*"
+  filter="${filter}:SeoulKeyboardBrowserTest.*"
   filter="${filter}:SeoulOrganizationServiceBrowserTest.*"
   # Native blocker: end-to-end network/navigation blocking and the renderer-side
   # cosmetic agent. Both are linked into seoul_browser_tests by
@@ -169,20 +173,18 @@ run_browser_tests() {
   [ -x "$OUT_DIR/seoul_browser_tests" ] ||
     die "browser-test binary missing after build: $OUT_DIR/seoul_browser_tests"
   stage "run Seoul browser tests"
-  # Chromium's unrelated experimental InitialWebUI toolbar waits for a
-  # compositor paint callback that is not reliable with the explicit headless
-  # backend. Seoul's native vertical Shell and chrome://seoul-canvas remain
-  # enabled and are exercised below; disabling only InitialWebUI prevents the
-  # upstream pre-test metrics wait from timing out before a Seoul test starts.
+  # Use the product's feature defaults. The baseline GN configuration excludes
+  # Chromium's field-trial testing studies; a test-only toolbar exclusion would
+  # mask differences between these tests and a normal launch.
   "$OUT_DIR/seoul_browser_tests" \
     "--gtest_filter=$filter" \
     --test-launcher-bot-mode \
     --test-launcher-jobs=1 \
     --test-launcher-batch-limit=1 \
+    --test-launcher-retry-limit=0 \
     --headless=new \
     --disable-gpu \
-    --use-mock-keychain \
-    --disable-features=InitialWebUI
+    --use-mock-keychain
   log "OK: Seoul browser-test filter passed"
 }
 

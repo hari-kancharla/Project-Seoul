@@ -63,6 +63,7 @@ export interface TaskSnapshotDoc {
   pending_user_input?: boolean;
   receipts?: Array<{
     step_id: string;
+    tool?: string;
     status: string;
     observed_summary?: string;
     verification?: {
@@ -337,6 +338,7 @@ export interface StudioSnapshotDoc {
   status?: string;
   detail?: string;
   providers?: {
+    error?: string;
     local?: StudioProviderRouteDoc;
     cloud?: StudioProviderRouteDoc;
   };
@@ -378,12 +380,18 @@ export interface SiteLayerDoc {
   enabled: boolean;
   adjustments: SiteLayerAdjustmentDoc[];
   matches_active_page?: boolean;
+  matches_active_scene?: boolean;
+  has_custom_css?: boolean;
+  has_custom_javascript?: boolean;
 }
 
 export interface SiteLayerSnapshotDoc {
   status?: string;
   detail?: string;
   schema_version?: number;
+  revision?: string;
+  boosts_enabled?: boolean;
+  javascript_enabled?: boolean;
   active_page?: {
     tab_id: string;
     title: string;
@@ -392,6 +400,26 @@ export interface SiteLayerSnapshotDoc {
   };
   matching_enabled_count?: number;
   layers?: SiteLayerDoc[];
+}
+
+export function boostSummary(layer: SiteLayerDoc, snapshot: SiteLayerSnapshotDoc) {
+  const changes = layer.adjustments.length + Number(Boolean(layer.has_custom_css)) +
+      Number(Boolean(layer.has_custom_javascript));
+  const hasAppearance = layer.adjustments.length > 0 || layer.has_custom_css;
+  const javascriptOff = Boolean(
+      layer.has_custom_javascript && !snapshot.javascript_enabled);
+  const state = !layer.enabled ? 'Paused' :
+      snapshot.boosts_enabled === false ? 'Off in Settings' :
+      changes === 0 ? 'Empty' :
+      layer.scene_scope && layer.matches_active_scene === false ? 'Scene inactive' :
+      !hasAppearance && javascriptOff ? 'JavaScript off' : 'Enabled';
+  return {changes, state, javascriptOff};
+}
+
+export function isOlderBoostSnapshot(
+    incoming: SiteLayerSnapshotDoc, current: SiteLayerSnapshotDoc): boolean {
+  return Boolean(incoming.revision && current.revision &&
+      BigInt(incoming.revision) < BigInt(current.revision));
 }
 
 export interface SiteLayerEditorBinding {

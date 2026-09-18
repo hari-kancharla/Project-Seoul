@@ -1,13 +1,12 @@
 // Project Seoul site identity - forgetting a site.
 //
-// "Forget this site" is Tor's New Identity scoped to one site and made
-// complete: everything the site's registrable domain stored in this profile -
-// cookies, storage, cache, its own permissions - is removed, the site's
-// farbling identity rotates so its fingerprint of this machine stops matching
-// too, and the page reloads as a first visit.
+// Removes filterable browsing data for the site's registrable domain and
+// rotates its farbling identity only after successful removal.
 
 #ifndef SEOUL_BROWSER_PRODUCT_BROWSER_SITE_IDENTITY_H_
 #define SEOUL_BROWSER_PRODUCT_BROWSER_SITE_IDENTITY_H_
+
+#include <cstdint>
 
 #include "base/functional/callback_forward.h"
 
@@ -17,10 +16,12 @@ class WebContents;
 
 namespace seoul {
 
-// Forgets the site `web_contents` is showing. `done` runs once the removal has
-// finished and the reload has been issued. Returns false, running nothing,
-// when there is no http(s) site to forget.
-bool ForgetSite(content::WebContents* web_contents, base::OnceClosure done);
+// Starts removal for the site `web_contents` is showing. `done` receives the
+// failed data-type mask (zero on success). Only a successful removal rotates
+// identity and reloads, and only the original document may be reloaded.
+// Returns false, without calling `done`, when removal cannot be started.
+bool ForgetSite(content::WebContents* web_contents,
+                base::OnceCallback<void(uint64_t)> done);
 
 }  // namespace seoul
 

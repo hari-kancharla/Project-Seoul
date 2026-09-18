@@ -5,9 +5,12 @@
 #define SEOUL_BROWSER_PRODUCT_BROWSER_SPACE_PARTITION_RESOLVER_H_
 
 #include "base/memory/scoped_refptr.h"
+#include <map>
+#include <string>
 
 class BrowserWindowInterface;
 class GURL;
+class Profile;
 
 namespace content {
 class SiteInstance;
@@ -29,6 +32,13 @@ namespace seoul {
 scoped_refptr<content::SiteInstance> SiteInstanceForNewTabInActiveSpace(
     BrowserWindowInterface* browser,
     const GURL& url);
+
+// Resolve the saved tab's identity before constructing WebContents. Never use
+// the active Space: restore can recreate tabs from several containers at once.
+scoped_refptr<content::SiteInstance> SiteInstanceForRestoredSeoulTab(
+    Profile* profile,
+    const GURL& url,
+    const std::map<std::string, std::string>& extra_data);
 
 }  // namespace seoul
 

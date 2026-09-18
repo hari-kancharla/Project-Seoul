@@ -106,7 +106,11 @@ test('design lab renders, patches in place, and preserves focus and scroll', { s
     assert.ok(clicked, 'a Table representation switch should be offered');
     await page.waitForSelector('.artifact .data-table');
 
-    const after = await page.evaluate(() => {
+    const after = await page.evaluate(async () => {
+      // Verify after layout has settled too; scroll anchoring used to move the
+      // stack on the next frame even though synchronous restoration succeeded.
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
       const artifact = document.querySelector('.artifact');
       const input = document.querySelector('.composer-input');
       return {

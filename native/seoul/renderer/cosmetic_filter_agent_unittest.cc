@@ -7,6 +7,7 @@
 
 #include "base/functional/bind.h"
 #include "base/run_loop.h"
+#include "base/test/run_until.h"
 #include "chrome/test/base/chrome_render_view_test.h"
 #include "content/public/renderer/render_frame.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
@@ -125,7 +126,15 @@ TEST_F(CosmeticFilterAgentTest, AppliesInitialAndDynamicRulesAtUserOrigin) {
       "<div id='generic' class='generic-ad'></div>"
       "<div id='generic-banner'></div>",
       "https://news.example/article");
-  base::RunLoop().RunUntilIdle();
+  // Generic selector discovery is a renderer/browser round trip after the
+  // parser supplies classes and IDs. Wait for its visible result, not merely
+  // an empty task queue before the next discovery tick.
+  ASSERT_TRUE(base::test::RunUntil([&]() {
+    return host_.dynamic_query_count() > 0 &&
+           EvaluateBoolean(
+               u"getComputedStyle(document.getElementById('generic'))."
+               u"display === 'none' ? 1 : 0") == 1;
+  }));
 
   EXPECT_EQ(
       1, EvaluateBoolean(u"getComputedStyle(document.getElementById('domain'))."

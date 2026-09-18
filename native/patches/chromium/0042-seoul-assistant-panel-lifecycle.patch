@@ -1,0 +1,40 @@
+diff --git a/chrome/browser/ui/views/side_panel/side_panel_toolbar_pinning_controller.cc b/chrome/browser/ui/views/side_panel/side_panel_toolbar_pinning_controller.cc
+--- a/chrome/browser/ui/views/side_panel/side_panel_toolbar_pinning_controller.cc
++++ b/chrome/browser/ui/views/side_panel/side_panel_toolbar_pinning_controller.cc
+@@ -54,6 +54,7 @@
+ 
+ bool SidePanelToolbarPinningController::GetPinnedStateFor(
+     SidePanelEntryKey key) {
++  if (key.id() == SidePanelEntryId::kSeoulCanvas) return false;
+   // TODO(crbug.com/310910098): Clean condition up once/if ToolbarActionsModel
+   // and PinnedToolbarActionsModel are merged together.
+   if (const std::optional<extensions::ExtensionId> extension_id =
+@@ -76,6 +77,7 @@
+ 
+ void SidePanelToolbarPinningController::UpdatePinState(
+     SidePanelEntry::Key entry_key) {
++  if (entry_key.id() == SidePanelEntryId::kSeoulCanvas) return;
+   Profile* const profile = browser_view_->GetProfile();
+ 
+   std::optional<actions::ActionId> action_id =
+@@ -114,6 +116,9 @@
+ void SidePanelToolbarPinningController::UpdateActiveState(
+     SidePanelEntryKey key,
+     bool show_active_in_toolbar) {
++  // Seoul owns its assistant button in the native sidebar. This entry has no
++  // Chromium toolbar ActionId and must never enter the toolbar pinning path.
++  if (key.id() == SidePanelEntryId::kSeoulCanvas) return;
+   auto* const toolbar_container =
+       browser_view_->toolbar_button_provider()->GetPinnedToolbarActions();
+   CHECK(toolbar_container);
+diff --git a/chrome/browser/ui/views/side_panel/side_panel_helper.cc b/chrome/browser/ui/views/side_panel/side_panel_helper.cc
+--- a/chrome/browser/ui/views/side_panel/side_panel_helper.cc
++++ b/chrome/browser/ui/views/side_panel/side_panel_helper.cc
+@@ -79,6 +79,7 @@
+         base::BindRepeating(&CreateSeoulCanvasWebView, browser->profile()),
+         /*default_content_width_callback=*/base::NullCallback());
+     entry->set_should_show_header(false);
++    entry->set_should_show_ephemerally_in_toolbar(false);
+     window_registry->Register(std::move(entry));
+   }
+ 

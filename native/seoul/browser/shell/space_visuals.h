@@ -16,7 +16,7 @@ inline constexpr int kEmptyIconDiameter = 6;
 // Spaces stay as icon-sized buttons, so the strip has exactly one wide member
 // and reads at a glance without needing colour.
 inline constexpr int kCurrentSpacePillHeight = 26;
-inline constexpr int kCurrentSpacePillCornerRadius = 13;
+inline constexpr int kCurrentSpacePillCornerRadius = 7;
 // Room for the icon, the gap, and a short name before elision.
 inline constexpr int kCurrentSpacePillMinWidth = 64;
 inline constexpr int kCurrentSpacePillMaxWidth = 132;

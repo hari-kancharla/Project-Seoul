@@ -1,0 +1,14 @@
+Name: uBlock Origin scriptlet resources
+URL: https://github.com/brave/uBlock
+Version: 1fd62ee6c5a3eb89cf88e11b448eb20875ca7790
+License: GPL-3.0-or-later
+License File: LICENSE.txt
+Shipped: yes
+Security Critical: yes
+
+Pinned, unmodified source modules and reproducibly generated resource data.
+Seoul preserves execution-world and requiresTrust metadata. Subscription rules
+receive no trusted permissions; privileged scriptlets remain unavailable until
+a separately verified rule source is integrated. No executable code is fetched
+at runtime. The resource pack and corresponding sources retain the upstream
+license and copyright; distribution must include these notices and sources.

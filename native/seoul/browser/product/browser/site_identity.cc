@@ -16,10 +16,11 @@
 #include "content/public/browser/browsing_data_filter_builder.h"
 #include "content/public/browser/browsing_data_remover.h"
 #include "content/public/browser/navigation_controller.h"
+#include "content/public/browser/reload_type.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/storage_partition_config.h"
-#include "content/public/browser/reload_type.h"
+#include "content/public/browser/weak_document_ptr.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "seoul/browser/adblock/ad_block_service.h"
@@ -32,18 +33,21 @@ namespace {
 
 // One removal, self-owned: registered with the remover (which insists that a
 // task's observer be a registered observer), attached to exactly this task,
-// and gone once the task reports back. If the profile goes away with the task
-// still running, the remover never reports and this object is simply never
-// reached again.
+// and gone once the task reports back. During shutdown, the remover reports
+// pending tasks as failed so observers can detach without accessing services.
 class ForgetSiteJob final : public content::BrowsingDataRemover::Observer {
  public:
   ForgetSiteJob(content::BrowsingDataRemover* remover,
                 base::WeakPtr<content::WebContents> web_contents,
                 const GURL& site_url,
                 std::string identity_scope,
-                base::OnceClosure done)
+                base::OnceCallback<void(uint64_t)> done)
       : remover_(remover),
         web_contents_(std::move(web_contents)),
+        source_document_(
+            web_contents_ && web_contents_->GetPrimaryMainFrame()
+                ? web_contents_->GetPrimaryMainFrame()->GetWeakDocumentPtr()
+                : content::WeakDocumentPtr()),
         site_url_(site_url),
         identity_scope_(std::move(identity_scope)),
         done_(std::move(done)) {
@@ -68,6 +72,11 @@ class ForgetSiteJob final : public content::BrowsingDataRemover::Observer {
 
   // content::BrowsingDataRemover::Observer:
   void OnBrowsingDataRemoverDone(uint64_t failed_data_types) override {
+    if (failed_data_types != 0) {
+      std::move(done_).Run(failed_data_types);
+      delete this;
+      return;
+    }
     if (content::WebContents* contents = web_contents_.get()) {
       content::BrowserContext* context = contents->GetBrowserContext();
       Profile* profile = Profile::FromBrowserContext(context);
@@ -79,24 +88,31 @@ class ForgetSiteJob final : public content::BrowsingDataRemover::Observer {
       if (service) {
         service->RotateIdentity(site_url_, identity_scope_);
       }
-      contents->GetController().Reload(content::ReloadType::BYPASSING_CACHE,
-                                       /*check_for_repost=*/false);
+      // Removal is asynchronous. A new page may contain unsaved work by the
+      // time it finishes, even when it has the same URL as the original page.
+      if (source_document_.AsRenderFrameHostIfValid() ==
+          contents->GetPrimaryMainFrame()) {
+        contents->GetController().Reload(content::ReloadType::BYPASSING_CACHE,
+                                         /*check_for_repost=*/true);
+      }
     }
-    std::move(done_).Run();
+    std::move(done_).Run(0);
     delete this;
   }
 
  private:
   const raw_ptr<content::BrowsingDataRemover> remover_;
   const base::WeakPtr<content::WebContents> web_contents_;
+  const content::WeakDocumentPtr source_document_;
   const GURL site_url_;
   const std::string identity_scope_;
-  base::OnceClosure done_;
+  base::OnceCallback<void(uint64_t)> done_;
 };
 
 }  // namespace
 
-bool ForgetSite(content::WebContents* web_contents, base::OnceClosure done) {
+bool ForgetSite(content::WebContents* web_contents,
+                base::OnceCallback<void(uint64_t)> done) {
   if (!web_contents) {
     return false;
   }

@@ -10,9 +10,9 @@
 
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
+#include "base/i18n/number_formatting.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/i18n/number_formatting.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -20,15 +20,17 @@
 #include "base/timer/timer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
-#include "chrome/browser/ui/browser_window/public/global_browser_collection.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface_iterator.h"
+#include "chrome/browser/ui/browser_window/public/global_browser_collection.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/global_routing_id.h"
+#include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/browser/web_contents_observer.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "seoul/browser/adblock/ad_block_service.h"
 #include "seoul/browser/adblock/ad_block_service_factory.h"
@@ -135,17 +137,16 @@ std::u16string ReceiptText(const adblock::FarbledReadCounts& receipt,
   }
   std::vector<std::u16string> surfaces;
   if (receipt.canvas) {
-    surfaces.push_back(u"canvas " +
-                       base::FormatNumber(static_cast<int64_t>(receipt.canvas)));
+    surfaces.push_back(
+        u"canvas " + base::FormatNumber(static_cast<int64_t>(receipt.canvas)));
   }
   if (receipt.webgl) {
     surfaces.push_back(u"WebGL " +
                        base::FormatNumber(static_cast<int64_t>(receipt.webgl)));
   }
   if (receipt.hardware) {
-    surfaces.push_back(
-        u"hardware " +
-        base::FormatNumber(static_cast<int64_t>(receipt.hardware)));
+    surfaces.push_back(u"hardware " + base::FormatNumber(static_cast<int64_t>(
+                                          receipt.hardware)));
   }
   return base::FormatNumber(static_cast<int64_t>(receipt.total())) +
          (receipt.total() == 1 ? u" scrambled read on this page"
@@ -182,7 +183,8 @@ constexpr int kBubbleWidth = 288;
 // through AdBlockService and re-reads GetSiteSettings, so what the panel
 // shows is what the blocker will actually do - never state the panel is
 // remembering on its own.
-class SeoulShieldsBubble final : public views::BoxLayoutView {
+class SeoulShieldsBubble final : public views::BoxLayoutView,
+                                 public content::WebContentsObserver {
   METADATA_HEADER(SeoulShieldsBubble, views::BoxLayoutView)
 
  public:
@@ -191,7 +193,8 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
                      std::string identity_scope,
                      const GURL& site_url,
                      const content::GlobalRenderFrameHostToken& page_token)
-      : service_(service),
+      : content::WebContentsObserver(web_contents.get()),
+        service_(service),
         web_contents_(std::move(web_contents)),
         identity_scope_(std::move(identity_scope)),
         site_url_(site_url),
@@ -208,14 +211,21 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     // as long as anyone looked at it. Refreshing re-reads both counts from the
     // services; it only touches the layout when a line actually changed, so an
     // idle page costs nothing visible.
-    refresh_timer_.Start(FROM_HERE, base::Seconds(1),
-                         base::BindRepeating(
-                             &SeoulShieldsBubble::RefreshFromService,
-                             base::Unretained(this)));
+    refresh_timer_.Start(
+        FROM_HERE, base::Seconds(1),
+        base::BindRepeating(&SeoulShieldsBubble::RefreshFromService,
+                            base::Unretained(this)));
   }
   SeoulShieldsBubble(const SeoulShieldsBubble&) = delete;
   SeoulShieldsBubble& operator=(const SeoulShieldsBubble&) = delete;
   ~SeoulShieldsBubble() override = default;
+
+  void OnVisibilityChanged(content::Visibility visibility) override {
+    if (visibility == content::Visibility::HIDDEN)
+      CloseEditor();
+  }
+  void PrimaryPageChanged(content::Page&) override { CloseEditor(); }
+  void WebContentsDestroyed() override { CloseEditor(); }
 
   // The panel holds a fixed width and asks its layout for the height that
   // width needs - the Boost panel's own hard-won sizing rule.
@@ -251,6 +261,25 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
   }
 
  private:
+  bool CanActOnPage() const {
+    return !closing_ && web_contents_ &&
+           web_contents_->GetPrimaryMainFrame()->GetGlobalFrameToken() ==
+               page_token_;
+  }
+
+  void CloseEditor() {
+    if (closing_)
+      return;
+    closing_ = true;
+    weak_factory_.InvalidateWeakPtrs();
+    refresh_timer_.Stop();
+    forget_disarm_timer_.Stop();
+    forget_armed_ = false;
+    SetEnabled(false);
+    if (auto* widget = GetWidget())
+      widget->Close();
+  }
+
   void BuildContents() {
     // Header: what this panel is, which site it governs, and the one switch
     // that turns the blocker off for that site.
@@ -259,13 +288,14 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     header->SetBetweenChildSpacing(12);
     header->SetCrossAxisAlignment(
         views::BoxLayout::CrossAxisAlignment::kCenter);
-    auto* identity = header->AddChildView(std::make_unique<views::BoxLayoutView>());
+    auto* identity =
+        header->AddChildView(std::make_unique<views::BoxLayoutView>());
     identity->SetOrientation(views::BoxLayout::Orientation::kVertical);
     identity->SetBetweenChildSpacing(1);
     identity->SetCrossAxisAlignment(
         views::BoxLayout::CrossAxisAlignment::kStart);
-    auto* title = identity->AddChildView(
-        std::make_unique<views::Label>(u"Shields"));
+    auto* title =
+        identity->AddChildView(std::make_unique<views::Label>(u"Shields"));
     title->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     auto* host = identity->AddChildView(std::make_unique<views::Label>(
         base::UTF8ToUTF16(site_url_.host()), views::style::CONTEXT_LABEL,
@@ -273,12 +303,10 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     host->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     host->SetElideBehavior(gfx::ELIDE_HEAD);
     header->SetFlexForView(identity, 1);
-    enabled_toggle_ =
-        header->AddChildView(std::make_unique<views::ToggleButton>(
-            base::BindRepeating(&SeoulShieldsBubble::OnEnabledToggled,
-                                base::Unretained(this))));
-    enabled_toggle_->GetViewAccessibility().SetName(
-        u"Shields for this site");
+    enabled_toggle_ = header->AddChildView(
+        std::make_unique<views::ToggleButton>(base::BindRepeating(
+            &SeoulShieldsBubble::OnEnabledToggled, base::Unretained(this))));
+    enabled_toggle_->GetViewAccessibility().SetName(u"Shields for this site");
     enabled_toggle_->SetTooltipText(u"Shields for this site");
 
     // A private window gets the same protection and keeps its own choices to
@@ -303,9 +331,9 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
 
     // The one real decision: how hard to block on this site. Standard is the
     // vetted default; Aggressive also applies ordinary first-party blocks.
-    auto* mode_label = AddChildView(std::make_unique<views::Label>(
-        u"Blocking", views::style::CONTEXT_LABEL,
-        views::style::STYLE_SECONDARY));
+    auto* mode_label = AddChildView(
+        std::make_unique<views::Label>(u"Blocking", views::style::CONTEXT_LABEL,
+                                       views::style::STYLE_SECONDARY));
     mode_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     mode_label->SetFontList(mode_label->font_list().DeriveWithSizeDelta(-1));
     // Structure, not decoration: without a heading role these read as
@@ -358,10 +386,10 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     blocking_footer->SetBetweenChildSpacing(8);
     blocking_footer->SetCrossAxisAlignment(
         views::BoxLayout::CrossAxisAlignment::kCenter);
-    blocking_caption_ = blocking_footer->AddChildView(
-        std::make_unique<views::Label>(std::u16string(),
-                                       views::style::CONTEXT_LABEL,
-                                       views::style::STYLE_SECONDARY));
+    blocking_caption_ =
+        blocking_footer->AddChildView(std::make_unique<views::Label>(
+            std::u16string(), views::style::CONTEXT_LABEL,
+            views::style::STYLE_SECONDARY));
     blocking_caption_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     blocking_footer->SetFlexForView(blocking_caption_, 1);
     blocking_default_chip_ =
@@ -440,10 +468,11 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
         views::style::STYLE_SECONDARY));
     fp_caption_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     fp_footer->SetFlexForView(fp_caption_, 1);
-    fp_default_chip_ = fp_footer->AddChildView(std::make_unique<SeoulChipButton>(
-        base::BindRepeating(&SeoulShieldsBubble::OnFingerprintModePromoted,
-                            base::Unretained(this)),
-        std::u16string()));
+    fp_default_chip_ =
+        fp_footer->AddChildView(std::make_unique<SeoulChipButton>(
+            base::BindRepeating(&SeoulShieldsBubble::OnFingerprintModePromoted,
+                                base::Unretained(this)),
+            std::u16string()));
     // No SetName here on purpose. This chip's visible text is built at update
     // time ("Use Strict everywhere"), and a fixed name like "Use this
     // fingerprinting mode for all sites" does not contain that visible label -
@@ -457,9 +486,9 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     // Identity: what the page actually did, what this site is told, and the
     // two moves a person can make about it. The receipt is the protection's
     // proof of work, the way the blocked count is the blocker's.
-    auto* identity_label = AddChildView(std::make_unique<views::Label>(
-        u"Identity", views::style::CONTEXT_LABEL,
-        views::style::STYLE_SECONDARY));
+    auto* identity_label = AddChildView(
+        std::make_unique<views::Label>(u"Identity", views::style::CONTEXT_LABEL,
+                                       views::style::STYLE_SECONDARY));
     identity_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     identity_label->SetFontList(
         identity_label->font_list().DeriveWithSizeDelta(-1));
@@ -479,14 +508,14 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     auto* identity_row = AddChildView(std::make_unique<views::BoxLayoutView>());
     identity_row->SetOrientation(views::BoxLayout::Orientation::kHorizontal);
     identity_row->SetBetweenChildSpacing(8);
-    new_identity_chip_ = identity_row->AddChildView(
-        std::make_unique<SeoulChipButton>(
+    new_identity_chip_ =
+        identity_row->AddChildView(std::make_unique<SeoulChipButton>(
             base::BindRepeating(&SeoulShieldsBubble::OnNewIdentity,
                                 base::Unretained(this)),
             u"New identity"));
     new_identity_chip_->SetTooltipText(
-        u"A new canvas pattern and hardware profile for " + DomainOf(site_url_) +
-        u", from now on");
+        u"A new canvas pattern and hardware profile for " +
+        DomainOf(site_url_) + u", from now on");
     new_identity_chip_->SetProminent(true);
     forget_chip_ = identity_row->AddChildView(std::make_unique<SeoulChipButton>(
         base::BindRepeating(&SeoulShieldsBubble::OnForgetSite,
@@ -507,6 +536,37 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
         u"Clear this site's blocking mode, its temporary pause, and its "
         u"fingerprinting choice, and follow the defaults again");
     reset_chip_->SetProminent(true);
+    reload_chip_ = AddChildView(std::make_unique<SeoulChipButton>(
+        base::BindRepeating(&SeoulShieldsBubble::OnReloadPage,
+                            base::Unretained(this)),
+        u"Reload to apply changes"));
+    reload_chip_->SetProminent(true);
+    reload_chip_->SetVisible(false);
+    forget_error_label_ = AddChildView(std::make_unique<views::Label>(
+        u"Some site data could not be cleared. Please try again.",
+        views::style::CONTEXT_LABEL, views::style::STYLE_SECONDARY));
+    forget_error_label_->SetMultiLine(true);
+    forget_error_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+    forget_error_label_->SetVisible(false);
+  }
+
+  void OfferReload() {
+    reload_chip_->SetVisible(true);
+    Relayout();
+  }
+
+  void OnReloadPage() {
+    if (!CanActOnPage())
+      return;
+    auto* contents = web_contents_.get();
+    if (!contents || url::Origin::Create(contents->GetLastCommittedURL()) !=
+                         url::Origin::Create(site_url_))
+      return;
+    // Page-world hooks cannot be safely removed from a running site. Let the
+    // person choose when to reload, and retain Chromium's form-repost check.
+    contents->GetController().Reload(content::ReloadType::NORMAL, true);
+    if (GetWidget())
+      GetWidget()->Close();
   }
 
   // Settings bound to the window this panel governs. A private window inherits
@@ -514,7 +574,7 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
   // only correct thing to read or write through.
   std::unique_ptr<adblock::AdBlockSettings> Settings() const {
     content::WebContents* const contents = web_contents_.get();
-    return service_ && contents
+    return service_ && CanActOnPage() && contents
                ? service_->SettingsFor(contents->GetBrowserContext())
                : nullptr;
   }
@@ -539,6 +599,7 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     }
     RecomputeWebPreferences();
     RefreshFromService();
+    OfferReload();
   }
 
   void OnModePicked(adblock::AdBlockMode mode) {
@@ -551,6 +612,7 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     }
     scoped->SetSiteMode(site_url_, mode);
     RefreshFromService();
+    OfferReload();
   }
 
   void OnFingerprintModePicked(adblock::FingerprintMode mode) {
@@ -565,6 +627,7 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     settings->SetSiteFingerprintMode(site_url_, mode);
     RecomputeWebPreferences();
     RefreshFromService();
+    OfferReload();
   }
 
   void OnBlockingModePromoted() {
@@ -582,6 +645,7 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     scoped->SetDefaultMode(settings.effective_mode);
     scoped->SetSiteMode(site_url_, std::nullopt);
     RefreshFromService();
+    OfferReload();
   }
 
   void OnFingerprintModePromoted() {
@@ -603,18 +667,22 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     scoped->SetSiteFingerprintMode(site_url_, std::nullopt);
     RecomputeEveryTabInProfile();
     RefreshFromService();
+    OfferReload();
   }
 
   void OnNewIdentity() {
-    if (!service_) {
+    if (!service_ || !CanActOnPage()) {
       return;
     }
     service_->RotateIdentity(site_url_, identity_scope_);
     RecomputeEveryTabInProfile();
     RefreshFromService();
+    OfferReload();
   }
 
   void OnForgetSite() {
+    if (!CanActOnPage() || forgetting_)
+      return;
     if (!forget_armed_) {
       // Destructive, so it asks once - in place, with the chip itself, and
       // the question expires on its own. While it is asking, the chip beside
@@ -640,18 +708,38 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     // A double-click is two presses, and it must not be able to destroy a
     // site's data: the second half of one arrives far sooner than a person
     // deciding could, so it is ignored and the question stays up.
-    if (base::TimeTicks::Now() - forget_armed_at_ <
-        base::Milliseconds(500)) {
+    if (base::TimeTicks::Now() - forget_armed_at_ < base::Milliseconds(500)) {
       return;
     }
     DisarmForget();
-    if (web_contents_ && ForgetSite(web_contents_.get(), base::DoNothing())) {
-      // The page comes back as a stranger; every number on this panel was
-      // about the page that is gone.
-      if (views::Widget* widget = GetWidget()) {
-        widget->Close();
-      }
+    forgetting_ = true;
+    forget_error_label_->SetVisible(false);
+    forget_chip_->SetText(u"Forgetting…");
+    forget_chip_->SetEnabled(false);
+    Relayout();
+    if (!ForgetSite(web_contents_.get(),
+                    base::BindOnce(&SeoulShieldsBubble::OnForgetComplete,
+                                   weak_factory_.GetWeakPtr()))) {
+      OnForgetComplete(1);
     }
+  }
+
+  void OnForgetComplete(uint64_t failed_data_types) {
+    if (!CanActOnPage())
+      return;
+    forgetting_ = false;
+    if (failed_data_types == 0) {
+      CloseEditor();
+      return;
+    }
+    // Partial deletion is not success. Keep the original page and an explicit
+    // retry path; a retry still uses the normal in-place confirmation.
+    forget_chip_->SetText(u"Forget this site");
+    forget_chip_->SetEnabled(true);
+    forget_error_label_->SetVisible(true);
+    Relayout();
+    forget_error_label_->GetViewAccessibility().AnnounceAlert(
+        forget_error_label_->GetText());
   }
 
   void DisarmForget() {
@@ -744,8 +832,7 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     }
     const adblock::AdBlockSiteSettings settings =
         scoped->GetSiteSettings(site_url_);
-    const bool enabled =
-        settings.effective_mode != adblock::AdBlockMode::kOff;
+    const bool enabled = settings.effective_mode != adblock::AdBlockMode::kOff;
     enabled_toggle_->SetIsOn(enabled);
     // Read live rather than trusting what was true when the panel opened, so
     // this count and the fingerprint receipt below cannot disagree about how
@@ -756,10 +843,10 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
                      ? u"1 request blocked on this page"
                      : base::FormatNumber(static_cast<int64_t>(blocked)) +
                            u" requests blocked on this page");
-    standard_chip_->SetSelected(
-        settings.effective_mode == adblock::AdBlockMode::kStandard);
-    aggressive_chip_->SetSelected(
-        settings.effective_mode == adblock::AdBlockMode::kAggressive);
+    standard_chip_->SetSelected(settings.effective_mode ==
+                                adblock::AdBlockMode::kStandard);
+    aggressive_chip_->SetSelected(settings.effective_mode ==
+                                  adblock::AdBlockMode::kAggressive);
     standard_chip_->SetEnabled(enabled);
     aggressive_chip_->SetEnabled(enabled);
     // With shields down nothing here applies, so nothing here may look
@@ -767,20 +854,21 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     // contradictory things at once.
     fp_off_chip_->SetSelected(enabled && settings.fingerprint_mode ==
                                              adblock::FingerprintMode::kOff);
-    fp_balanced_chip_->SetSelected(
-        enabled &&
-        settings.fingerprint_mode == adblock::FingerprintMode::kBalanced);
-    fp_strict_chip_->SetSelected(
-        enabled &&
-        settings.fingerprint_mode == adblock::FingerprintMode::kStrict);
+    fp_balanced_chip_->SetSelected(enabled &&
+                                   settings.fingerprint_mode ==
+                                       adblock::FingerprintMode::kBalanced);
+    fp_strict_chip_->SetSelected(enabled &&
+                                 settings.fingerprint_mode ==
+                                     adblock::FingerprintMode::kStrict);
     fp_off_chip_->SetEnabled(enabled);
     fp_balanced_chip_->SetEnabled(enabled);
     fp_strict_chip_->SetEnabled(enabled);
     const adblock::AdBlockMode default_blocking = scoped->GetDefaultMode();
-    SetLabelText(blocking_caption_,
-                 settings.site_mode.has_value()
-                     ? u"Every other site: " + BlockingModeName(default_blocking)
-                     : u"Following the default for all sites");
+    SetLabelText(
+        blocking_caption_,
+        settings.site_mode.has_value()
+            ? u"Every other site: " + BlockingModeName(default_blocking)
+            : u"Following the default for all sites");
     blocking_caption_->SetEnabled(enabled);
     const bool can_promote_blocking =
         enabled && settings.site_mode.has_value() &&
@@ -811,9 +899,9 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
     // assistive technology and by voice control the moment it appears, and
     // indistinguishable from a control that does not exist. Visibility alone
     // decides whether it is offered; the label is always correct.
-    fp_default_chip_->SetText(
-        u"Use " + FingerprintModeName(settings.fingerprint_mode) +
-        u" everywhere");
+    fp_default_chip_->SetText(u"Use " +
+                              FingerprintModeName(settings.fingerprint_mode) +
+                              u" everywhere");
     fp_default_chip_->SetVisible(can_promote_fingerprinting);
     const adblock::SiteIdentity identity =
         service_->DescribeIdentity(site_url_, identity_scope_);
@@ -861,8 +949,10 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
   const content::GlobalRenderFrameHostToken page_token_;
   const bool private_session_;
   bool text_changed_ = false;
+  bool closing_ = false;
   base::RepeatingTimer refresh_timer_;
   bool forget_armed_ = false;
+  bool forgetting_ = false;
   base::TimeTicks forget_armed_at_;
   base::OneShotTimer forget_disarm_timer_;
 
@@ -882,6 +972,9 @@ class SeoulShieldsBubble final : public views::BoxLayoutView {
   raw_ptr<SeoulChipButton> new_identity_chip_ = nullptr;
   raw_ptr<SeoulChipButton> forget_chip_ = nullptr;
   raw_ptr<SeoulChipButton> reset_chip_ = nullptr;
+  raw_ptr<SeoulChipButton> reload_chip_ = nullptr;
+  raw_ptr<views::Label> forget_error_label_ = nullptr;
+  base::WeakPtrFactory<SeoulShieldsBubble> weak_factory_{this};
 };
 
 BEGIN_METADATA(SeoulShieldsBubble)
@@ -914,9 +1007,10 @@ bool ShowShieldsBubbleForWebContents(content::WebContents* web_contents) {
       web_contents->GetPrimaryMainFrame()->GetGlobalFrameToken();
   // The count is read live in RefreshFromService rather than captured here, so
   // it and the fingerprint receipt cannot disagree about how current they are.
-  SeoulShieldsBubble::Show(anchor, service, web_contents->GetWeakPtr(),
-                           adblock::AdBlockService::IdentityScopeFor(web_contents),
-                           web_contents->GetLastCommittedURL(), page_token);
+  SeoulShieldsBubble::Show(
+      anchor, service, web_contents->GetWeakPtr(),
+      adblock::AdBlockService::IdentityScopeFor(web_contents),
+      web_contents->GetLastCommittedURL(), page_token);
   return true;
 }
 

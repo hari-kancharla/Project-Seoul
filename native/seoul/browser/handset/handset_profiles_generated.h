@@ -17,8 +17,8 @@ namespace seoul {
 // Every device this build can emulate, phones first, featured first.
 const std::vector<HandsetProfile>& GeneratedHandsetProfiles();
 
-// Ids of the profiles the picker shows at top level; the rest live under
-// "All devices". Computed at generation time - see the generator header.
+// Ids promoted to the start of the searchable picker. The entire catalog
+// remains accessible without nested menus.
 const std::vector<std::string>& GeneratedFeaturedHandsetProfileIds();
 
 }  // namespace seoul

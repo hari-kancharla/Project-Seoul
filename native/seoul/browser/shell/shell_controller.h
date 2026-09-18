@@ -87,6 +87,8 @@ class ShellController : public OrganizationModelObserver,
   void SetOpenCanvasCallback(base::RepeatingCallback<bool()> callback);
   void SetOpenBoostCallback(base::RepeatingCallback<bool()> callback);
   void SetBeginCaptureCallback(base::RepeatingCallback<bool()> callback);
+  void SetNewTabInputCallback(base::RepeatingCallback<bool()> callback);
+  void SetCreateWorkspaceCallback(base::RepeatingCallback<bool(bool)> callback);
   void SetBrowserPageCallbacks(base::RepeatingCallback<bool()> settings,
                                base::RepeatingCallback<bool()> downloads);
   void SetProjectCallbacks(
@@ -149,8 +151,10 @@ class ShellController : public OrganizationModelObserver,
   base::RepeatingCallback<bool()> open_canvas_callback_;
   base::RepeatingCallback<bool()> open_boost_callback_;
   base::RepeatingCallback<bool()> begin_capture_callback_;
+  base::RepeatingCallback<bool()> new_tab_input_callback_;
   base::RepeatingCallback<bool()> open_settings_callback_;
   base::RepeatingCallback<bool()> open_downloads_callback_;
+  base::RepeatingCallback<bool(bool)> create_workspace_callback_;
   base::RepeatingCallback<ShellProjectResources(WorkspaceId)>
       project_resources_callback_;
   base::RepeatingCallback<bool(WorkspaceId)> create_project_chat_callback_;

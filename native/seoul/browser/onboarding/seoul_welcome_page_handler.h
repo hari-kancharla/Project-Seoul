@@ -36,8 +36,8 @@ class SeoulWelcomePageHandler : public welcome::mojom::PageHandler {
   void GetState(GetStateCallback callback) override;
   void CompleteStep(const std::string& step_id,
                     CompleteStepCallback callback) override;
-  void Skip() override;
-  void SetRailCollapsed(bool collapsed) override;
+  void Skip(SkipCallback callback) override;
+  void SetRailCollapsed(bool collapsed, SetRailCollapsedCallback callback) override;
   void RequestDefaultBrowser(RequestDefaultBrowserCallback callback) override;
 
  private:
@@ -49,7 +49,7 @@ class SeoulWelcomePageHandler : public welcome::mojom::PageHandler {
   // The hosting window. Null is tolerated everywhere it is used: a WebUI can
   // outlive its window during teardown, and the rail controls are simply
   // inert then rather than a crash on the first-run screen.
-  const raw_ptr<BrowserWindowInterface> browser_window_;
+  const base::WeakPtr<BrowserWindowInterface> browser_window_;
 
   base::WeakPtrFactory<SeoulWelcomePageHandler> weak_factory_{this};
 };

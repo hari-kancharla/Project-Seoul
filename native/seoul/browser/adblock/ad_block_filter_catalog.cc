@@ -62,13 +62,9 @@ std::vector<AdBlockCatalogEntry> BuildCatalog() {
       /*enabled_by_default=*/true, AdBlockEngineGroup::kDefault, 2u * kMiB,
       24));
 
-  // EasyList and EasyPrivacy are dual licensed GPL-3.0-or-later OR
-  // CC-BY-SA-3.0. Redistribution is permitted under either, with credit to
-  // "The EasyList authors" and a share-alike obligation. Seoul fetches them at
-  // runtime rather than bundling: that keeps the share-alike and attribution
-  // obligations off the shipped binary and keeps the upstream project the
-  // authoritative source. A conservative choice, not a claim that bundling
-  // would be disallowed.
+  // Runtime delivery keeps the upstream project as the update source. It does
+  // not itself resolve licensing obligations; retain the catalogue attribution
+  // and complete the distribution review recorded in the licensing document.
   catalog.push_back(MakeEntry(
       "easylist", "EasyList", "EasyList",
       "https://easylist.to/easylist/easylist.txt",

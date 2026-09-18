@@ -132,6 +132,7 @@ class ProviderRegistry {
   std::string cloud_model_;
   bool cloud_enabled_ = false;
   bool local_healthy_ = false;
+  uint64_t local_health_generation_ = 0;
   std::vector<std::string> local_models_discovered_;
   std::string last_error_;
   bool shutting_down_ = false;

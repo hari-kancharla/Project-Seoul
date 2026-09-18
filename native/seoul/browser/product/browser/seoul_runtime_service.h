@@ -38,6 +38,7 @@
 #include "base/timer/timer.h"
 #include "base/unguessable_token.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "seoul/browser/commands/command_completion_observer.h"
 #include "seoul/browser/lifecycle/lifecycle_identity.h"
 #include "seoul/browser/lifecycle/live_window_state.h"
@@ -79,6 +80,7 @@ class WebContents;
 namespace seoul {
 
 class SeoulCapture;
+class SettingsWindowOwner;
 
 class SeoulOrganizationService;
 class CredentialStore;
@@ -124,6 +126,11 @@ public:
   ~SeoulRuntimeService() override;
 
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable *registry);
+
+  SettingsWindowOwner* settings_window() const { return settings_window_.get(); }
+  bool CanOpenSettingsWindow() const { return !shutting_down_; }
+  std::unique_ptr<SettingsWindowOwner> TakeSettingsWindow();
+  void SetSettingsWindow(std::unique_ptr<SettingsWindowOwner> owner);
 
   // Narrow accessors (never the whole mutable runtime).
   TaskService *tasks() { return task_service_.get(); }
@@ -188,9 +195,14 @@ public:
 
   // Validated Site Layer mutations. Successful changes persist through the
   // profile owner and are applied immediately to every matching live page.
-  SiteLayerStatusResult UpsertSiteLayer(SiteLayer layer);
+  SiteLayerStatusResult UpsertSiteLayer(
+      SiteLayer layer,
+      std::optional<bool> javascript_enabled = std::nullopt);
   SiteLayerStatusResult RemoveSiteLayer(const std::string &layer_id);
   void RefreshSiteLayers();
+  uint64_t site_layers_revision() const { return site_layers_revision_; }
+  base::CallbackListSubscription AddSiteLayersChangedCallback(
+      base::RepeatingClosure callback);
   using SiteLayerZapCallback =
       base::OnceCallback<void(bool changed, SiteLayerStatusResult result)>;
   // Arc's Capture for the active tab of `window`. False when there is no
@@ -244,6 +256,10 @@ public:
   TaskId RunWorkflowForStudio(const WorkflowId &workflow_id,
                               const LiveWindowKey &window);
   OrganizationSnapshot StudioOrganizationSnapshot() const;
+  // Metadata-only projection. Node ids never grant execution authority.
+  base::DictValue ContextGraphSnapshot(const LiveWindowKey& window);
+  bool ActivateContextTab(const LiveWindowKey& window,
+                          const std::string& node_id);
   std::string ActiveSceneForWindow(const LiveWindowKey &window) const;
   std::string ActiveThemeForWindow(const LiveWindowKey &window) const;
 
@@ -285,6 +301,7 @@ private:
   // than any particular Canvas document or surface binding.
   void OnLiveWindowSnapshotChanged(const LiveWindowSnapshot &snapshot) override;
   void OnLiveWindowRemoved(LiveWindowKey window) override;
+  void OnLiveWindowStateProviderDestroying() override;
   // TaskServiceObserver: publishes only bounded state counts into the native
   // shell. Detailed goals, prompts, receipts, and results stay in TaskService.
   void OnTaskUpdated(const TaskId &task_id) override;
@@ -298,6 +315,7 @@ private:
   void OnOrganizationChanged(const OrganizationChange &change) override;
   void PublishShellTaskSummary(const LiveWindowKey &window);
   std::string SceneForTab(const LiveTabKey &tab) const;
+  void NotifySiteLayersChanged();
   bool RoutingRuleExists(const std::string &rule_id) const;
   bool WorkflowExists(const std::string &workflow_id) const;
   bool AllowCloudModels(const LiveWindowKey &window) const;
@@ -337,6 +355,7 @@ private:
                              BrowserWindowInterface *browser);
   bool PersistState();
   void SchedulePersist();
+  void MaybeShowWelcome(const LiveWindowKey& window);
   void OnProjectResourcesChanged();
   void LoadState();
 
@@ -353,7 +372,11 @@ private:
   };
 
   raw_ptr<Profile> profile_;
+  std::unique_ptr<SettingsWindowOwner> settings_window_;
+  uint64_t context_graph_revision_ = 0;
+  bool welcome_pending_ = false;
   raw_ptr<PrefService> prefs_;
+  PrefChangeRegistrar boost_pref_registrar_;
   raw_ptr<SeoulOrganizationService> organization_;
   WebContentsResolver web_contents_resolver_;
 
@@ -454,6 +477,9 @@ private:
       site_layer_applicators_;
   base::RepeatingCallbackList<void(const LiveWindowKey &)>
       boost_editor_request_callbacks_;
+  base::RepeatingClosureList site_layers_changed_callbacks_;
+  uint64_t site_layers_revision_ = 0;
+  bool site_layers_notification_pending_ = false;
   std::set<LiveWindowKey> pending_boost_editor_windows_;
   base::RepeatingTimer scene_lifecycle_timer_;
   base::RepeatingTimer live_collection_timer_;

@@ -39,6 +39,8 @@ TEST(CommandLauncherCatalogTest, EveryEntryIsExecutableAndSearchable) {
   ShellSnapshot snapshot;
   for (ShellUtilityAction action : {
            ShellUtilityAction::kNewTemporaryTab,
+           ShellUtilityAction::kNewWorkspace,
+           ShellUtilityAction::kNewContainerWorkspace,
            ShellUtilityAction::kCreateSplit,
            ShellUtilityAction::kOpenCanvas,
            ShellUtilityAction::kOpenBoost,
@@ -57,8 +59,19 @@ TEST(CommandLauncherCatalogTest, EveryEntryIsExecutableAndSearchable) {
   }
   const auto entries = CommandLauncherCatalog::BuildEntries(
       snapshot, OrganizationSnapshot(), {});
-  ASSERT_EQ(entries.size(), 11u);
+  ASSERT_EQ(entries.size(), 12u);
+  ASSERT_TRUE(FindEntry(entries, "new_space"));
+  EXPECT_EQ(FindEntry(entries, "new_space")->action,
+            ShellUtilityAction::kNewWorkspace);
+  ASSERT_TRUE(FindEntry(entries, "new_container_space"));
+  EXPECT_EQ(FindEntry(entries, "new_container_space")->action,
+            ShellUtilityAction::kNewContainerWorkspace);
+  EXPECT_EQ(std::ranges::count(entries, ShellUtilityAction::kOpenCanvas,
+                              &CommandLauncherEntry::action), 1);
+  EXPECT_EQ(std::ranges::count(entries, ShellUtilityAction::kOpenTaskDeck,
+                              &CommandLauncherEntry::action), 0);
   for (const CommandLauncherEntry& entry : entries) {
+    EXPECT_TRUE(entry.enabled) << entry.id;
     EXPECT_EQ(entry.kind, CommandLauncherEntryKind::kUtility);
     EXPECT_NE(entry.action, ShellUtilityAction::kCommandLauncher);
     const auto found = CommandLauncherCatalog::Filter(entries, entry.label);
@@ -118,7 +131,7 @@ TEST(CommandLauncherCatalogTest,
 
   const auto entries = CommandLauncherCatalog::BuildEntries(
       shell, organization, {current_window, other_window});
-  EXPECT_EQ(entries.size(), 17u);
+  EXPECT_EQ(entries.size(), 18u);
 
   const auto* current_entry =
       FindEntry(entries, "workspace:" + current.id.value());
@@ -225,7 +238,7 @@ TEST(CommandLauncherCatalogTest, SkipsIneligibleAndInvalidLiveTargets) {
 
   const auto entries = CommandLauncherCatalog::BuildEntries(
       shell, organization, {ineligible, invalid});
-  EXPECT_EQ(entries.size(), 11u);
+  EXPECT_EQ(entries.size(), 12u);
 }
 
 TEST(CommandLauncherCatalogTest, SkipsNewTabPlaceholderLiveTarget) {

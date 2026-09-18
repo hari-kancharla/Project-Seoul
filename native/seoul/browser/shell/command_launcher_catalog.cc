@@ -149,8 +149,6 @@ std::vector<CommandLauncherEntry> CommandLauncherCatalog::BuildEntries(
       action_enabled(ShellUtilityAction::kOpenBoost);
   const ShellActionEnablement capture =
       action_enabled(ShellUtilityAction::kCapture);
-  const ShellActionEnablement tasks =
-      action_enabled(ShellUtilityAction::kOpenTaskDeck);
   const ShellActionEnablement appearance_single =
       action_enabled(ShellUtilityAction::kSetAppearanceSingle);
   const ShellActionEnablement appearance_multiple =
@@ -168,13 +166,25 @@ std::vector<CommandLauncherEntry> CommandLauncherCatalog::BuildEntries(
                               new_tab.disabled_reason));
   entries.back().action = ShellUtilityAction::kNewTemporaryTab;
   entries.back().shortcut = "⌘T";
+  for (const auto action : {ShellUtilityAction::kNewWorkspace,
+                           ShellUtilityAction::kNewContainerWorkspace}) {
+    const auto enabled = action_enabled(action);
+    const bool isolated = action == ShellUtilityAction::kNewContainerWorkspace;
+    entries.push_back(MakeEntry(
+        isolated ? "new_container_space" : "new_space",
+        isolated ? "New Container Space" : "New Space",
+        isolated ? std::initializer_list<std::string>{"container", "accounts", "isolated", "cookies"}
+                 : std::initializer_list<std::string>{"space", "workspace", "organize"},
+        enabled.enabled, enabled.disabled_reason));
+    entries.back().action = action;
+  }
   entries.push_back(MakeEntry("create_split", "Create Split", {"split", "pane"},
                               split.enabled, split.disabled_reason));
   entries.back().action = ShellUtilityAction::kCreateSplit;
   // "easel" and "board" reach the same authored spatial surface: Arc opens its
   // Easels by typing "New Easel", and Seoul's Boards are that surface. The
   // phrase has to be a token or Arc's own gesture falls through to a search.
-  entries.push_back(MakeEntry("open_canvas", "Open Seoul Canvas",
+  entries.push_back(MakeEntry("open_canvas", "Toggle Seoul Assistant",
                               {"canvas", "assistant", "voice", "tasks",
                                "board", "boards", "easel", "new easel"},
                               canvas.enabled, canvas.disabled_reason));
@@ -195,10 +205,6 @@ std::vector<CommandLauncherEntry> CommandLauncherCatalog::BuildEntries(
                                "easel"},
                               capture.enabled, capture.disabled_reason));
   entries.back().action = ShellUtilityAction::kCapture;
-  entries.push_back(MakeEntry("open_task_deck", "Open Task Deck",
-                              {"tasks", "progress", "receipts", "automation"},
-                              tasks.enabled, tasks.disabled_reason));
-  entries.back().action = ShellUtilityAction::kOpenTaskDeck;
   entries.push_back(
       MakeEntry("appearance_single", "Single Toolbar Layout",
                 {"appearance", "layout", "single", "toolbar"},

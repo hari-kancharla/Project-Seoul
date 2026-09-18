@@ -73,7 +73,11 @@ bool IsSafeNewTabPlaceholderCandidate(content::WebContents* contents) {
 }
 
 LiveWindowStateProvider::LiveWindowStateProvider() = default;
-LiveWindowStateProvider::~LiveWindowStateProvider() = default;
+LiveWindowStateProvider::~LiveWindowStateProvider() {
+  for (LiveWindowStateObserver& observer : observers_) {
+    observer.OnLiveWindowStateProviderDestroying();
+  }
+}
 
 void LiveWindowStateProvider::SetLifecycleDegraded(bool degraded) {
   lifecycle_degraded_ = degraded;

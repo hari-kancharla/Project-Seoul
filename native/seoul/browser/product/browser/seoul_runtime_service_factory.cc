@@ -76,6 +76,13 @@ SeoulRuntimeService* SeoulRuntimeServiceFactory::GetForProfile(
 }
 
 // static
+SeoulRuntimeService* SeoulRuntimeServiceFactory::GetForProfileIfExists(
+    Profile* profile) {
+  return static_cast<SeoulRuntimeService*>(
+      GetInstance()->GetServiceForBrowserContext(profile, /*create=*/false));
+}
+
+// static
 SeoulRuntimeServiceFactory* SeoulRuntimeServiceFactory::GetInstance() {
   static base::NoDestructor<SeoulRuntimeServiceFactory> instance;
   return instance.get();

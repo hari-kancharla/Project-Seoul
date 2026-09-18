@@ -16,6 +16,7 @@ struct CosmeticSelectorSet {
   array<string> selectors;
   array<StyledSelector> styled_selectors;
   string isolated_script;
+  string main_world_script;
   array<string> procedural_actions;
   bool query_generics;
 };
@@ -32,7 +33,9 @@ struct DynamicCosmeticSelectors {
 };
 
 interface CosmeticFilterHost {
-  GetCosmeticResources() => (CosmeticResources resources);
+  // Initial document setup waits for the local engine before page scripts run.
+  // No network access is performed by this call. Refreshes use its async form.
+  [Sync] GetCosmeticResources() => (CosmeticResources resources);
 
   GetDynamicCosmeticSelectors(array<string> classes, array<string> ids) => (
       DynamicCosmeticSelectors selectors);

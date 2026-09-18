@@ -44,6 +44,9 @@ class LiveWindowStateObserver : public base::CheckedObserver {
   virtual void OnLiveWindowSnapshotChanged(const LiveWindowSnapshot& snapshot) {
   }
   virtual void OnLiveWindowRemoved(LiveWindowKey window) {}
+  // A profile can shut down while its browser or WebUI views still exist.
+  // Scoped observers must detach here while the provider is still alive.
+  virtual void OnLiveWindowStateProviderDestroying() {}
 };
 
 class LiveWindowStateProvider {

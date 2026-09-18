@@ -1,272 +1,113 @@
-# Seoul Handset
+# Seoul Phone view (Handset)
 
-Status: core model landed and unit tested; WebContents integration and the
-window layer are not yet built. This document is the design and the honest
-boundary, not a readiness claim. `docs/release/seoul-product-readiness.md`
-remains the source of truth for what is verified.
+Updated 2026-09-07. This describes the implemented browser preview and its
+remaining limits. Verification for the current repair is recorded in
+`seoul-feature-reliability-2026-09-07.md`; earlier readiness claims are dated
+snapshots, not evidence for later source changes.
 
-## What a Handset is
+## User behavior
 
-A Handset is one web page presented as a phone, in its own chrome-less window:
-exact device metrics, a mobile viewport, coarse-pointer media features, a
-coherent mobile User-Agent with matching client hints, and touch instead of a
-mouse.
+The phone control beside the address field opens a native, searchable device
+picker. All supported devices are in one scrolling list. Search matches device
+names, platform, and phone/tablet terms; arrow keys move through results and
+Return chooses a single search result. The list has a bounded height and shrinks
+for a short result set. There is no nested “More devices” menu.
 
-"Open in Handset" on a tab produces a window that is the device. The page has
-the whole window; there is no toolbar, no tab strip, and no letterboxed phone
-picture sitting inside a desktop frame. It shares the originating tab's storage
-partition, so a signed-in session stays signed in - a choice that is not free,
-and that the section on process isolation explains the cost of.
+Selecting a device from a desktop page opens a dedicated tab with the same page
+and storage partition. Selecting another device from a phone tab changes that
+tab in place and preserves its orientation. The popup closes before tab creation
+or selection begins. Changing tabs, navigating, or closing the source page closes
+the picker. Deferred actions hold weak references to the original page.
 
-## What a Handset is not
+“Rotate” changes the live viewport orientation. “Desktop” restores that tab's
+previous user agent and desktop preferences. “Custom size” accepts viewport
+width and height within the supported bounds; canceling leaves the page alone.
+Custom size follows the same dedicated-tab rule as catalog selection. Both
+dimensions must be whole numbers in range; Apply stays disabled for invalid
+input. Valid values are applied after the modal dialog has closed.
 
-It does not run iOS or Android application binaries, and no amount of work in
-this repository would change that:
+This implementation is a tab, not a separate frameless phone window. It does
+not transfer a task to a physical phone or run native Android/iOS applications.
+Physical phone handoff is a separate unfinished capability.
 
-- **iOS.** An iOS app runs on Apple Silicon only when its developer publishes it
-  to the Mac App Store. That is per-developer opt-in, and the large social and
-  messaging apps have opted out. There is also no macOS API for embedding
-  another application's window into your own view hierarchy, so even an
-  opted-in app could not be composited into a Seoul window. Apple's own iPhone
-  Mirroring drives a physically present iPhone for exactly this reason - it is
-  the only lawful way to reach the real binary, not a shortcut Apple took.
-- **Android.** An arm64 Android guest does run at near-native speed on Apple
-  Silicon, so the emulation itself is tractable. It dead-ends elsewhere: the
-  major apps require Google Play services, which cannot be redistributed, and
-  they gate sign-in on Play Integrity attestation, which fails on an emulator
-  by design. The result would be an Android runtime that cannot sign in to the
-  apps it exists to run.
+## What reaches a website
 
-So Handset targets the mobile web and installed web apps, which is where the
-experience is actually reachable. For the large social products this is not a
-consolation: their mobile sites are complete progressive web apps, and in a
-chrome-less window with correct metrics and real touch they are the app for
-almost every flow. The gaps that remain are native-only surfaces - camera-first
-capture, the OS share sheet, and background push - and they are named here
-rather than papered over.
+`HandsetModeState` owns per-WebContents device identity, orientation and viewport
+configuration. The content-layer presentation API applies Blink mobile device
+emulation. Preferences, user agent, client hints, and touch presentation are
+updated together and restored on exit. Device presentation is reapplied after
+committed main-frame navigation so a process swap does not silently revert to
+desktop geometry.
 
-## The four signals that must agree
+Responsive pages with `width=device-width` see the selected CSS width. Pages
+without a mobile viewport declaration retain Blink's mobile fallback layout;
+forcing every page's `innerWidth` to the phone width would break that behavior.
+A DPR-aware page sees the preset device scale factor. Coarse pointer and
+hover media features are applied alongside touch-from-mouse presentation.
+Trackpad gestures and inertia still need comparisons on real websites; no
+measured scrolling-latency advantage is claimed.
 
-A site decides which layout to serve from four independent signals. Overriding
-some and leaving the rest describing a desktop Mac is the usual way device
-emulation fails: the site reads the signal you forgot and serves the desktop
-page, or serves the mobile page to a viewport that cannot lay it out.
+An iOS preset still runs Blink on macOS. It does not reproduce Safari/WebKit,
+physical sensors, browser bars, safe areas, on-screen keyboards, or every iOS
+API. Suppressing the user-agent client-hint headers does not remove the
+`navigator.userAgentData` property. This is the same category of first-order
+simulation described in [Chrome's Device Mode documentation](https://developer.chrome.com/docs/devtools/device-mode).
 
-1. **Viewport and screen.** `blink::DeviceEmulationParams` with
-   `screen_type = kMobile`. Blink's `DevToolsEmulator::EnableMobileEmulation`
-   flips the whole mobile stack at runtime - `viewport_enabled`,
-   `viewport_meta_enabled`, `viewport_style = kMobile`,
-   `shrinks_viewport_contents_to_fit`, and the page-scale limits. Those
-   preferences have Android/iOS-only compile-time *defaults* on a macOS build,
-   but the emulator sets them at runtime, so a desktop build reaches the real
-   mobile layout path rather than an approximation of it.
-2. **Media features.** `pointer: coarse`, `hover: none`, and the matching
-   `any-*` forms, through the pointer and hover fields of `WebPreferences`. A
-   site whose menu opens on hover is unusable without this, and no viewport
-   width substitutes for it.
-3. **User-Agent string.**
-4. **User-Agent client hints** - `Sec-CH-UA-Mobile`, `-Platform`,
-   `-Platform-Version`, `-Model`, `-Form-Factors`, and their
-   `navigator.userAgentData` mirror.
+## Device data and current models
 
-Signals 3 and 4 are set together through
-`WebContents::SetUserAgentOverride(blink::UserAgentOverride, ...)`, which
-carries both the string and the metadata. `native/seoul/browser/handset/`
-decides both from one profile so they cannot drift apart.
+The generator merges the pinned DevTools device catalog with
+`native/seoul/browser/handset/handset_profiles_overlay.json`. Existing IDs stay
+stable: `android` still means Pixel 8, and `iphone` still means iPhone 15. New
+models get new IDs. The generator validates overlay geometry, identity, and
+source metadata instead of accepting arbitrary out-of-range values.
 
-An iOS profile deliberately sends **no** client hints. Safari implements none,
-so a real iPhone sends none; a Safari string arriving with a full Chromium hint
-set is a combination no device produces, and a site that checks can tell.
+The current overlay adds iPhone 17, 17 Pro, 17 Pro Max, Pixel 10, and a Galaxy
+S26 Ultra QHD+ preview. Pixel 10 uses [Google's DevTools entry](https://github.com/ChromeDevTools/devtools-frontend/blob/main/front_end/models/emulation/EmulatedDevices.ts)
+reviewed on 2026-09-07. The iPhone presets derive reference dimensions at the
+selected 3x scale from [Apple's iPhone 17 specifications](https://www.apple.com/iphone-17/specs/)
+and [17 Pro specifications](https://www.apple.com/iphone-17-pro/specs/).
 
-One caveat on signal 4, because the wording above would otherwise overstate it.
-Suppressing the metadata suppresses the `Sec-CH-UA-*` **request headers**. It
-does not remove the `navigator.userAgentData` mirror: blink materializes an
-absent metadata override into a default-constructed one before it reaches
-script, so on an iOS profile the object still exists and reports `mobile:false`
-with an empty platform and brand list, where a real iPhone leaves the property
-undefined. A site branching on the headers or on the User-Agent string sees a
-phone; a site branching on `navigator.userAgentData.mobile` does not. There is
-no value of `ua_metadata_override` that closes this - it needs the property
-hidden in the renderer.
+Samsung documents a 1440 × 3120 panel for the Canadian SM-S948W
+[Galaxy S26 Ultra](https://www.samsung.com/ca/business/smartphones/galaxy-s/galaxy-s26-ultra-sm-s948wzdaxac/).
+That does not establish its default browser viewport. The explicitly labeled
+QHD+ preview uses a selected 3.75 DPR, yielding 384 × 832 CSS pixels. This is a
+configured reference, not a claim that a factory-reset phone reports those
+metrics. Physical-device comparison remains open, including screen zoom and
+resolution settings. Conflicting third-party viewport tables were not treated
+as authoritative measurements.
 
-## Input, and what the latency argument actually is
+Windows Phone compatibility user agents are excluded from Android profiles.
+Galaxy Tab entries are classified as tablets even when the pinned source's
+type field says phone. The picker covers every supported preset in the catalog;
+it does not claim to represent every phone model sold.
 
-An earlier draft of this document justified the whole design on scroll latency
-and got the mechanism wrong in three ways. The corrected version is narrower
-and still sufficient, but it is a different argument and the difference matters
-to anyone deciding whether the work is worth it.
+`check:handset-profiles` detects drift against pinned input. It cannot detect
+new phones released after that input was reviewed. Device freshness therefore
+requires a deliberate source review alongside browser version updates.
 
-**What was wrong.** The draft said Chrome's device mode scrolls badly because
-`TouchEmulator::Mode::kEmulatingTouchFromMouse` converts wheel ticks into
-touches and loses velocity. It does not: `TouchEmulatorImpl::HandleMouseWheelEvent`
-declines the wheel except while an emulated touch sequence is already active,
-so device-mode trackpad scrolling already runs the ordinary compositor-threaded
-touchpad path with Apple's own momentum. The draft also said Seoul would inject
-`GestureScrollBegin/Update/End` and `GestureFlingStart` carrying trackpad
-velocity. There is no such entry point - the only injection API is
-`InjectTouchEvent(const blink::WebTouchEvent&, ...)`, and gestures and their
-velocities are derived internally by `ui::FilteredGestureProvider`. And it said
-the fling curve runs on the compositor thread. It does not: an injected
-`GestureFlingStart` is consumed by the browser-process `FlingController` and is
-never sent to the renderer, ticked by `fling_scheduler_mac.mm` off the
-*browser's* compositor animation observer. That avoids the renderer main
-thread, which is the property worth having, but it is not what was claimed.
+## Important implementation boundaries
 
-**The latency delta that is real.** The wheel path costs one browser-renderer
-round trip per wheel event, because `MouseWheelEventQueue` only synthesizes the
-`GestureScrollUpdate` after the wheel event is acked. An injected touch on a
-page with no blocking touch handler is acked synchronously inside the browser
-and its `GestureScrollUpdate` goes out in the same stack. That is a genuine
-saving and it is smaller than the draft implied. **It has not been measured, and
-no number should be quoted until it has.**
+The original storage partition is preserved so the preview can retain the
+site's session. Blink device emulation also contains process-global mobile
+settings; `HandsetRendererIsShared()` reports whether another page shares the
+renderer. This remains an isolation limitation requiring real-site coverage.
+No claim of complete per-tab process isolation is made.
 
-**The reasons that actually justify the work**, neither of which is latency:
+The bounds are 240–1366 CSS pixels wide, 320–1600 high, and DPR 1–4. These are
+supported preview limits, not statements about all shipping hardware. Free-size
+mode resolves missing dimensions from the selected preset and chooses a scale
+factor through the existing nearest-width policy. The custom-size dialog validates both fields before invoking this path, so
+invalid input cannot silently become a different viewport size.
 
-1. **Touch event dispatch.** There is no public `ForwardTouchEvent`. Without
-   the touch emulator a site listening for `touchstart`/`touchmove`/`touchend`,
-   or feature-detecting `TouchEvent`, receives nothing - so a swipeable carousel
-   or a pull-to-refresh does not work at all. `ForwardGestureEvent` *is* already
-   public, so the scroll-gesture half needs no patch.
+## Verification required before release
 
-   The emulator runs in `kEmulatingTouchFromMouse`, synthesizing touches from
-   the pointer, **not** in `kInjectingTouchEvents`. That is not the ambitious
-   choice and it is the correct one until a trackpad gesture layer exists: the
-   injecting mode delivers a touch only when something calls
-   `InjectTouchEvent`, so turning it on with no injector would be actively
-   worse than leaving touch off. A page would feature-detect touch, switch to
-   its touch-only path, retire its mouse handlers, and then wait forever for an
-   event that never comes. Synthesizing from the pointer makes a drag a real
-   swipe today. The injecting mode is where a genuine trackpad gesture layer
-   plugs in, once one exists to feed it.
-2. **Screen and device pixel ratio.** `blink::DeviceEmulationParams` has no
-   public route whatsoever. Without it `screen.width`, `screen.height`, and
-   `devicePixelRatio` keep reporting the Mac's display, and any DPR-driven asset
-   choice picks the wrong image.
-
-**Unsolved, and named rather than assumed away.** macOS delivers inertia itself
-as further `scrollWheel` events with a momentum phase. Forwarding those as
-touchmoves makes the gesture provider emit its own fling on top of Apple's -
-double inertia. Suppressing them and owning the fling means a non-native
-deceleration, and `ShouldUseMobileFlingCurve()` returns false on macOS, so the
-curve would be the desktop one rather than the phone feel this product wants.
-Neither option is obviously right; this needs a prototype against a real page
-before either is committed to.
-
-## Process isolation: what is actually achievable
-
-Blink's mobile emulation installs a **process-global** `ScopedGlobalOverrides`
-singleton covering overlay scrollbars, `OrientationEvent`, and the mobile layout
-theme. Those three have no `WebPreferences` equivalent, so they cannot be scoped
-per-page. If a Handset shares a renderer process with an ordinary tab, that tab
-silently gets overlay scrollbars and `window.orientation`.
-
-An earlier draft called a dedicated process a requirement and implied Space
-membership would supply it. Both halves need correcting.
-
-**A dedicated process and a shared session are mutually exclusive.** A
-`RenderProcessHost` serves exactly one `StoragePartition` - the check is
-explicit in `RenderProcessHostImpl::IsSuitableHost`, "a RenderProcessHost can
-only support a single StoragePartition" - so a distinct partition does
-guarantee a distinct process. But a distinct partition is a distinct cookie
-jar, and a Handset signed out of the site it is presenting is useless: the
-entire point is seeing the mobile experience of a site you are logged in to.
-
-**There is no per-tab escape.** The only embedder hook that influences process
-reuse, `ContentBrowserClient::ShouldTryToUseExistingProcessHost`, takes a
-`BrowserContext` and a `GURL` and cannot name a particular WebContents.
-`DoesSiteRequireDedicatedProcess` is keyed on a site and would isolate that site
-everywhere rather than this tab.
-
-So Handset keeps the originating partition and accepts the residual. Two things
-follow:
-
-- **In an isolated Space this resolves itself.** An isolated Space already has
-  its own `StoragePartition` (`SiteInstanceForNewTabInActiveSpace`), so its tabs
-  already sit in their own process, and the session the user cares about lives
-  in that partition anyway. Isolation and session continuity stop competing.
-  Only a non-isolated Space carries the residual, and only between tabs of that
-  same Space.
-- **The residual is reported, not assumed away.** `HandsetRendererIsShared()`
-  answers whether the Handset's renderer hosts frames belonging to any other
-  page, so the emulation layer can decide - decline, warn, or proceed - instead
-  of leaking silently. Chrome's own device mode has the same exposure; the
-  difference is that Seoul can see it.
-
-## Ordering: emulation and preferences are one transition
-
-`DevToolsEmulator` snapshots the embedder's viewport settings when it is
-constructed, and once mobile emulation is on it swallows later preference
-pushes. A cross-process navigation builds a fresh `WebViewImpl` whose snapshot
-is the desktop default, so if emulation reaches the new widget before the
-preferences do, the snapshot is wrong and disabling emulation later restores
-desktop layout.
-
-The transition therefore has a required order: on enable, push `WebPreferences`
-**before** enabling device emulation; on disable, disable emulation **before**
-recomputing preferences, and recompute unconditionally afterwards.
-
-## Integration surface
-
-Two entry points Seoul needs are `//content`-internal, and the surface is wider
-than a first look suggests:
-
-- `RenderWidgetHostImpl::GetAssociatedFrameWidget()` returns a
-  `mojo::AssociatedRemote<blink::mojom::FrameWidget>&`. Exposing that through
-  `content/public` is not a narrow change - it hands the embedder a raw mojo
-  pipe to a Blink interface.
-- `GetTouchEmulator()` is on `RenderWidgetHostImpl`, not the public
-  `RenderWidgetHost`, and returns the content-internal `TouchEmulatorImpl*`.
-  Every method Seoul would call - `Enable`, `Disable`, `InjectTouchEvent` -
-  lives on that internal type, so exporting the accessor alone would not
-  compile.
-
-So the patch must **not** export these objects. It adds a `content/public`
-header of free functions in `namespace content` that take a
-`RenderWidgetHost*` and do the work internally, keeping the mojo remote and the
-emulator implementation inside `//content` where they belong.
-
-This is also two patches rather than one: the `content/public` facade, and
-separately the chrome-layer entry points that call
-`seoul::OverrideHandsetWebPreferences` from both
-`ChromeContentBrowserClient::OverrideWebPreferences` and
-`::OverrideWebPreferencesAfterNavigation`, mirroring how patch 0005 wires the
-Boost hook.
-
-Note for whoever authors them: `check:syntax` parses Seoul source against the
-checkout and so needs the patches **applied**, while `patches.sh verify` and
-`apply` refuse to run on a dirty tree. Running the two in the obvious order
-deadlocks. Author against the applied tree, capture the diff, restore, then
-update the manifest.
-
-## Module layout
-
-- `native/seoul/browser/handset/` - pure model. The device catalogue, the
-  resolved geometry, and the User-Agent and client-hint rules. `//base` only,
-  fully unit tested, no browser required. The catalogue is generated, not
-  curated: `scripts/generate-handset-profiles.mjs` derives it from Chromium's
-  own DevTools emulated-device list (the catalogue Google keeps current with
-  real phones), filtered to devices this mode can honestly present - stock
-  Safari or Chrome UA, a portrait orientation, metrics inside the Handset
-  bounds - and merged with a small overlay
-  (`handset_profiles_overlay.json`) for devices newer than the pinned
-  checkout. `check:handset-profiles` fails CI when the generated list is
-  stale for the checkout, so a Chromium roll that adds a phone adds it to the
-  picker with no hand edit; a computed newest-of-family rule likewise
-  promotes it to the picker's featured tier automatically.
-- `native/seoul/browser/product/browser/` - the WebContents integration:
-  applies emulation, the User-Agent override, the touch emulator mode, and the
-  web preferences, and reapplies them across navigation and process swap.
-- The window layer - a chrome-less Seoul window bound to the Handset - is
-  specified but not yet built.
-
-## Snap
-
-`HandsetSnapMode::kSnapToProfile` sizes the window to the chosen device exactly
-and holds it there; this is the option surfaced as "snap to device". `kFree`
-lets the window resize and the emulated viewport follow it, inheriting the
-device pixel ratio and User-Agent family from the nearest catalogue profile so
-a window dragged to tablet width stops claiming a phone's pixel ratio.
-
-Screen size always equals view size. A Handset window has no chrome, so the
-page occupies the window exactly as a full-bleed app occupies a phone screen,
-and a site comparing `screen` to `innerWidth` finds them consistent.
+- Real pointer and keyboard use of the toolbar, search, scrolling, selection,
+  rotation, custom size and desktop return; repeated open/close and tab changes.
+- Actual page-reported geometry, media queries, identity, and touch input after
+  same-site and cross-site navigation; desktop restoration afterward.
+- Physical-device comparisons for current presets, particularly configurable
+  Android resolution/DPR and iOS engine differences.
+- Signed-in mobile-site journeys, forms, dialogs, uploads, media, scrolling,
+  display scaling and accessibility across supported window sizes.
+- Shipping-build latency and memory measurements. Unit tests and development
+  build measurements do not certify those outcomes.

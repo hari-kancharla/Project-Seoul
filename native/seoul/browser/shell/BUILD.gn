@@ -149,6 +149,10 @@ source_set("shell_browser_tests") {
   testonly = true
   defines = [ "HAS_OUT_OF_PROC_TEST_RUNNER" ]
   sources = [ "shell_browsertest.cc" ]
+  if (is_mac) {
+    sources += [ "keyboard_redispatch_browsertest.mm" ]
+    frameworks = [ "AppKit.framework" ]
+  }
   deps = [
     ":shell_chromium",
     "//chrome/browser:browser_public_dependencies",

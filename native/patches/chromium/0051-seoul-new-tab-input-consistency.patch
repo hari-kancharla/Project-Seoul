@@ -1,0 +1,32 @@
+diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/views/frame/browser_view.cc
+--- a/chrome/browser/ui/views/frame/browser_view.cc
++++ b/chrome/browser/ui/views/frame/browser_view.cc
+@@ -5492,13 +5492,9 @@
+ 
+   LocationBarView* const location_bar = toolbar_->location_bar_view();
+   if (seoul_new_tab_entry_mode_) {
+-    seoul_new_tab_entry_mode_ = false;
+-    location_bar->Revert();
+-    if (views::FocusManager* focus_manager = GetFocusManager()) {
+-      focus_manager->ClearFocus();
+-    }
+-    SetSeoulOmniboxFloating(false);
+-    FocusWebContentsPane();
++    // New Tab is an open/focus command. Repeating it must not cancel typing
++    // or send the user's next keystroke to the page underneath the surface.
++    location_bar->omnibox_view()->RequestFocus();
+     return true;
+   }
+ 
+diff --git a/chrome/browser/ui/views/location_bar/location_bar_view.cc b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+--- a/chrome/browser/ui/views/location_bar/location_bar_view.cc
++++ b/chrome/browser/ui/views/location_bar/location_bar_view.cc
+@@ -270,7 +270,7 @@
+                  !v->GetOmniboxController()->IsPopupOpen();
+         }));
+     views::FocusRing::Get(this)->SetOutsetFocusRingDisabled(true);
+-    views::InstallPillHighlightPathGenerator(this);
++    views::InstallRoundRectHighlightPathGenerator(this, gfx::Insets(), 10);
+ 
+ #if BUILDFLAG(OS_LEVEL_GEOLOCATION_PERMISSION_SUPPORTED)
+     if (features::IsOsLevelGeolocationPermissionSupportEnabled()) {

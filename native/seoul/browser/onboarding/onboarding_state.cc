@@ -70,7 +70,7 @@ Decision Decide(const PrefService* prefs, bool profile_has_prior_seoul_state) {
   // Order matters: a profile part-way through onboarding also has Seoul state,
   // so resumption has to be checked before the pre-existing-profile rule or an
   // abandoned run would be silently written off as an upgrade.
-  if (AnyStepCompleted(prefs)) {
+  if (AnyStepCompleted(prefs) || (prefs && prefs->GetBoolean(kStartedPref))) {
     return Decision::kResume;
   }
   if (profile_has_prior_seoul_state) {
@@ -108,6 +108,10 @@ void MarkSkipped(PrefService* prefs) {
   }
 }
 
+void MarkStarted(PrefService* prefs) {
+  if (prefs) prefs->SetBoolean(kStartedPref, true);
+}
+
 bool IsFinished(const PrefService* prefs) {
   if (WasSkipped(prefs)) {
     return true;
@@ -127,6 +131,7 @@ void MarkExistingProfileOnboarded(PrefService* prefs) {
 void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterListPref(kCompletedStepsPref);
   registry->RegisterBooleanPref(kSkippedPref, false);
+  registry->RegisterBooleanPref(kStartedPref, false);
 }
 
 }  // namespace seoul::onboarding

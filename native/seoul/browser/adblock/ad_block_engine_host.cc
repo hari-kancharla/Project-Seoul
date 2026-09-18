@@ -1,6 +1,7 @@
 // Project Seoul asynchronous owner for the single-threaded Rust blocker.
 
 #include "seoul/browser/adblock/ad_block_engine_host.h"
+#include "seoul/browser/adblock/ad_block_baseline_rules.h"
 
 #include <algorithm>
 #include <utility>
@@ -11,13 +12,6 @@
 
 namespace seoul::adblock {
 namespace {
-
-void RemoveStandardModeProceduralSelectors(
-    std::vector<std::string>* selectors) {
-  std::erase_if(*selectors, [](const std::string& selector) {
-    return selector.find(":has(") != std::string::npos;
-  });
-}
 
 bool HasOwnDecision(const AdBlockMatchResult& result) {
   return result.important || result.matched_rule.has_value() ||
@@ -98,7 +92,9 @@ AdBlockDynamicCosmeticSelectors::~AdBlockDynamicCosmeticSelectors() = default;
 
 AdBlockEngineWorker::AdBlockEngineWorker() {
   std::string error;
-  default_engine_ = AdBlockEngine::Create({}, &error);
+  const std::string baseline(kSeoulBaselineDefaultRules);
+  default_engine_ = AdBlockEngine::Create(
+      std::vector<uint8_t>(baseline.begin(), baseline.end()), &error);
   additional_engine_ = AdBlockEngine::Create({}, &error);
 }
 
@@ -211,7 +207,9 @@ AdBlockCosmeticResources AdBlockEngineWorker::GetCosmeticResources(
   AdBlockCosmeticEngineResources additional_resources =
       additional_engine_->GetUrlCosmeticResources(url);
   if (mode == AdBlockMode::kStandard) {
-    RemoveStandardModeProceduralSelectors(&default_resources.hide_selectors);
+    // :has() is native CSS, including sponsored-card selectors maintained by
+    // the default lists. Removing it here silently disables those rules.
+    // Standard's restriction applies to script-evaluated procedural actions.
     default_resources.procedural_actions.clear();
   }
 
@@ -219,12 +217,16 @@ AdBlockCosmeticResources AdBlockEngineWorker::GetCosmeticResources(
   result.default_rules.selectors = std::move(default_resources.hide_selectors);
   result.default_rules.isolated_script =
       std::move(default_resources.isolated_script);
+  result.default_rules.main_world_script =
+      std::move(default_resources.main_world_script);
   result.default_rules.procedural_actions =
       std::move(default_resources.procedural_actions);
   result.additional_rules.selectors =
       std::move(additional_resources.hide_selectors);
   result.additional_rules.isolated_script =
       std::move(additional_resources.isolated_script);
+  result.additional_rules.main_world_script =
+      std::move(additional_resources.main_world_script);
   result.additional_rules.procedural_actions =
       std::move(additional_resources.procedural_actions);
   const bool query_generics =
@@ -261,9 +263,6 @@ AdBlockEngineWorker::GetDynamicCosmeticSelectors(
 
   result.default_selectors =
       default_engine_->GetHiddenClassIdSelectors(classes, ids, exceptions);
-  if (mode == AdBlockMode::kStandard) {
-    RemoveStandardModeProceduralSelectors(&result.default_selectors);
-  }
   result.additional_selectors =
       additional_engine_->GetHiddenClassIdSelectors(classes, ids, exceptions);
   return result;

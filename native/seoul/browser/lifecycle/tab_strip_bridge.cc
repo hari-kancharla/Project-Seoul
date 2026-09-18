@@ -95,7 +95,13 @@ void TabStripBridge::EmitTabEvent(NormalizedEventType type,
   event.removal_kind = removal_kind;
   if (type == NormalizedEventType::kTabInserted) {
     event.restored_membership = RestoredMembershipForTab(ContentsForKey(tab));
+    event.storage_workspace = ContainerWorkspaceForTab(ContentsForKey(tab));
   }
+  // Activation confirmation checks the live active tab. Publish Chromium's
+  // already-applied selection before delivering that confirmation; otherwise
+  // WorkspaceSwitcher can reject a successful activation against stale state.
+  if (type == NormalizedEventType::kActiveTabChanged)
+    PublishLiveSnapshot();
   sink_->OnNormalizedEvent(event);
   if (type == NormalizedEventType::kTabInserted) {
     PersistMembershipForTab(tab);

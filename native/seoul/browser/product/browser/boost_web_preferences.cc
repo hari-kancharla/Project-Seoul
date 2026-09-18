@@ -17,19 +17,18 @@ namespace {
 
 class BoostWebPreferencesState
     : public content::WebContentsUserData<BoostWebPreferencesState> {
-public:
-  BoostWebPreferencesState(const BoostWebPreferencesState &) = delete;
-  BoostWebPreferencesState &
-  operator=(const BoostWebPreferencesState &) = delete;
+ public:
+  BoostWebPreferencesState(const BoostWebPreferencesState&) = delete;
+  BoostWebPreferencesState& operator=(const BoostWebPreferencesState&) = delete;
   ~BoostWebPreferencesState() override = default;
 
   bool automatic_dark_mode() const { return automatic_dark_mode_; }
   void set_automatic_dark_mode(bool enabled) { automatic_dark_mode_ = enabled; }
 
-private:
+ private:
   friend class content::WebContentsUserData<BoostWebPreferencesState>;
 
-  explicit BoostWebPreferencesState(content::WebContents *web_contents)
+  explicit BoostWebPreferencesState(content::WebContents* web_contents)
       : content::WebContentsUserData<BoostWebPreferencesState>(*web_contents) {}
 
   bool automatic_dark_mode_ = false;
@@ -39,15 +38,15 @@ private:
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(BoostWebPreferencesState);
 
-} // namespace
+}  // namespace
 
-void SetBoostAutomaticDarkMode(content::WebContents *web_contents,
+void SetBoostAutomaticDarkMode(content::WebContents* web_contents,
                                bool enabled) {
   if (!web_contents) {
     return;
   }
   BoostWebPreferencesState::CreateForWebContents(web_contents);
-  BoostWebPreferencesState *state =
+  BoostWebPreferencesState* state =
       BoostWebPreferencesState::FromWebContents(web_contents);
   if (!state || state->automatic_dark_mode() == enabled) {
     return;
@@ -58,31 +57,24 @@ void SetBoostAutomaticDarkMode(content::WebContents *web_contents,
   web_contents->OnWebPreferencesChanged();
 }
 
-bool IsBoostAutomaticDarkModeEnabled(content::WebContents *web_contents) {
-  BoostWebPreferencesState *state =
+bool IsBoostAutomaticDarkModeEnabled(content::WebContents* web_contents) {
+  BoostWebPreferencesState* state =
       web_contents ? BoostWebPreferencesState::FromWebContents(web_contents)
                    : nullptr;
   return state && state->automatic_dark_mode();
 }
 
 void OverrideBoostWebPreferences(
-    content::WebContents *web_contents,
-    blink::web_pref::WebPreferences *web_preferences) {
+    content::WebContents* web_contents,
+    blink::web_pref::WebPreferences* web_preferences) {
   if (!web_preferences || !IsBoostAutomaticDarkModeEnabled(web_contents)) {
     return;
   }
-  if (web_contents->GetColorMode() != ui::ColorProviderKey::ColorMode::kDark) {
-    Profile *profile =
-        Profile::FromBrowserContext(web_contents->GetBrowserContext());
-    if (profile) {
-      web_preferences->force_dark_mode_enabled =
-          profile->GetPrefs()->GetBoolean(prefs::kWebKitForceDarkModeEnabled);
-    }
-    return;
-  }
+  // The user selected Dark for this site. Waiting for the application theme
+  // to become dark makes this control appear to do nothing in a light browser.
   web_preferences->force_dark_mode_enabled = true;
   web_preferences->preferred_color_scheme =
       blink::mojom::PreferredColorScheme::kDark;
 }
 
-} // namespace seoul
+}  // namespace seoul

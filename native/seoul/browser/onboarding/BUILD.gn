@@ -50,6 +50,7 @@ source_set("welcome_ui") {
     "//mojo/public/cpp/bindings",
     "//seoul/browser/adblock:adblock",
     "//seoul/browser/onboarding/resources",
+    "//seoul/browser/product/browser:product_chromium",
     "//ui/webui",
   ]
 }

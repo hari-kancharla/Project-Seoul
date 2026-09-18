@@ -82,6 +82,8 @@ enum class ShellError {
 
 enum class ShellUtilityAction {
   kNewTemporaryTab,
+  kNewWorkspace,
+  kNewContainerWorkspace,
   kCommandLauncher,
   kOpenCanvas,
   kOpenBoost,
@@ -166,6 +168,7 @@ struct ShellSpaceItem {
   WorkspaceId workspace_id;
   std::string name;
   std::string icon;
+  bool isolated = false;
   bool is_active = false;
   bool switching = false;
 

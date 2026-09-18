@@ -11,11 +11,13 @@
 #include "base/check.h"
 #include "base/functional/bind.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "cc/paint/paint_flags.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ui/color/chrome_color_id.h"
+#include "components/vector_icons/vector_icons.h"
 #include "seoul/browser/shell/shell_controller.h"
 #include "seoul/browser/shell/space_visuals.h"
 #include "seoul/browser/shell/views/seoul_command_launcher_view.h"
@@ -24,6 +26,7 @@
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/models/image_model.h"
+#include "ui/base/mojom/menu_source_type.mojom.h"
 #include "ui/color/color_id.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
@@ -33,11 +36,14 @@
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/transform.h"
 #include "ui/gfx/geometry/transform_util.h"
+#include "ui/gfx/paint_vector_icon.h"
+#include "ui/menus/simple_menu_model.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/ink_drop.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/controls/menu/menu_runner.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/widget/widget.h"
 
@@ -52,6 +58,39 @@ constexpr base::TimeDelta kCreateNewRotationDuration = base::Milliseconds(200);
 // purpose: these are square icon targets on the rail's edge, not text chips
 // in a row, and the extra 3px keeps the 34px hit target.
 constexpr int kFooterCornerRadius = 8;
+
+class CreateMenuModel final : public ui::SimpleMenuModel,
+                              public ui::SimpleMenuModel::Delegate {
+ public:
+  explicit CreateMenuModel(
+      base::RepeatingCallback<void(ShellUtilityAction)> select)
+      : ui::SimpleMenuModel(this), select_(std::move(select)) {
+    AddItemWithIcon(1, u"New tab", ui::ImageModel::FromVectorIcon(
+        vector_icons::kAddIcon, kColorToolbarButtonIcon, 16));
+    AddItemWithIcon(2, u"New space", ui::ImageModel::FromVectorIcon(
+        vector_icons::kDesktopWindowsIcon, kColorToolbarButtonIcon, 16));
+    AddItemWithIcon(3, u"New container space", ui::ImageModel::FromVectorIcon(
+        vector_icons::kLockIcon, kColorToolbarButtonIcon, 16));
+  }
+
+  void ExecuteCommand(int command_id, int event_flags) override {
+    (void)event_flags;
+    switch (command_id) {
+      case 1:
+        select_.Run(ShellUtilityAction::kNewTemporaryTab);
+        break;
+      case 2:
+        select_.Run(ShellUtilityAction::kNewWorkspace);
+        break;
+      case 3:
+        select_.Run(ShellUtilityAction::kNewContainerWorkspace);
+        break;
+    }
+  }
+
+ private:
+  base::RepeatingCallback<void(ShellUtilityAction)> select_;
+};
 
 void StyleFooterButton(views::LabelButton* button) {
   button->SetHorizontalAlignment(gfx::ALIGN_CENTER);
@@ -93,12 +132,8 @@ class CreateNewButton final : public views::LabelButton {
       : views::LabelButton(std::move(callback), std::u16string()) {
     image_container_view()->SetPaintToLayer();
     image_container_view()->layer()->SetFillsBoundsOpaquely(false);
-    // Pressing this opens the command launcher over the window; pressing it
-    // again closes it. The 45-degree turn of the plus is that state, drawn.
-    // These two say the same thing to a screen reader, which otherwise hears a
-    // plain button that gives no hint it opens anything and never reports that
-    // it is currently open.
-    GetViewAccessibility().SetHasPopup(ax::mojom::HasPopup::kDialog);
+    // This control owns a creation menu, independent of keyboard command search.
+    GetViewAccessibility().SetHasPopup(ax::mojom::HasPopup::kMenu);
     GetViewAccessibility().SetIsCollapsed();
   }
 
@@ -177,8 +212,8 @@ class SpaceStripView final : public views::View {
     // A wheel notch is already discrete, so it moves exactly one Space. The
     // horizontal axis is honoured too: a tilt wheel and a two-finger sideways
     // swipe are the same intent as scrolling the strip itself.
-    const int offset = event.y_offset() != 0 ? event.y_offset()
-                                             : event.x_offset();
+    const int offset =
+        event.y_offset() != 0 ? event.y_offset() : event.x_offset();
     if (offset == 0) {
       return false;
     }
@@ -267,11 +302,13 @@ class SpaceSwitcherButton final : public views::LabelButton {
     builtin_icon_ref_.clear();
     if (IsWorkspaceBuiltinIcon(space.icon)) {
       builtin_icon_ref_ = space.icon;
+    } else if (space.isolated && space.icon.empty()) {
+      builtin_icon_ref_ = WorkspaceBuiltinIconRef("lock-closed");
     }
     const std::u16string icon = builtin_icon_ref_.empty()
                                     ? base::UTF8ToUTF16(space.icon)
                                     : std::u16string();
-    uses_empty_icon_dot_ = space.icon.empty();
+    uses_empty_icon_dot_ = space.icon.empty() && builtin_icon_ref_.empty();
     SetImageModel(views::Button::STATE_NORMAL, ui::ImageModel());
     SetImageModel(views::Button::STATE_HOVERED, ui::ImageModel());
     SetImageModel(views::Button::STATE_PRESSED, ui::ImageModel());
@@ -300,13 +337,18 @@ class SpaceSwitcherButton final : public views::LabelButton {
     ApplySizeForState(active_);
     ApplyVisualState(animate && was_active == active_);
 
-    SetTooltipText(name.empty() ? u"Space" : name);
+    SetTooltipText((name.empty() ? u"Space" : name) +
+                   (space.isolated ? u" — separate accounts and site data"
+                                   : u" — shared browser session"));
     // The name is the Space, and being current is a STATE. SetIsSelected sets
     // the selected bit, raises kSelection, and walks up to raise
     // kSelectedChildrenChanged on the strip - which is what makes a switch
     // driven by the scroll wheel or by another window announce at all, since
     // neither of those paths moves focus onto a renamed button.
     std::u16string accessible_name = name.empty() ? u"Space" : name;
+    if (space.isolated) {
+      accessible_name += u", container";
+    }
     if (space.switching) {
       accessible_name += u", switching";
     }
@@ -331,7 +373,6 @@ class SpaceSwitcherButton final : public views::LabelButton {
     SchedulePaint();
   }
 
-
  private:
   void PaintButtonContents(gfx::Canvas* canvas) override {
     if (!GetColorProvider()) {
@@ -347,24 +388,23 @@ class SpaceSwitcherButton final : public views::LabelButton {
       tile.setStyle(cc::PaintFlags::kFill_Style);
       const bool hovered = GetState() == views::Button::STATE_HOVERED ||
                            GetState() == views::Button::STATE_PRESSED;
-      const SkAlpha alpha =
-          active_ ? 0x2E : (hovered ? 0x24 : 0x14);
-      tile.setColor(SkColorSetA(
-          GetColorProvider()->GetColor(kColorToolbarButtonIcon), alpha));
+      const SkAlpha alpha = active_ ? 0x20 : (hovered ? 0x18 : 0x0C);
+      tile.setColor(
+          SkColorSetA(GetColorProvider()->GetColor(
+                          active_ ? ui::ColorId(ui::kColorAccent)
+                                  : ui::ColorId(kColorToolbarButtonIcon)),
+                      alpha));
       canvas->DrawRoundRect(gfx::RectF(GetLocalBounds()),
                             space_visuals::kSwitcherCornerRadius, tile);
     }
-    // Collapsed, the current Space gives up its pill and its name, so the only
-    // thing left between it and a hovered neighbour is 0x2E against 0x24 of the
-    // same fill - under 4%, and less once the neighbour's ink drop lands on top.
-    // A ring is a shape rather than a shade: it does not move when anything is
-    // hovered, and it does not ask the eye to compare two alphas.
+    // Preserve a shape cue for the current Space when its name is hidden.
+    // The thin accent ring remains distinct while another Space is hovered.
     if (active_ && presentation_collapsed_) {
       cc::PaintFlags ring;
       ring.setAntiAlias(true);
       ring.setStyle(cc::PaintFlags::kStroke_Style);
-      ring.setStrokeWidth(2.0f);
-      ring.setColor(GetColorProvider()->GetColor(kColorToolbarButtonIcon));
+      ring.setStrokeWidth(1.5f);
+      ring.setColor(GetColorProvider()->GetColor(ui::kColorAccent));
       gfx::RectF ring_bounds(GetLocalBounds());
       ring_bounds.Inset(1.0f);
       canvas->DrawRoundRect(ring_bounds,
@@ -385,8 +425,15 @@ class SpaceSwitcherButton final : public views::LabelButton {
                                 GetColorProvider()->GetColor(color_id));
       return;
     }
+    if (uses_empty_icon_dot_ && presentation_collapsed_) {
+      const auto icon = gfx::CreateVectorIcon(
+          kSeoulWorkspaceIcon, 18,
+          GetColorProvider()->GetColor(kColorToolbarButtonIcon));
+      canvas->DrawImageInt(icon, (width() - 18) / 2, (height() - 18) / 2);
+      return;
+    }
     if (!uses_empty_icon_dot_ || active_) {
-      // The tile above is the whole story; emoji or name is drawn by the label.
+      // Expanded current Spaces already show their name in the label.
       return;
     }
     // A Space with neither icon nor pill still needs a mark inside its tile.
@@ -512,6 +559,15 @@ SeoulShellFooterView::SeoulShellFooterView(ShellController* controller) {
   layout->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kStretch);
 
+  assistant_button_ = AddChildView(std::make_unique<views::LabelButton>(
+      base::BindRepeating(&SeoulShellFooterView::OnAssistantPressed,
+                          base::Unretained(this)),
+      u"Ask Seoul"));
+  StyleFooterButton(assistant_button_);
+  SetFooterIcon(assistant_button_, kDockToRightSparkIcon);
+  assistant_button_->SetTooltipText(u"Ask Seoul — open or close the assistant");
+  assistant_button_->GetViewAccessibility().SetName(u"Ask Seoul");
+
   controls_row_ = AddChildView(std::make_unique<views::View>());
   controls_layout_ =
       controls_row_->SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -532,8 +588,8 @@ SeoulShellFooterView::SeoulShellFooterView(ShellController* controller) {
   // to keep the Space strip centred after the duplicate sidebar toggle was
   // removed - a blank view holding a position is a smell, and Downloads is the
   // control that belongs at that edge.
-  downloads_button_ = controls_row_->AddChildView(
-      std::make_unique<views::LabelButton>(
+  downloads_button_ =
+      controls_row_->AddChildView(std::make_unique<views::LabelButton>(
           base::BindRepeating(&SeoulShellFooterView::OnDownloadsPressed,
                               base::Unretained(this)),
           std::u16string()));
@@ -544,8 +600,7 @@ SeoulShellFooterView::SeoulShellFooterView(ShellController* controller) {
 
   spaces_container_ = controls_row_->AddChildView(
       std::make_unique<SpaceStripView>(base::BindRepeating(
-          &SeoulShellFooterView::OnSpaceScrollSwitch,
-          base::Unretained(this))));
+          &SeoulShellFooterView::OnSpaceScrollSwitch, base::Unretained(this))));
   spaces_layout_ =
       spaces_container_->SetLayoutManager(std::make_unique<views::BoxLayout>(
           views::BoxLayout::Orientation::kHorizontal, gfx::Insets(),
@@ -611,6 +666,15 @@ void SeoulShellFooterView::BindController(ShellController* controller) {
   if (controller_) {
     controller_->RemoveObserver(this);
   }
+  // A queued menu action must not cross into a replacement controller/profile.
+  weak_factory_.InvalidateWeakPtrs();
+  create_menu_runner_.reset();
+  create_menu_model_.reset();
+  pending_create_action_.reset();
+  if (create_new_button_) {
+    static_cast<CreateNewButton*>(create_new_button_.get())
+        ->SetLauncherVisible(false);
+  }
   controller_ = controller;
   split_chooser_ = controller_ ? std::make_unique<SeoulSplitChooserView>(
                                      create_new_button_, controller_)
@@ -659,6 +723,11 @@ void SeoulShellFooterView::OnShellSnapshotChanged(
   RebuildFromSnapshot(snapshot);
 }
 
+void SeoulShellFooterView::OnAssistantPressed() {
+  if (controller_)
+    (void)controller_->OpenCanvas();
+}
+
 void SeoulShellFooterView::RebuildFromSnapshot(const ShellSnapshot& snapshot) {
   if (!CanUpdateSpaceButtons(snapshot)) {
     RebuildSpaceButtons(snapshot);
@@ -666,6 +735,9 @@ void SeoulShellFooterView::RebuildFromSnapshot(const ShellSnapshot& snapshot) {
     UpdateSpaceButtons(snapshot, /*animate=*/true);
   }
 
+  assistant_button_->SetText(presentation_collapsed_ ? u"" : u"Ask Seoul");
+  assistant_button_->SetHorizontalAlignment(
+      presentation_collapsed_ ? gfx::ALIGN_CENTER : gfx::ALIGN_LEFT);
   spaces_container_->SetVisible(!snapshot.spaces.empty());
 
   if (snapshot.status == ShellStatus::kRecoveryRequired) {
@@ -763,7 +835,6 @@ void SeoulShellFooterView::OnSpacePressed(WorkspaceId workspace_id) {
   }
 }
 
-
 bool SeoulShellFooterView::ShowCommandLauncher() {
   if (!controller_ || !GetWidget()) {
     return false;
@@ -777,10 +848,10 @@ void SeoulShellFooterView::SetCommandLauncherVisible(bool visible) {
     return;
   }
   command_launcher_visible_ = visible;
-  if (create_new_button_) {
-    static_cast<CreateNewButton*>(create_new_button_.get())
-        ->SetLauncherVisible(visible);
-  }
+}
+
+bool SeoulShellFooterView::is_create_menu_running_for_testing() const {
+  return create_menu_runner_ && create_menu_runner_->IsRunning();
 }
 
 views::View* SeoulShellFooterView::create_new_icon_for_testing() const {
@@ -800,11 +871,59 @@ void SeoulShellFooterView::OnDownloadsPressed() {
   if (!controller_) {
     return;
   }
-  std::ignore = controller_->RunUtilityAction(ShellUtilityAction::kOpenDownloads);
+  std::ignore =
+      controller_->RunUtilityAction(ShellUtilityAction::kOpenDownloads);
 }
 
-void SeoulShellFooterView::OnCreateNewPressed() {
-  std::ignore = ShowCommandLauncher();
+void SeoulShellFooterView::OnCreateNewPressed(const ui::Event& event) {
+  if (!controller_ || !GetWidget())
+    return;
+  if (create_menu_runner_ && create_menu_runner_->IsRunning()) {
+    create_menu_runner_->Cancel();
+    return;
+  }
+  create_menu_runner_.reset();
+  pending_create_action_.reset();
+  create_menu_model_ = std::make_unique<CreateMenuModel>(base::BindRepeating(
+      &SeoulShellFooterView::OnCreateActionSelected,
+      weak_factory_.GetWeakPtr()));
+  create_menu_runner_ = std::make_unique<views::MenuRunner>(
+      create_menu_model_.get(), views::MenuRunner::HAS_MNEMONICS,
+      base::BindRepeating(&SeoulShellFooterView::OnCreateMenuClosed,
+                          weak_factory_.GetWeakPtr()));
+  static_cast<CreateNewButton*>(create_new_button_.get())
+      ->SetLauncherVisible(true);
+  auto alive = weak_factory_.GetWeakPtr();
+  create_menu_runner_->RunMenuAt(
+      GetWidget(), nullptr, create_new_button_->GetAnchorBoundsInScreen(),
+      views::MenuAnchorPosition::kTopRight,
+      event.IsKeyEvent() ? ui::mojom::MenuSourceType::kKeyboard
+                        : ui::mojom::MenuSourceType::kMouse);
+  if (alive && !alive->create_menu_runner_->IsRunning())
+    alive->OnCreateMenuClosed();
+}
+
+void SeoulShellFooterView::OnCreateActionSelected(ShellUtilityAction action) {
+  pending_create_action_ = action;
+}
+
+void SeoulShellFooterView::OnCreateMenuClosed() {
+  static_cast<CreateNewButton*>(create_new_button_.get())
+      ->SetLauncherVisible(false);
+  auto action = std::exchange(pending_create_action_, std::nullopt);
+  if (!action)
+    return;
+  // MenuRunner restores focus after notifying its close callback. Opening a
+  // naming dialog here would let that restoration steal the new text field's
+  // focus. Dispatch once the entire close path has finished releasing capture.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(
+          [](base::WeakPtr<SeoulShellFooterView> footer,
+             ShellUtilityAction action) {
+            if (footer && footer->controller_ && footer->GetWidget())
+              std::ignore = footer->controller_->RunUtilityAction(action);
+          },
+          weak_factory_.GetWeakPtr(), *action));
 }
 
 void SeoulShellFooterView::ShowSplitChooser() {

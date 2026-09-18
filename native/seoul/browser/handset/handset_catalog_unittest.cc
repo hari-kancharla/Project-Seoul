@@ -74,12 +74,34 @@ TEST(HandsetCatalogTest, PersistedIdsStillResolve) {
   // Ids the product persists in prefs and tests select by name. The overlay
   // keeps these stable across Chromium rolls; losing one silently breaks a
   // user's saved device choice, so losing one fails here first.
-  for (const char* id :
-       {"iphone", "iphone-compact", "iphone-max", "android", "android-compact",
-        "tablet", "tablet-compact"}) {
+  for (const char* id : {"iphone", "iphone-compact", "iphone-max", "android",
+                         "android-compact", "tablet", "tablet-compact"}) {
     EXPECT_NE(FindHandsetProfile(id), nullptr) << id;
   }
   EXPECT_EQ(DefaultHandsetProfile().id, "iphone");
+}
+
+TEST(HandsetCatalogTest, CurrentProfilesKeepOlderDeviceIdentities) {
+  const auto* galaxy = FindHandsetProfile("galaxy-s26-ultra-qhd");
+  ASSERT_TRUE(galaxy);
+  EXPECT_EQ(galaxy->model, "SM-S948W");
+  EXPECT_EQ(galaxy->portrait_width_dip * galaxy->device_scale_factor, 1440);
+  EXPECT_EQ(galaxy->portrait_height_dip * galaxy->device_scale_factor, 3120);
+  EXPECT_NE(galaxy->label.find("preview"), std::string::npos);
+  ASSERT_TRUE(FindHandsetProfile("pixel-10"));
+  EXPECT_EQ(FindHandsetProfile("pixel-10")->model, "Pixel 10");
+  EXPECT_EQ(FindHandsetProfile("pixel-10")->platform_version, "16");
+  EXPECT_EQ(FindHandsetProfile("android")->label, "Pixel 8");
+  EXPECT_EQ(FindHandsetProfile("iphone")->label, "iPhone 15");
+  EXPECT_NE(FindHandsetProfile("iphone-17"), nullptr);
+}
+
+TEST(HandsetCatalogTest, AndroidCompatibilityTokensDoNotCreateWindowsPhones) {
+  EXPECT_EQ(FindHandsetProfile("microsoft-lumia-550"), nullptr);
+  EXPECT_EQ(FindHandsetProfile("microsoft-lumia-950"), nullptr);
+  const auto* tablet = FindHandsetProfile("galaxy-tab-s4");
+  ASSERT_TRUE(tablet);
+  EXPECT_EQ(tablet->form_factor, HandsetFormFactor::kTablet);
 }
 
 TEST(HandsetCatalogTest, CatalogCoversTheMajorFamilies) {

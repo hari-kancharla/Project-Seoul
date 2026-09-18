@@ -1137,15 +1137,15 @@ if (fs.existsSync(shellHeaderViewPath) &&
     );
   }
   // Zen's persistent footer intentionally contains only Downloads,
-  // Workspaces, and Create New. Task Deck remains a first-class typed action
-  // in the unified command launcher instead of adding another footer glyph.
+  // Workspaces, and Create New. One assistant entry exposes live task activity;
+  // a second launcher label for the same panel is misleading.
   for (const taskDeckLauncherHook of [
-    'MakeEntry("open_task_deck", "Open Task Deck"',
-    'entries.back().action = ShellUtilityAction::kOpenTaskDeck',
+    'MakeEntry("open_canvas", "Toggle Seoul Assistant"',
+    'entries.back().action = ShellUtilityAction::kOpenCanvas',
   ]) {
     if (!commandLauncherCatalog.includes(taskDeckLauncherHook)) {
       problems.push(
-        `Unified command launcher Task Deck is missing hook ` +
+        `Unified command launcher assistant is missing hook ` +
           `"${taskDeckLauncherHook}".`,
       );
     }

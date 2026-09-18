@@ -35,11 +35,8 @@ constexpr int kResultsBottomInset = 10;
 constexpr int kResultsHorizontalInset = 10;
 constexpr int kResultHeight = 52;
 constexpr int kRowsPerPage = 4;
-// Whole rows plus half a row of peek: the cut row is the scroll affordance,
-// and half a row reads as "more below" where 44/52 of a row read as a
-// rendering mistake.
-constexpr int kResultsViewportHeight =
-    kRowsPerPage * kResultHeight + kResultHeight / 2;
+// Every resting result is fully visible; the scrollbar exposes more commands.
+constexpr int kResultsViewportHeight = kRowsPerPage * kResultHeight;
 
 const gfx::VectorIcon &EntryIcon(const CommandLauncherEntry &entry) {
   if (entry.kind == CommandLauncherEntryKind::kWorkspace) {

@@ -43,6 +43,14 @@ TEST_F(OnboardingStateTest, ExistingProfileIsNeverOnboardedByAnUpdate) {
             NextStep(prefs(), /*profile_has_prior_seoul_state=*/true));
 }
 
+TEST_F(OnboardingStateTest, ClosingTheFirstScreenStillResumesSetup) {
+  MarkStarted(prefs());
+  EXPECT_EQ(Decision::kResume, Decide(prefs(), true));
+  EXPECT_EQ(Step::kWelcome, NextStep(prefs(), true));
+  MarkSkipped(prefs());
+  EXPECT_EQ(Decision::kAlreadyDone, Decide(prefs(), true));
+}
+
 // ...but a run that was abandoned half-way also has Seoul state, so resumption
 // has to win over the upgrade rule or the remaining steps vanish.
 TEST_F(OnboardingStateTest, AbandonedRunResumesEvenWithPriorState) {

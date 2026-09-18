@@ -14,6 +14,8 @@ import {
 } from './canvas.mojom-webui.js';
 import {getCss} from './canvas.css.js';
 import {getHtml} from './canvas.html.js';
+import {renderContextGraph} from './context_graph.js';
+import type {ContextGraph, ContextGraphView, ContextNode} from './context_graph.js';
 import type {
   ComponentNode,
   DataEntry,
@@ -43,6 +45,8 @@ import type {
 } from './canvas_types.js';
 import {
   boostPassthroughAdjustments,
+  boostSummary,
+  isOlderBoostSnapshot,
   chunkBoostHideSelectors,
   propString,
   safeHexColor,
@@ -144,7 +148,7 @@ function libraryErrorMessage(detail: string|undefined): string {
     case 'limit_exceeded':
       return 'This board has reached its item limit.';
     case 'window_unbound':
-      return 'This Canvas is no longer attached to its browser window.';
+      return 'This assistant is no longer attached to its browser window.';
     case 'library_unavailable':
       return 'Library is unavailable for this profile.';
     case 'invalid_live_collection':
@@ -198,13 +202,13 @@ function newThemeDraft(): StudioThemeDoc {
     name: '',
     scheme: 'system',
     colors: {
-      background: '#f7f6f2',
+      background: '#eef6fc',
       surface: '#ffffff',
-      text: '#191a18',
-      muted_text: '#555750',
-      accent: '#315c43',
+      text: '#172b3a',
+      muted_text: '#536b7c',
+      accent: '#0369a1',
       accent_text: '#ffffff',
-      border: '#6d7068',
+      border: '#647b8b',
       error: '#a40018',
     },
     typography: {
@@ -282,11 +286,11 @@ function newWorkflowDraft(): StudioWorkflowDoc {
 function studioErrorMessage(code: string): string {
   const messages: Record<string, string> = {
     runtime_unavailable:
-        'The profile runtime is unavailable. Reopen Canvas and try again.',
+        'The browser connection is unavailable. Reopen the assistant and try again.',
     studio_unavailable:
-        'Studio is unavailable for this profile.',
+        'Settings are unavailable for this profile.',
     window_unbound:
-        'Studio lost this browser window. Reopen Canvas in the window you want to edit.',
+        'The browser window is no longer connected. Reopen the assistant in the window you want to edit.',
     invalid_theme_input:
         'The Theme contains an invalid color, type, motion, or identity value.',
     invalid_scene_input:
@@ -300,7 +304,7 @@ function studioErrorMessage(code: string): string {
     invalid_url:
         'Enter a complete http:// or https:// address.',
     essential_not_found:
-        'That Essential no longer exists. Studio refreshed the live profile.',
+        'That Essential no longer exists. Settings have been refreshed.',
     duplicate_essential:
         'An Essential already represents this site. Edit the existing Essential instead.',
     invalid_id:
@@ -374,16 +378,16 @@ function studioErrorMessage(code: string): string {
     limit_exceeded:
         'This profile has reached the supported limit for this item.',
     in_use:
-        'This item is still used by an active Scene or another Studio resource. Remove those references first.',
+        'This item is still used by an active Scene or another saved setting. Remove those references first.',
     resource_in_use:
         'This routing rule is still used by a Scene. Remove that reference first.',
     unsupported_schema:
-        'This item was created by an unsupported version of Studio.',
+        'This item was created by an unsupported version of Seoul.',
     workflow_save_failed:
         'The workflow could not be saved without replacing valid data.',
   };
   return messages[code] ??
-      `Studio rejected this change (${code.replaceAll('_', ' ')}).`;
+      `Settings could not save this change (${code.replaceAll('_', ' ')}).`;
 }
 
 const RECORD_TYPES = new Set([
@@ -404,18 +408,23 @@ export class SeoulCanvasAppElement extends CrLitElement {
 
   static override get properties() {
     return {
+      embedded_: {type: Boolean},
       surface_: {type: Object},
       tasks_: {type: Array},
       inputValue_: {type: String},
       routeLabel_: {type: String},
       voiceState_: {type: String},
       voiceConfigured_: {type: Boolean},
+      microphoneLive_: {type: Boolean},
       voiceError_: {type: String},
+      providerError_: {type: String},
       selectedView_: {type: String},
       activeThreadId_: {type: String},
       thread_: {type: Object},
       threadError_: {type: String},
       library_: {type: Object},
+      taskHistory_: {type: Array},
+      contextGraph_: {type: Object},
       libraryError_: {type: String},
       libraryBusy_: {type: Boolean},
       boardName_: {type: String},
@@ -510,13 +519,19 @@ export class SeoulCanvasAppElement extends CrLitElement {
   protected accessor routeLabel_ = 'Text ready';
   protected accessor voiceState_ = 'idle';
   protected accessor voiceConfigured_ = false;
+  protected accessor microphoneLive_ = false;
   protected accessor voiceError_ = '';
+  protected accessor providerError_ = '';
   protected accessor selectedView_:
-      'canvas'|'chat'|'boosts'|'library'|'boards'|'studio' = 'canvas';
+      'canvas'|'chat'|'boosts'|'library'|'boards'|'studio'|'graph' = 'canvas';
+  protected accessor contextGraph_: ContextGraphView = {
+    selected: '', query: '', zoom: 1, busy: false, error: '',
+  };
   protected accessor activeThreadId_ = '';
   protected accessor thread_: ThreadSnapshotDoc = {status: 'ready', items: []};
   protected accessor threadError_ = '';
   protected accessor library_: LibrarySnapshotDoc = {};
+  protected accessor taskHistory_: Array<{snapshot: TaskSnapshotDoc, interrupted: boolean}> = [];
   protected accessor libraryError_ = '';
   protected accessor libraryBusy_ = false;
   // True only while a board mutation is in flight - reads also set
@@ -623,6 +638,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
   private realtimeConnection_: RealtimeConnection|undefined;
   private realtimeStarting_ = false;
   private realtimeStartGeneration_ = 0;
+  private realtimeConnectionTimer_ = 0;
   private realtimeBaseInstructions_ = '';
   private realtimeToolCalls_ = new Map<string, {callId: string, name: string}>();
   private pendingRealtimeToolCalls_ = new Set<string>();
@@ -647,6 +663,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
 
   override connectedCallback() {
     super.connectedCallback();
+    document.addEventListener('visibilitychange', this.onVisibilityChange_);
     if (this.initialized_) {
       return;
     }
@@ -654,7 +671,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
     const route = new URL(window.location.href).searchParams;
     const requestedView = route.get('view');
     const allowedViews =
-        new Set(['canvas', 'chat', 'boosts', 'library', 'boards', 'studio']);
+        new Set(['canvas', 'chat', 'boosts', 'library', 'boards', 'studio', 'graph']);
     if (requestedView && allowedViews.has(requestedView)) {
       this.selectedView_ = requestedView as typeof this.selectedView_;
     }
@@ -670,6 +687,13 @@ export class SeoulCanvasAppElement extends CrLitElement {
         this.callbackRouter_.$.bindNewPipeAndPassRemote(),
         this.pageHandler_.$.bindNewPipeAndPassReceiver());
     this.pageHandler_.requestInitialState();
+    void this.updateComplete.then(async () => {
+      if (this.isConnected) {
+        const {embedded} = await PageHandlerFactory.getRemote().showUI();
+        this.embedded_ = embedded;
+      }
+    });
+    if (this.selectedView_ === 'graph') void this.refreshContextGraph_();
     if (this.activeThreadId_) {
       void this.refreshThread_();
     }
@@ -678,16 +702,29 @@ export class SeoulCanvasAppElement extends CrLitElement {
     if (this.selectedView_ === 'library' || this.selectedView_ === 'boards') {
       void this.refreshLibrary_();
     }
-    if (this.selectedView_ === 'library') {
+    if (['library', 'boosts', 'studio'].includes(this.selectedView_)) {
       void this.refreshSiteLayers_();
     }
+    if (this.selectedView_ === 'studio') void this.refreshStudio_();
   }
 
   override disconnectedCallback() {
+    document.removeEventListener('visibilitychange', this.onVisibilityChange_);
     void this.flushBoardKeyboard_();
     this.boardPointer_ = undefined;
     void this.stopRealtimeVoice_();
     super.disconnectedCallback();
+  }
+
+  private onVisibilityChange_ = () => {
+    if (document.visibilityState === 'hidden') void this.stopRealtimeVoice_();
+  };
+
+  protected accessor embedded_ = false;
+
+  protected async closeAssistant_() {
+    await this.stopRealtimeVoice_();
+    PageHandlerFactory.getRemote().closeUI();
   }
 
   protected boundEntry_(node: ComponentNode): DataEntry|undefined {
@@ -703,6 +740,8 @@ export class SeoulCanvasAppElement extends CrLitElement {
           html`<div class="saui-empty">No visualization data.</div>`;
     }
     if (TABLE_TYPES.has(node.type)) {
+      const outline = this.renderPageOutline_(entry);
+      if (outline !== undefined) return outline;
       return entry && (entry.kind === 'table' || entry.kind === 'series') ?
           html`<section class="data-block" aria-label="${accessibleName || 'Data'}">
             ${propString(node.props, 'title') ? html`<h3>${propString(node.props, 'title')}</h3>` : nothing}
@@ -817,6 +856,52 @@ export class SeoulCanvasAppElement extends CrLitElement {
     }
   }
 
+  // Present the native page observer's exact schema as a readable outline.
+  // Keep its handles and safety metadata in the original data for the agent;
+  // this snapshot is not a set of live controls or a full article extraction.
+  private renderPageOutline_(entry: DataEntry|undefined): unknown {
+    const keys = ['handle', 'role', 'name', 'editable', 'agent_writable',
+                  'sensitivity'];
+    if (entry?.kind !== 'table' || entry.columns?.length !== keys.length ||
+        !keys.every(key => entry.columns!.some(column => column.key === key))) {
+      return undefined;
+    }
+    const index = (key: string) =>
+        entry.columns!.findIndex(column => column.key === key);
+    const roleIndex = index('role');
+    const nameIndex = index('name');
+    const sensitivityIndex = index('sensitivity');
+    const roles: Record<string, string> = {
+      heading: 'Heading', button: 'Button', link: 'Link',
+      textField: 'Text field', textFieldWithComboBox: 'Text field',
+      searchBox: 'Search field', comboBoxSelect: 'Selection',
+      listBox: 'Selection', checkBox: 'Checkbox', radioButton: 'Option',
+      switch: 'Switch', tab: 'Tab', menuItem: 'Menu item',
+    };
+    const rows = (entry.rows ?? []).slice(0, 400);
+    return html`<section class="data-block page-outline"
+        aria-label="Page outline">
+      <h3>Page outline</h3>
+      <p class="page-outline-note">A snapshot of up to 400 headings and controls.
+        Continue on the page or ask Seoul for help.</p>
+      ${rows.length ? html`<ul>${rows.map(row => {
+        const role = typeof row[roleIndex] === 'string' ?
+            row[roleIndex] as string : '';
+        const name = typeof row[nameIndex] === 'string' ?
+            row[nameIndex] as string : '';
+        const sensitivity = row[sensitivityIndex];
+        const privateField = typeof sensitivity === 'string' &&
+            sensitivity !== '' && sensitivity !== 'none';
+        return html`<li data-heading="${role === 'heading'}">
+          <span class="page-outline-role">${roles[role] || 'Page item'}</span>
+          <span class="page-outline-name">${name || 'Unlabelled field'}</span>
+          ${privateField ? html`<small>Enter sensitive information directly
+            on the page.</small>` : nothing}
+        </li>`;
+      })}</ul>` : html`<p>No headings or controls were found.</p>`}
+    </section>`;
+  }
+
   protected onInput_(event: Event) {
     this.inputValue_ = (event.target as HTMLInputElement).value;
   }
@@ -842,21 +927,15 @@ export class SeoulCanvasAppElement extends CrLitElement {
     return html`<section class="page-context-strip"
         data-available="${page.status === 'ready'}"
         aria-label="Current page context">
-      <div class="page-context-identity"><span class="page-context-mark"
-          aria-hidden="true"></span><div><span class="eyebrow">ACTIVE PAGE</span>
+      <div class="page-context-identity"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"></rect><path d="M8 8h8M8 12h8M8 16h5"></path></svg><div>
         <strong>${page.status === 'ready' ?
           page.title || page.origin : 'No active web page'}</strong>
         <small>${page.origin ||
-          'Open a web page and Seoul will bind this panel to it.'}</small></div></div>
+          'Open a website to ask about it here.'}</small></div></div>
       <div class="page-context-actions">
         <button type="button" ?disabled="${page.status !== 'ready'}"
             @click="${() => this.usePrompt_(
-              'Understand the active page and show its semantic structure')}">Understand</button>
-        <button type="button" ?disabled="${page.status !== 'ready'}"
-            @click="${() => this.usePrompt_(
-              'List the actions and editable fields available on the active page')}">Actions</button>
-        <button type="button" ?disabled="${!page.customizable}"
-            @click="${() => this.selectView_('boosts')}">Boost</button>
+              'List the actions and editable fields available on the active page')}">Page outline</button>
       </div>
     </section>`;
   }
@@ -953,6 +1032,10 @@ export class SeoulCanvasAppElement extends CrLitElement {
   }
 
   protected taskControl_(task: TaskSnapshotDoc, command: string) {
+    if (command === 'dismiss' && task.state === 'failed') {
+      this.tasks_ = this.tasks_.filter(candidate => candidate.id !== task.id);
+      return;
+    }
     if (!this.pageHandler_) return;
     if (command === 'pause') this.pageHandler_.pauseTask(task.id);
     if (command === 'resume') this.pageHandler_.resumeTask(task.id);
@@ -980,8 +1063,25 @@ export class SeoulCanvasAppElement extends CrLitElement {
     this.taskInputs_ = {...this.taskInputs_, [task.id]: ''};
   }
 
+  protected onToolsMenuKeydown_(event: KeyboardEvent) {
+    const menu = event.currentTarget as HTMLDetailsElement;
+    if (event.key === 'Escape') {
+      menu.open = false;
+      menu.querySelector<HTMLElement>('summary')?.focus();
+    } else if (menu.open && ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+      const items = [...menu.querySelectorAll<HTMLButtonElement>('.tools-menu-items button')];
+      const current = items.indexOf(this.shadowRoot?.activeElement as HTMLButtonElement);
+      const delta = event.key === 'ArrowDown' ? 2 : event.key === 'ArrowUp' ? -2 : event.key === 'ArrowLeft' ? -1 : 1;
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : current < 0 ? 0 : (current + delta + items.length) % items.length;
+      items[next]?.focus();
+    } else return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
   protected selectView_(
-      view: 'canvas'|'chat'|'boosts'|'library'|'boards'|'studio') {
+      view: 'canvas'|'chat'|'boosts'|'library'|'boards'|'studio'|'graph') {
+    this.shadowRoot?.querySelector<HTMLDetailsElement>('.tools-menu')?.removeAttribute('open');
     if (view === this.selectedView_) return;
     this.selectedView_ = view;
     void this.updateComplete.then(() => {
@@ -991,25 +1091,84 @@ export class SeoulCanvasAppElement extends CrLitElement {
         behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ?
             'auto' : 'smooth',
       });
+      this.shadowRoot?.querySelector<HTMLElement>('.canvas-header h1')?.focus();
     });
     if (view === 'library' || view === 'boards') void this.refreshLibrary_();
     if (view === 'chat') void this.refreshThread_();
     // The Library's Boosts shelf reads the same snapshot the Boosts view
     // does, so entering either view refreshes it - otherwise the shelf shows
     // "No Boosts yet" until the user happens to visit the Boosts view.
-    if (view === 'boosts' || view === 'library') void this.refreshSiteLayers_();
+    if (['boosts', 'library', 'studio'].includes(view)) void this.refreshSiteLayers_();
     if (view === 'studio') void this.refreshStudio_();
+    if (view === 'graph') void this.refreshContextGraph_();
   }
 
-  private adoptSiteLayerSnapshot_(snapshotJson: string): boolean {
+  protected renderContextGraph_() {
+    return renderContextGraph(this.contextGraph_, {
+      change: patch => {
+        this.contextGraph_ = {...this.contextGraph_, ...patch};
+      },
+      refresh: () => void this.refreshContextGraph_(),
+      open: node => void this.openContextNode_(node),
+    });
+  }
+
+  private async refreshContextGraph_() {
+    if (!this.pageHandler_ || this.contextGraph_.busy) return;
+    this.contextGraph_ = {...this.contextGraph_, busy: true, error: ''};
+    try {
+      const response = await this.pageHandler_.getContextGraph();
+      const graph = JSON.parse(response.graphJson) as ContextGraph;
+      if (!Array.isArray(graph.nodes) || !Array.isArray(graph.edges) ||
+          !/^\d{1,20}$/.test(graph.revision) || graph.nodes.length > 600 ||
+          graph.edges.length > 1800) throw new Error('invalid_graph');
+      const previous = this.contextGraph_.graph;
+      if (previous && BigInt(graph.revision) < BigInt(previous.revision)) return;
+      const selected = graph.nodes.some(node => node.id === this.contextGraph_.selected) ?
+          this.contextGraph_.selected : '';
+      this.contextGraph_ = {...this.contextGraph_, graph, selected};
+    } catch {
+      this.contextGraph_ = {...this.contextGraph_,
+        error: 'Context could not be refreshed. Your previous view is preserved.'};
+    } finally {
+      this.contextGraph_ = {...this.contextGraph_, busy: false};
+    }
+  }
+
+  private async openContextNode_(node: ContextNode) {
+    if (!this.pageHandler_) return;
+    try {
+      if (node.kind === 'tab') {
+        const response = await this.pageHandler_.activateContextTab(node.id);
+        if (!response.activated) throw new Error('tab_unavailable');
+      } else if (node.kind === 'thread') {
+        this.activeThreadId_ = node.id.slice('thread:'.length);
+        this.selectView_('chat');
+      } else if (node.kind === 'board') {
+        await this.refreshLibrary_();
+        const board = this.library_.boards?.find(item => `board:${item.id}` === node.id);
+        if (!board) throw new Error('board_unavailable');
+        this.selectBoard_(board);
+        this.selectView_('boards');
+      }
+    } catch {
+      this.contextGraph_ = {...this.contextGraph_,
+        error: 'This item is no longer available. Refresh to see the latest context.'};
+    }
+  }
+
+  private adoptSiteLayerSnapshot_(snapshotJson: string, clearError = true): boolean {
     try {
       const snapshot = JSON.parse(snapshotJson) as SiteLayerSnapshotDoc;
       if (snapshot.status === 'error') {
         this.boostsError_ = snapshot.detail || 'The Boost change was rejected.';
         return false;
       }
+      // Replies and pushed updates travel on different Mojo pipes. A delayed
+      // reply must not restore an older checkbox or active-page state.
+      if (isOlderBoostSnapshot(snapshot, this.boosts_)) return true;
       this.boosts_ = snapshot;
-      this.boostsError_ = '';
+      if (clearError) this.boostsError_ = '';
       return true;
     } catch {
       this.boostsError_ = 'Seoul returned an unreadable Boost snapshot.';
@@ -1381,9 +1540,10 @@ export class SeoulCanvasAppElement extends CrLitElement {
       <div class="view-heading boosts-heading"><div>
         <span class="eyebrow">LIVE SITE CUSTOMIZATION</span><h2>Boosts</h2>
       </div><button type="button" ?disabled="${this.boostsBusy_}"
-          @click="${() => void this.refreshSiteLayers_()}">Refresh page</button></div>
-      <p class="studio-intro">Change how a real site reads and feels. Seoul stores
-        typed adjustments—not scripts—and reapplies them after navigation.</p>
+          @click="${() => void this.refreshSiteLayers_()}">Refresh Boosts</button></div>
+      <p class="studio-intro">Save appearance changes, CSS and optional JavaScript
+        for a site. Open Code in the site's Boost menu to edit CSS or JavaScript.</p>
+      ${this.renderBoostPreferences_()}
       ${this.boostsError_ ?
         html`<div class="saui-error" role="alert">${this.boostsError_}</div>` :
         nothing}
@@ -1395,7 +1555,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
           <h3>${active?.title || 'No customizable page selected'}</h3>
           <p>${active?.origin || 'Open an http or https page to create a Boost.'}</p></div>
         <div class="boost-page-actions">
-          <span>${this.boosts_.matching_enabled_count ?? 0} active</span>
+          <span>${this.boosts_.matching_enabled_count ?? 0} enabled here</span>
           <button class="primary" type="button"
               ?disabled="${!active?.customizable || this.boostsBusy_}"
               @click="${this.openNewBoost_}">New Boost</button>
@@ -1410,8 +1570,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
         ${matching.length ? html`<div class="boost-list">${matching.map(layer =>
           this.renderBoostCard_(layer))}</div>` :
           html`<div class="empty-shelf"><h4>No Boost for this site yet</h4>
-            <p>Create one and the live page changes immediately. There are no
-              injected scripts or pretend previews.</p></div>`}
+            <p>Create a Boost to save changes for this site.</p></div>`}
       </section>
 
       ${layers.length !== matching.length ? html`
@@ -1426,21 +1585,78 @@ export class SeoulCanvasAppElement extends CrLitElement {
     </section>`;
   }
 
+  private renderBoostPreferences_(): unknown {
+    const ready = this.boosts_.status === 'ready';
+    const toggle = (key: 'boosts_enabled'|'javascript_enabled', event: Event) => {
+      const input = event.target as HTMLInputElement;
+      const enabled = input.checked;
+      input.checked = this.boosts_[key] === true;
+      void this.setBoostPreference_(key, enabled);
+    };
+    return html`<div class="boost-preferences" role="group" aria-label="Boost settings">
+      <label class="provider-toggle"><input type="checkbox"
+          aria-label="Enable Boosts on websites"
+          .checked="${this.boosts_.boosts_enabled === true}"
+          ?disabled="${!ready || this.boostsBusy_}"
+          @change="${(event: Event) => toggle('boosts_enabled', event)}">
+        <span>Enable Boosts on websites</span></label>
+      <p>Applies to this browser profile. Turning Boosts off keeps your saved changes.</p>
+      <label class="provider-toggle"><input type="checkbox"
+          aria-label="Allow JavaScript from saved Boosts on this device"
+          .checked="${this.boosts_.javascript_enabled === true}"
+          ?disabled="${!ready || this.boostsBusy_}"
+          @change="${(event: Event) => toggle('javascript_enabled', event)}">
+        <span>Allow JavaScript from saved Boosts on this device</span></label>
+      <p>JavaScript can read and change matching pages. Disabling it stops future runs;
+        reload pages to clear earlier effects. Site security rules may prevent execution.</p>
+      ${!ready ? html`<span role="status">Loading Boost settings…</span>` : nothing}
+    </div>`;
+  }
+
+  private async setBoostPreference_(
+      key: 'boosts_enabled'|'javascript_enabled', enabled: boolean) {
+    if (!this.pageHandler_ || this.boostsBusy_) return;
+    this.boostsBusy_ = true;
+    this.boostsError_ = '';
+    this.boostsMessage_ = '';
+    try {
+      const response = key === 'boosts_enabled' ?
+          await this.pageHandler_.setBoostsEnabled(enabled) :
+          await this.pageHandler_.setBoostJavaScriptEnabled(enabled);
+      if (this.adoptSiteLayerSnapshot_(response.snapshotJson)) {
+        this.boostsMessage_ = enabled ? 'Boost setting saved.' :
+            'Boost setting saved. Reload pages to clear any earlier JavaScript effects.';
+      }
+    } catch {
+      this.boostsError_ = 'The Boost setting could not be saved. Try again.';
+    } finally {
+      this.boostsBusy_ = false;
+    }
+  }
+
   private renderBoostCard_(layer: SiteLayerDoc): unknown {
     const deleting = this.pendingDeleteBoostId_ === layer.id;
+    const summary = boostSummary(layer, this.boosts_);
     return html`<article class="boost-card" data-enabled="${layer.enabled}">
-      <header><div><span class="layer-state ${layer.enabled ? 'enabled' : ''}">
-        ${layer.enabled ? 'Live' : 'Paused'}</span>
-        <span>${layer.adjustments.length} change${layer.adjustments.length === 1 ? '' : 's'}</span></div>
+      <header><div><span class="layer-state ${summary.state === 'Enabled' ? 'enabled' : ''}">
+        ${summary.state}</span>
+        <span>${summary.changes} change${summary.changes === 1 ? '' : 's'}</span></div>
         <label class="provider-toggle"><input type="checkbox"
             .checked="${layer.enabled}" ?disabled="${this.boostsBusy_}"
-            @change="${(event: Event) => void this.setBoostEnabled_(
-              layer, (event.target as HTMLInputElement).checked)}">
+            @change="${(event: Event) => {
+              const input = event.target as HTMLInputElement;
+              const enabled = input.checked;
+              input.checked = layer.enabled;
+              void this.setBoostEnabled_(layer, enabled);
+            }}">
           <span>Boost this site</span></label></header>
       <h4>${layer.name}</h4><p>${layer.origin_pattern}</p>
       <div class="boost-tags">${layer.adjustments.slice(0, 5).map(adjustment =>
-        html`<span>${adjustment.kind.replace(/_/g, ' ')}</span>`)}</div>
-      <footer><button type="button" @click="${() => this.editBoost_(layer)}">Edit</button>
+        html`<span>${adjustment.kind.replace(/_/g, ' ')}</span>`)}
+        ${layer.has_custom_css ? html`<span>Custom CSS</span>` : nothing}
+        ${layer.has_custom_javascript ? html`<span>${summary.javascriptOff ? 'JavaScript off' : 'JavaScript'}</span>` : nothing}
+      </div>
+      <footer><button type="button" @click="${() => this.editBoost_(layer)}">Edit appearance</button>
         ${deleting ? html`<span class="provider-clear-confirm">
           <button class="danger-button confirmed" type="button"
               @click="${() => void this.deleteBoost_(layer)}">Delete permanently</button>
@@ -1629,7 +1845,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
     const essentials = this.studio_.essentials ?? [];
     const scenes = this.studio_.scenes ?? [];
     const themes = this.studio_.themes ?? [];
-    const layers = this.studio_.site_layers ?? [];
+    const layers = this.boosts_.layers ?? [];
     const routingRules = this.studio_.routing_rules ?? [];
     const workflows = this.studio_.workflows ?? [];
     const local = this.studio_.providers?.local;
@@ -1639,23 +1855,25 @@ export class SeoulCanvasAppElement extends CrLitElement {
           const url = safeHttpUrl(essential.root_url);
           return url ? new URL(url).origin === this.pageContext_.origin : false;
         }) : undefined;
-    return html`<section class="studio-view" aria-label="Studio">
-      <div class="view-heading"><div><span class="eyebrow">PROFILE RUNTIME</span>
-        <h2>Studio</h2></div><span class="count-chip">Live profile</span></div>
-      <p class="studio-intro">Shape the real profile runtime: intelligence, Scenes, Themes, routing, and typed workflows. Every save is validated by the browser before it replaces durable state.</p>
+    return html`<section class="studio-view" aria-label="Settings">
+      <div class="view-heading"><div><span class="eyebrow">MAKE SEOUL YOURS</span>
+        <h2>Settings</h2></div></div>
+      <p class="studio-intro">Manage your assistant, appearance, saved spaces and workflows. Changes are saved to this browser profile.</p>
       ${this.studioError_ ? html`<div class="saui-error" role="alert">${this.studioError_}</div>` : nothing}
       ${this.studioProviderMessage_ ? html`<div class="studio-provider-message"
           role="status">${this.studioProviderMessage_}</div>` : nothing}
       ${this.studioBusy_ && !this.studio_.schema_version ? html`
-        <div class="studio-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading profile systems…</div>` : nothing}
+        <div class="studio-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading settings…</div>` : nothing}
       <section class="studio-section" aria-labelledby="studio-routes-title">
-        <div class="studio-section-heading"><div><span class="studio-index">01</span><h3 id="studio-routes-title">Reasoning routes</h3></div><p>Secrets stay write-only in macOS Keychain.</p></div>
+        <div class="studio-section-heading"><div><span class="studio-index">01</span><h3 id="studio-routes-title">Assistant connections</h3></div><p>Secrets stay write-only in macOS Keychain.</p></div>
         <div class="route-grid">
           ${this.renderProviderRoute_(
             'local', 'On-device', local, local?.healthy ?? false)}
           ${this.renderProviderRoute_(
             'cloud', 'Cloud', cloud, cloud?.available ?? false)}
         </div>
+        ${this.studio_.providers?.error ? html`<p class="saui-error" role="alert">
+          ${this.studio_.providers.error}</p>` : nothing}
         ${this.studioEditingRoute_ ?
           this.renderProviderEditor_(this.studioEditingRoute_, local, cloud) :
           nothing}
@@ -1763,18 +1981,17 @@ export class SeoulCanvasAppElement extends CrLitElement {
                   @click="${() => void this.duplicateWorkflow_(workflow.id)}">Duplicate</button>
               ${this.renderStudioDelete_('workflow', workflow.id, workflow.name)}
             </div>
-          </article>`)}</div>` : html`<div class="empty-shelf"><h4>No saved workflows</h4><p>Build a typed graph over Seoul's registered capabilities. Runs appear in the Task Deck.</p></div>`}
+          </article>`)}</div>` : html`<div class="empty-shelf"><h4>No saved workflows</h4><p>Save a sequence of actions you use often. You can review each step before running it.</p></div>`}
         ${this.studioEditorKind_ === 'workflow' ? this.renderWorkflowEditor_() : nothing}
       </section>
       <section class="studio-section" aria-labelledby="studio-layers-title">
-        <div class="studio-section-heading"><div><span class="studio-index">07</span><h3 id="studio-layers-title">Site Layers</h3></div>
+        <div class="studio-section-heading"><div><span class="studio-index">07</span><h3 id="studio-layers-title">Boosts</h3></div>
           <div class="studio-heading-actions"><span class="count-chip">${layers.length}</span>
             <button type="button" @click="${() => this.selectView_('boosts')}">Open Boosts</button></div></div>
-        ${layers.length ? html`<div class="layer-grid">${layers.map(layer => html`
-          <article class="layer-card"><header><span class="layer-state ${layer.enabled ? 'enabled' : ''}">${layer.enabled ? 'Enabled' : 'Paused'}</span><span>${layer.adjustment_count} adjustment${layer.adjustment_count === 1 ? '' : 's'}</span></header>
-            <h4>${layer.name}</h4><p>${layer.origin_pattern}</p>
-            <small>${layer.scene_scope ? `Scene · ${layer.scene_scope}` : 'All matching Scenes'}</small>
-          </article>`)}</div>` : html`<div class="empty-shelf"><h4>No Site Layers configured</h4><p>Validated visual adjustments will appear here from the Site Layer registry.</p></div>`}
+        ${this.renderBoostPreferences_()}
+        ${this.boostsError_ ? html`<p class="saui-error" role="alert">${this.boostsError_}</p>` : nothing}
+        ${this.boostsMessage_ ? html`<p role="status">${this.boostsMessage_}</p>` : nothing}
+        <p>${layers.length} saved Boost${layers.length === 1 ? '' : 's'}. Manage individual Boosts in Open Boosts.</p>
       </section>
     </section>`;
   }
@@ -2411,8 +2628,8 @@ export class SeoulCanvasAppElement extends CrLitElement {
           @submit="${(event: Event) => {
             event.preventDefault(); void this.saveLocalProvider_();
           }}">
-        <header><div><span class="eyebrow">ON-DEVICE ROUTE</span>
-          <h4>Connect a loopback model server</h4></div>
+        <header><div><span class="eyebrow">LOCAL MODEL</span>
+          <h4>Use a model on this Mac</h4></div>
           <span class="provider-security">127.0.0.1 / localhost only</span></header>
         <div class="provider-fields">
           <label><span>Endpoint</span>
@@ -2438,7 +2655,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
                 void this.checkLocalProvider_()}">Test connection</button>
           <button class="primary" type="submit"
               ?disabled="${this.studioProviderBusy_ || !canSave}">
-            Save local route
+            Save connection
           </button>
         </footer>
       </form>`;
@@ -2448,18 +2665,22 @@ export class SeoulCanvasAppElement extends CrLitElement {
         @submit="${(event: Event) => {
           event.preventDefault(); void this.saveCloudProvider_();
         }}">
-      <header><div><span class="eyebrow">CLOUD ROUTE</span>
-        <h4>Reasoning and realtime voice</h4></div>
+      <header><div><span class="eyebrow">ONLINE SERVICES</span>
+        <h4>Claude for reasoning · OpenAI for voice</h4></div>
         <span class="provider-security">Secrets write directly to Keychain</span></header>
+      <p>A healthy local model handles reasoning first. Online reasoning sends
+        your request and selected context to Claude when local reasoning is unavailable.
+        Voice sends microphone audio to OpenAI while it is on. Provider charges
+        apply; Seoul does not currently enforce a monetary spending limit.</p>
       <div class="provider-fields provider-fields-cloud">
         <label><span>Model ID</span>
-          <input required maxlength="512" placeholder="Cloud reasoning model"
+          <input required maxlength="512" placeholder="Model ID from your Claude Console"
               .value="${this.studioCloudModel_}"
               @input="${(event: Event) => {
                 this.studioCloudModel_ =
                     (event.target as HTMLInputElement).value;
               }}"></label>
-        <label><span>Reasoning API key <small>${cloud?.configured ?
+        <label><span>Claude API key <small>${cloud?.configured ?
               'stored — leave blank to keep' : 'not stored'}</small></span>
           <input type="password" maxlength="65536" autocomplete="new-password"
               placeholder="${cloud?.configured ? 'Stored securely' : 'Enter key'}"
@@ -2468,7 +2689,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
                 this.studioReasoningSecret_ =
                     (event.target as HTMLInputElement).value;
               }}"></label>
-        <label><span>Realtime voice key <small>${cloud?.voice_configured ?
+        <label><span>OpenAI voice API key <small>${cloud?.voice_configured ?
               'stored — leave blank to keep' : 'not stored'}</small></span>
           <input type="password" maxlength="65536" autocomplete="new-password"
               placeholder="${cloud?.voice_configured ? 'Stored securely' : 'Enter key'}"
@@ -2486,10 +2707,10 @@ export class SeoulCanvasAppElement extends CrLitElement {
             @change="${(event: Event) => {
               this.studioCloudEnabled_ =
                   (event.target as HTMLInputElement).checked;
-            }}"><span>Use cloud route</span></label>
+            }}"><span>Allow online models</span></label>
         <button class="primary" type="submit"
             ?disabled="${this.studioProviderBusy_ ||
-                !this.studioCloudModel_.trim()}">Save cloud route</button>
+                !this.studioCloudModel_.trim()}">Save connections</button>
       </footer>
     </form>`;
   }
@@ -2526,6 +2747,30 @@ export class SeoulCanvasAppElement extends CrLitElement {
       </label>
       ${this.libraryError_ ? html`<div class="saui-error" role="alert">${this.libraryError_}</div>` : nothing}
       ${this.collectionMessage_ ? html`<div class="library-notice" role="status">${this.collectionMessage_}</div>` : nothing}
+      <section class="library-section task-history" aria-label="Recent activity">
+        <div class="library-section-heading"><div><h3>Recent activity</h3>
+          <p>Your most recent tasks and action receipts, saved on this Mac.</p></div></div>
+        ${this.taskHistory_.length ? html`<div class="history-list">
+          ${this.taskHistory_.filter(entry => !query ||
+              entry.snapshot.goal.toLocaleLowerCase().includes(query)).map(entry => html`
+            <details class="history-item">
+              <summary><strong>${entry.snapshot.goal}</strong>
+                <span class="task-state">${entry.interrupted ? 'Interrupted' :
+                  entry.snapshot.state.replaceAll('_', ' ')}</span></summary>
+              ${entry.interrupted ? html`<p>Seoul closed before this task finished.
+                Check the website before trying again. No action was restarted.</p>` : nothing}
+              ${(entry.snapshot.receipts ?? []).length ? html`<ol>
+                ${(entry.snapshot.receipts ?? []).map(receipt => html`<li>
+                  <span>${receipt.observed_summary || receipt.tool}</span>
+                  <small>${receipt.status.replaceAll('_', ' ')}</small>
+                </li>`)}
+              </ol>` : html`<p>No completed action was recorded.</p>`}
+              <button type="button" class="quiet-button"
+                  @click="${() => { this.selectView_('canvas'); this.usePrompt_(entry.snapshot.goal); }}">
+                Use this request again</button>
+            </details>`)}
+        </div>` : html`<div class="empty-shelf"><p>Tasks you start with Seoul will appear here.</p></div>`}
+      </section>
       <section class="library-section">
         <div class="library-section-heading"><div><h3>Boosts</h3>
           <p>Sites you have restyled. Deleting one here removes it everywhere.</p></div>
@@ -2535,7 +2780,8 @@ export class SeoulCanvasAppElement extends CrLitElement {
           ${(this.boosts_.layers ?? []).map(layer => html`<li class="library-boost">
             <span class="library-boost-name">${layer.name || layer.origin_pattern}</span>
             <span class="library-boost-origin">${layer.origin_pattern}</span>
-            ${layer.enabled ? nothing : html`<span class="saui-badge">Off</span>`}
+            <span class="saui-badge">${boostSummary(layer, this.boosts_).state}</span>
+            <span class="library-boost-changes">${boostSummary(layer, this.boosts_).changes} change${boostSummary(layer, this.boosts_).changes === 1 ? '' : 's'}</span>
             ${this.pendingDeleteBoostId_ === layer.id ?
               html`<span class="provider-clear-confirm">
                 <button class="danger-button confirmed" type="button"
@@ -2549,7 +2795,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
                   @click="${() =>
                     this.pendingDeleteBoostId_ = layer.id}">Delete</button>`}
           </li>`)}</ul>` : html`<div class="empty-shelf"><h4>No Boosts yet</h4>
-            <p>Restyle a site with the paintbrush in the address field and it appears here.</p></div>`}
+            <p>Open Site controls beside a site's address, then choose Boost this site to save its appearance or code.</p></div>`}
       </section>
       <section class="library-section"><h3>Saved artifacts</h3>
         ${artifacts.length ? html`<div class="artifact-grid">${artifacts.map(artifact => html`
@@ -3705,6 +3951,9 @@ export class SeoulCanvasAppElement extends CrLitElement {
     try {
       const response = await this.pageHandler_.getLibrarySnapshot();
       this.applyLibrarySnapshot_(response.snapshotJson);
+      const history = await this.pageHandler_.getTaskHistory();
+      const parsed = JSON.parse(history.historyJson || '{}');
+      this.taskHistory_ = Array.isArray(parsed.tasks) ? parsed.tasks.slice(0, 100) : [];
     } catch {
       this.libraryError_ = 'Library could not be reached.';
     } finally {
@@ -3719,7 +3968,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       const response = await this.pageHandler_.getStudioSnapshot();
       this.applyStudioSnapshot_(response.snapshotJson);
     } catch {
-      this.studioError_ = 'Studio could not read the profile runtime.';
+      this.studioError_ = 'Settings could not connect to this profile.';
     } finally {
       this.studioBusy_ = false;
     }
@@ -4076,7 +4325,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       return true;
     } catch {
       this.studioError_ =
-          'Studio lost its browser connection. Nothing was changed.';
+          'Settings lost their browser connection. Nothing was changed.';
       return false;
     } finally {
       this.studioMutationBusy_ = false;
@@ -4248,7 +4497,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
         return;
       }
       this.studioProviderMessage_ =
-          'Workflow started. Progress is visible in Canvas and the Task Deck.';
+          'Workflow started. Open the assistant to see its progress.';
     } catch {
       this.studioError_ = 'The workflow could not be started.';
     } finally {
@@ -4295,7 +4544,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       this.applyActiveTheme_();
       return true;
     } catch {
-      this.studioError_ = 'Studio returned an unreadable snapshot.';
+      this.studioError_ = 'Settings could not be loaded. Please try again.';
       return false;
     }
   }
@@ -4597,7 +4846,14 @@ export class SeoulCanvasAppElement extends CrLitElement {
         if (!snapshot || typeof snapshot.id !== 'string') return;
         const tasks = new Map(this.tasks_.map(task => [task.id, task]));
         tasks.set(snapshot.id, snapshot);
-        this.tasks_ = [...tasks.values()];
+        const ordered = [...tasks.values()];
+        while (ordered.length > 500) {
+          const finished = ordered.findIndex(task =>
+            ['completed', 'failed', 'cancelled'].includes(task.state));
+          if (finished < 0) break;
+          ordered.splice(finished, 1);
+        }
+        this.tasks_ = ordered;
         this.handleRealtimeTaskSnapshot_(snapshot);
       } catch {
         // Malformed snapshots render nothing.
@@ -4616,10 +4872,12 @@ export class SeoulCanvasAppElement extends CrLitElement {
         const status = JSON.parse(statusJson) as Record<string, unknown>;
         this.voiceConfigured_ = status['voice_realtime_configured'] === true;
         const voiceState = typeof status['voice_state'] === 'string' ? status['voice_state'] : 'idle';
-        if (!this.realtimeConnection_) this.voiceState_ = voiceState;
-        const target = status['voice_product_target'] || status['voice_api_model'];
+        this.providerError_ = typeof status['provider_error'] === 'string' ?
+            status['provider_error'] : '';
+        if (this.realtimeConnection_ || this.realtimeStarting_) return;
+        this.voiceState_ = voiceState;
         if (status['voice_realtime_creating']) this.routeLabel_ = 'Connecting';
-        else if (this.voiceConfigured_) this.routeLabel_ = typeof target === 'string' ? target : 'Voice';
+        else if (this.voiceConfigured_) this.routeLabel_ = 'Voice ready';
         else if (status['voice_realtime_error']) this.routeLabel_ = 'Voice unavailable';
         else this.routeLabel_ = 'Text ready';
       } catch {
@@ -4657,6 +4915,9 @@ export class SeoulCanvasAppElement extends CrLitElement {
         await this.refreshSiteLayers_();
         if (this.boosts_.active_page?.customizable) this.openNewBoost_();
       })();
+    });
+    this.callbackRouter_.pushSiteLayerSnapshot.addListener((snapshotJson: string) => {
+      this.adoptSiteLayerSnapshot_(snapshotJson, false);
     });
   }
 
@@ -4924,6 +5185,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
   }
 
   private async handleRealtimeEvent_(data: string) {
+    const generation = this.realtimeStartGeneration_;
     if (data.length > 1024 * 1024) {
       this.voiceError_ = 'Voice stopped because the provider sent an oversized event.';
       await this.stopRealtimeVoice_();
@@ -4979,8 +5241,10 @@ export class SeoulCanvasAppElement extends CrLitElement {
         outputJson = JSON.stringify(
             {status: 'error', detail: 'tool_bridge_failed'});
       } finally {
-        this.pendingRealtimeToolCalls_.delete(call.key);
+        if (generation === this.realtimeStartGeneration_)
+          this.pendingRealtimeToolCalls_.delete(call.key);
       }
+      if (generation !== this.realtimeStartGeneration_) return;
       this.completedRealtimeToolCalls_.add(call.key);
       if (this.completedRealtimeToolCalls_.size > 256) {
         const oldest = this.completedRealtimeToolCalls_.values().next().value;
@@ -5035,6 +5299,9 @@ export class SeoulCanvasAppElement extends CrLitElement {
   }
 
   private async stopRealtimeVoice_() {
+    window.clearTimeout(this.realtimeConnectionTimer_);
+    this.realtimeConnectionTimer_ = 0;
+    this.microphoneLive_ = false;
     const connection = this.realtimeConnection_;
     this.realtimeStarting_ = false;
     this.realtimeStartGeneration_++;
@@ -5061,6 +5328,10 @@ export class SeoulCanvasAppElement extends CrLitElement {
     if (!this.pageHandler_ || this.realtimeConnection_ || this.realtimeStarting_) return;
     this.realtimeStarting_ = true;
     const generation = ++this.realtimeStartGeneration_;
+    this.realtimeConnectionTimer_ = window.setTimeout(() => {
+      if (generation === this.realtimeStartGeneration_)
+        void this.failRealtimeVoice_('Voice took too long to connect. Check your connection and try again.');
+    }, 35000);
     this.setVoiceActivity_('connecting');
     this.voiceError_ = '';
     let provisionalStream: MediaStream|undefined;
@@ -5072,7 +5343,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
           !session.connect_url || !session.api_model) throw new Error(session.detail);
       const connectUrl = new URL(session.connect_url);
       if (connectUrl.origin !== 'https://api.openai.com' ||
-          connectUrl.pathname !== '/v1/realtime' || connectUrl.search ||
+          connectUrl.pathname !== '/v1/realtime/calls' || connectUrl.search ||
           connectUrl.hash || connectUrl.username || connectUrl.password) {
         throw new Error('untrusted_realtime_endpoint');
       }
@@ -5089,10 +5360,12 @@ export class SeoulCanvasAppElement extends CrLitElement {
         stream.getTracks().forEach(track => track.stop());
         return;
       }
+      this.microphoneLive_ = true;
       const peer = new RTCPeerConnection();
       const audio = new Audio();
       audio.autoplay = true;
       peer.ontrack = event => {
+        if (generation !== this.realtimeStartGeneration_) return;
         audio.srcObject = event.streams[0] ?? null;
         void audio.play().catch(() => {
           this.voiceError_ =
@@ -5107,19 +5380,30 @@ export class SeoulCanvasAppElement extends CrLitElement {
       };
       provisionalStream = undefined;
       peer.addEventListener('connectionstatechange', () => {
+        if (generation !== this.realtimeStartGeneration_) return;
         if (peer.connectionState === 'failed') {
           void this.failRealtimeVoice_(
               'The realtime voice connection failed.');
         } else if (peer.connectionState === 'disconnected') {
           this.setVoiceActivity_('connecting');
           this.routeLabel_ = 'Reconnecting';
+          if (!this.realtimeConnectionTimer_)
+            this.realtimeConnectionTimer_ = window.setTimeout(() => {
+              if (generation === this.realtimeStartGeneration_)
+                void this.failRealtimeVoice_('Voice lost its connection. Please reconnect.');
+            }, 10000);
         } else if (peer.connectionState === 'connected' &&
                    dataChannel.readyState === 'open' &&
                    this.voiceState_ === 'connecting') {
+          window.clearTimeout(this.realtimeConnectionTimer_);
+          this.realtimeConnectionTimer_ = 0;
           this.setVoiceActivity_('listening');
         }
       });
       dataChannel.addEventListener('open', () => {
+        if (generation !== this.realtimeStartGeneration_) return;
+        window.clearTimeout(this.realtimeConnectionTimer_);
+        this.realtimeConnectionTimer_ = 0;
         this.realtimeBaseInstructions_ = session.instructions ?? '';
         this.sendRealtimeEvent_({
           type: 'session.update',
@@ -5131,7 +5415,10 @@ export class SeoulCanvasAppElement extends CrLitElement {
         });
         this.setVoiceActivity_('listening');
       });
-      dataChannel.addEventListener('message', event => void this.handleRealtimeEvent_(String(event.data)));
+      dataChannel.addEventListener('message', event => {
+        if (generation === this.realtimeStartGeneration_)
+          void this.handleRealtimeEvent_(String(event.data));
+      });
       dataChannel.addEventListener('close', () => {
         if (this.realtimeConnection_?.dataChannel === dataChannel) {
           void this.failRealtimeVoice_(
@@ -5139,12 +5426,14 @@ export class SeoulCanvasAppElement extends CrLitElement {
         }
       });
       dataChannel.addEventListener('error', () => {
+        if (generation !== this.realtimeStartGeneration_) return;
         void this.failRealtimeVoice_(
             'The realtime voice data channel failed.');
       });
       const offer = await peer.createOffer();
+      if (generation !== this.realtimeStartGeneration_) return;
       await peer.setLocalDescription(offer);
-      connectUrl.searchParams.set('model', session.api_model);
+      if (generation !== this.realtimeStartGeneration_) return;
       const sdpResponse = await fetch(
           connectUrl.href,
           {method: 'POST', body: offer.sdp ?? '', headers: {
@@ -5155,6 +5444,7 @@ export class SeoulCanvasAppElement extends CrLitElement {
       if (!sdpResponse.ok) throw new Error(`realtime_sdp_${sdpResponse.status}`);
       const answerSdp =
           await this.readBoundedResponseText_(sdpResponse, 1024 * 1024);
+      if (generation !== this.realtimeStartGeneration_) return;
       await peer.setRemoteDescription({type: 'answer', sdp: answerSdp});
       if (generation === this.realtimeStartGeneration_) this.realtimeStarting_ = false;
     } catch (error) {

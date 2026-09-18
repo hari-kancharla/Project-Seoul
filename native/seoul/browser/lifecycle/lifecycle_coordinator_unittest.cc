@@ -250,6 +250,23 @@ TEST_F(LifecycleCoordinatorTest, ActivationOfUntrackedTabCreatesNoMembership) {
   EXPECT_EQ(0u, MembershipCount());
 }
 
+TEST_F(LifecycleCoordinatorTest, InsertedTabKeepsItsActualContainer) {
+  coordinator_.OnNormalizedEvent(WindowDiscovered(1));
+  const auto container = model_.CreateWorkspace("Work", true).value();
+  auto event = TabInserted(1, 10);
+  event.storage_workspace = container;
+  coordinator_.OnNormalizedEvent(event);
+  const auto id = model_.FindMembershipIdByTabKey(event.tab.value());
+  ASSERT_TRUE(id.is_valid());
+  EXPECT_EQ(container, model_.FindMembership(id)->workspace_id);
+  ASSERT_TRUE(model_.SetActiveWorkspaceForWindow(event.window.value(), container).has_value());
+  auto shared_tab = TabInserted(1, 11);
+  shared_tab.storage_workspace = WorkspaceId();
+  coordinator_.OnNormalizedEvent(shared_tab);
+  const auto shared = model_.FindMembershipIdByTabKey(shared_tab.tab.value());
+  EXPECT_EQ(model_.default_workspace(), model_.FindMembership(shared)->workspace_id);
+}
+
 TEST_F(LifecycleCoordinatorTest,
        GenuineCloseRemovesMembershipWithoutArchiving) {
   coordinator_.OnNormalizedEvent(WindowDiscovered(1));

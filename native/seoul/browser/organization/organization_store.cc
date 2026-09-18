@@ -39,6 +39,7 @@ base::DictValue WorkspaceToDict(const WorkspaceRecord& w) {
   d.Set("archived", w.archived);
   d.Set("is_default", w.is_default);
   d.Set("isolated", w.isolated);
+  d.Set("storage_boundary_locked", w.storage_boundary_locked);
   return d;
 }
 
@@ -257,6 +258,9 @@ MutationResult<OrganizationSnapshot> DeserializeSnapshot(
       // not isolated - never a default that would silently partition an
       // existing Space and hide everything already stored in it.
       w.isolated = d->FindBool("isolated").value_or(false);
+      // Older stores cannot prove that a Space has never held a tab.
+      w.storage_boundary_locked =
+          d->FindBool("storage_boundary_locked").value_or(true);
       snap.workspaces.push_back(std::move(w));
     }
   }

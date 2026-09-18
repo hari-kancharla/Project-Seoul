@@ -10,6 +10,9 @@ use std::collections::HashSet;
 
 struct Engine {
     inner: InnerEngine,
+    main: InnerEngine,
+    isolated_resources: Vec<Resource>,
+    main_resources: Vec<Resource>,
 }
 
 #[cxx::bridge(namespace = "seoul::adblock_rs")]
@@ -45,6 +48,7 @@ mod ffi {
         hide_selectors: Vec<String>,
         exceptions: Vec<String>,
         isolated_script: String,
+        main_world_script: String,
         procedural_actions: Vec<String>,
         generichide: bool,
     }
@@ -113,6 +117,9 @@ impl ResolvesDomain for DomainResolver {
 fn empty_engine() -> Box<Engine> {
     Box::new(Engine {
         inner: InnerEngine::default(),
+        main: InnerEngine::default(),
+        isolated_resources: Vec::new(),
+        main_resources: Vec::new(),
     })
 }
 
@@ -141,7 +148,7 @@ fn build_engine(
             };
         }
     };
-    let resources = match serde_json::from_str::<Vec<Resource>>(resources_json) {
+    let mut resources = match serde_json::from_str::<Vec<Resource>>(resources_json) {
         Ok(resources) => resources,
         Err(error) => {
             return ffi::EngineBuildResult {
@@ -152,12 +159,36 @@ fn build_engine(
         }
     };
 
+    // Resource implementations are compiled from a pinned pack. Remote rules can
+    // select them and provide arguments, but cannot supply code or permissions.
+    let upstream: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+        "../../../../third_party/ublock_scriptlets/resources.json"
+    )).expect("verified bundled scriptlet descriptors");
+    let reserved: HashSet<String> = resources.iter().flat_map(|r|
+        std::iter::once(r.name.clone()).chain(r.aliases.iter().cloned())).collect();
+    let mut main_resources = Vec::new();
+    for value in upstream {
+        let world = value["world"].as_str().unwrap_or("MAIN").to_owned();
+        let resource: Resource = serde_json::from_value(value).expect("bundled resource schema");
+        if world == "MAIN" || world == "BOTH" { main_resources.push(resource.clone()); }
+        if (world == "ISOLATED" || world == "BOTH") &&
+            !std::iter::once(&resource.name).chain(resource.aliases.iter()).any(|name| reserved.contains(name)) {
+            resources.push(resource);
+        }
+    }
     let mut filter_set = FilterSet::new(true);
     filter_set.add_filter_list(rules, Default::default());
     let mut inner = InnerEngine::from_filter_set(filter_set, true);
-    inner.use_resources(resources);
+    inner.use_resources(resources.clone());
+    // Avoid a second network engine: this engine owns only page-world scriptlet
+    // rules and their exceptions. Keep the engine's own parser/argument escaping.
+    let mut main_filters = FilterSet::new(true);
+    main_filters.add_filters(rules.lines().filter(|line|
+        line.contains("##+js(") || line.contains("#@#+js(")), Default::default());
+    let mut main = InnerEngine::from_filter_set(main_filters, true);
+    main.use_resources(main_resources.clone());
     ffi::EngineBuildResult {
-        value: Box::new(Engine { inner }),
+        value: Box::new(Engine { inner, main, isolated_resources: resources, main_resources }),
         status: ffi::BuildStatus::Success,
         error_message: String::new(),
     }
@@ -193,6 +224,7 @@ fn empty_cosmetic_resources() -> ffi::CosmeticResources {
         hide_selectors: Vec::new(),
         exceptions: Vec::new(),
         isolated_script: String::new(),
+        main_world_script: String::new(),
         procedural_actions: Vec::new(),
         generichide: false,
     }
@@ -276,6 +308,7 @@ impl Engine {
             hide_selectors,
             exceptions,
             isolated_script: resources.injected_script,
+            main_world_script: self.main.url_cosmetic_resources(url).injected_script,
             procedural_actions,
             generichide: resources.generichide,
         }
@@ -301,10 +334,31 @@ impl Engine {
     }
 
     fn serialize(&self) -> Vec<u8> {
-        self.inner.serialize()
+        let inner = self.inner.serialize();
+        let main = self.main.serialize();
+        let mut output = b"SEL2".to_vec();
+        output.extend_from_slice(&(inner.len() as u64).to_le_bytes());
+        output.extend(inner);
+        output.extend(main);
+        output
     }
 
     fn deserialize(&mut self, serialized: &CxxVector<u8>) -> bool {
-        self.inner.deserialize(serialized.as_slice()).is_ok()
+        let bytes = serialized.as_slice();
+        if bytes.len() < 12 || &bytes[..4] != b"SEL2" { return false; }
+        let size = u64::from_le_bytes(bytes[4..12].try_into().unwrap());
+        let Ok(size) = usize::try_from(size) else { return false; };
+        let Some(end) = size.checked_add(12) else { return false; };
+        if end > bytes.len() { return false; }
+        let mut inner = InnerEngine::default();
+        let mut main = InnerEngine::default();
+        if inner.deserialize(&bytes[12..end]).is_err() || main.deserialize(&bytes[end..]).is_err() {
+            return false;
+        }
+        inner.use_resources(self.isolated_resources.clone());
+        main.use_resources(self.main_resources.clone());
+        self.inner = inner;
+        self.main = main;
+        true
     }
 }

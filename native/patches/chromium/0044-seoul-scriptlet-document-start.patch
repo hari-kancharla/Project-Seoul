@@ -1,0 +1,11 @@
+--- a/chrome/renderer/chrome_content_renderer_client.cc
++++ b/chrome/renderer/chrome_content_renderer_client.cc
+@@ -1405,6 +1405,8 @@
+       render_frame);
+   // |render_frame| might be dead by now.
+ #endif
++  // The tracker lookup is safe after extension code detaches a frame.
++  seoul::renderer::CosmeticFilterAgent::RunAtDocumentStart(render_frame);
+ }
+ 
+ void ChromeContentRendererClient::RunScriptsAtDocumentEnd(

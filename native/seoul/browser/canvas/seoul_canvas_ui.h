@@ -55,6 +55,8 @@ class SeoulCanvasUI : public TopChromeWebUIController,
   void CreatePageHandler(
       mojo::PendingRemote<canvas::mojom::Page> page,
       mojo::PendingReceiver<canvas::mojom::PageHandler> handler) override;
+  void ShowUI(ShowUICallback callback) override;
+  void CloseUI() override;
 
   static constexpr std::string_view GetWebUIName() { return "SeoulCanvas"; }
 

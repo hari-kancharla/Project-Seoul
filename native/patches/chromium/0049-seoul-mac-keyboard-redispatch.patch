@@ -1,0 +1,17 @@
+diff --git a/ui/base/cocoa/command_dispatcher.mm b/ui/base/cocoa/command_dispatcher.mm
+--- a/ui/base/cocoa/command_dispatcher.mm
++++ b/ui/base/cocoa/command_dispatcher.mm
+@@ -189,7 +189,12 @@
+   TRACE_EVENT2("ui", "CommandDispatcher::redispatchKeyEvent", "window num",
+                _owner.windowNumber, "event window num",
+                event.window.windowNumber);
+-  DCHECK(!_isRedispatchingKeyEvent);
++  // AppKit may synchronously return an unhandled renderer event to this
++  // window before sendEvent: unwinds. Do not offer that event to AppKit again:
++  // a debug-only assertion allows an infinite native redispatch loop in release.
++  if (_isRedispatchingKeyEvent) {
++    return NO;
++  }
+   base::AutoReset<BOOL> resetter(&_isRedispatchingKeyEvent, YES);
+ 
+   DCHECK(event);

@@ -1,13 +1,9 @@
 // Copyright 2026 The Project Seoul Authors
 // Use of this source code is governed by the MPL-2.0 licence.
 //
-// The parse-and-clamp logic behind this dialog is pure and tested directly in
-// seoul/browser/handset/viewport_math_unittest.cc as ResolveCustomHandsetSize
-// - DialogModelTextfield's text can only be set through a
-// base::PassKey<DialogModelFieldHost> gate meant for the real Views host, so
-// a test cannot simulate typing into the live dialog. What is left to prove
-// here is the model's own shape: real accessible labels, and that it prefills
-// from the live size rather than always starting blank.
+// The model preserves accessible labels and initial values. Native browser
+// tests type invalid and valid values into the real dialog, verify the Apply
+// state, and check that the resulting dimensions reach the preview page.
 
 #include "seoul/browser/product/browser/seoul_handset_size_dialog.h"
 
@@ -26,7 +22,7 @@ TEST(SeoulHandsetSizeDialogTest, FieldsHaveAccessibleLabelsAndPrefill) {
   ASSERT_TRUE(model);
 
   const auto& fields = model->contents()->fields();
-  ASSERT_EQ(fields.size(), 2u);
+  ASSERT_EQ(fields.size(), 3u);
   ui::DialogModelTextfield* const width_field = fields[0]->AsTextfield();
   ui::DialogModelTextfield* const height_field = fields[1]->AsTextfield();
   ASSERT_TRUE(width_field);

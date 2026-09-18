@@ -14,6 +14,15 @@ is_debug = false
 # use a separately verified non-component build.
 is_component_build = true
 
+# Run the product with Chromium's normal feature defaults. Unbranded builds
+# otherwise load testing/variations/fieldtrial_testing_config.json, which
+# enables upstream experimental UI (including macOS WebUIReloadButtonStudy).
+# Those experiments can replace parts of Seoul's native toolbar at startup,
+# while automated launchers silently disable them. Product behavior must not
+# depend on an upstream testing experiment set. This does not disable runtime
+# feature flags, site isolation, or browser protection defaults.
+disable_fieldtrial_testing_config = true
+
 # No debug symbols: smaller output, much lower link memory and disk use.
 symbol_level = 0
 

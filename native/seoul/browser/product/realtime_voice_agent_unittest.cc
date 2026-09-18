@@ -87,7 +87,7 @@ TEST(RealtimeVoiceAgentTest, MintsClientSecretForSingleVoiceAgentContract) {
   EXPECT_EQ(*client_secret, "ek_test");
   EXPECT_EQ(*api_model, kSeoulRealtimeVoiceApiModel);
   EXPECT_EQ(*product_target, kSeoulRealtimeVoiceProductTarget);
-  EXPECT_EQ(*connect_url, RealtimeOriginForTesting() + "/v1/realtime");
+  EXPECT_EQ(*connect_url, RealtimeOriginForTesting() + "/v1/realtime/calls");
 
   EXPECT_EQ(transport.start_count(), 1);
   EXPECT_EQ(transport.last_request().method, "POST");

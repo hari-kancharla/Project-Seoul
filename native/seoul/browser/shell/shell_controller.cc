@@ -300,7 +300,8 @@ ShellResult<WorkspaceId> ShellController::SwitchWorkspace(WorkspaceId target) {
   if (shutting_down_ || !projection_service_) {
     return ShellErr(ShellError::kInvalidWindow);
   }
-  if (target.is_valid() && target == snapshot_.workspace.workspace_id) {
+  if (target.is_valid() && target == snapshot_.workspace.workspace_id &&
+      snapshot_.status != ShellStatus::kFailOpen) {
     return target;
   }
   WorkspaceSwitcher* switcher = projection_service_->GetSwitcher(window_);
@@ -314,6 +315,31 @@ ShellResult<WorkspaceId> ShellController::SwitchWorkspace(WorkspaceId target) {
   }
   if (result->phase == WorkspaceSwitchPhase::kAwaitingActivation) {
     return target;
+  }
+  if (snapshot_.status == ShellStatus::kFailOpen && model_) {
+    const auto active_id =
+        model_->FindMembershipIdByTabKey(live_.active_tab.value());
+    const auto* active = model_->FindMembership(active_id);
+    bool target_has_live_tab = false;
+    for (const auto& tab : live_.tabs) {
+      if (tab.is_new_tab_placeholder)
+        continue;
+      const auto id = model_->FindMembershipIdByTabKey(tab.tab.value());
+      const auto* membership = model_->FindMembership(id);
+      if (membership && membership->workspace_id == target) {
+        target_has_live_tab = true;
+        break;
+      }
+    }
+    // An empty destination has no tab for WorkspaceSwitcher to activate. Keep
+    // the old Space's page and membership intact, and create the destination's
+    // first tab through the normal partition-aware browser command. Merely
+    // hiding the recovery banner would leave the old account/page selected.
+    // Missing memberships and failures in a nonempty Space still fail open.
+    if (!target_has_live_tab && active && active->workspace_id != target) {
+      if (!OpenNewTemporaryTab().has_value())
+        return ShellErr(ShellError::kSwitchFailed);
+    }
   }
   return target;
 }
@@ -472,7 +498,21 @@ ShellStatusResult ShellController::AcknowledgeRecovery() {
 ShellStatusResult ShellController::RunUtilityAction(ShellUtilityAction action) {
   switch (action) {
     case ShellUtilityAction::kNewTemporaryTab:
+      // User-facing creation follows the window's normal New Tab command.
+      // Internal callers such as empty-Space initialization still create the
+      // actual tab directly through OpenNewTemporaryTab().
+      if (new_tab_input_callback_) {
+        return !shutting_down_ && new_tab_input_callback_.Run()
+                   ? ShellOk()
+                   : ShellErr(ShellError::kCommandRejected);
+      }
       return OpenNewTemporaryTab();
+    case ShellUtilityAction::kNewWorkspace:
+    case ShellUtilityAction::kNewContainerWorkspace:
+      return !shutting_down_ && create_workspace_callback_ &&
+                     create_workspace_callback_.Run(
+                         action == ShellUtilityAction::kNewContainerWorkspace)
+                 ? ShellOk() : ShellErr(ShellError::kCommandRejected);
     case ShellUtilityAction::kOpenCanvas:
     case ShellUtilityAction::kOpenTaskDeck:
       // Task Deck and Canvas share the single Canvas side-panel entry today, so
@@ -510,6 +550,16 @@ ShellStatusResult ShellController::RunUtilityAction(ShellUtilityAction action) {
       return ShellErr(ShellError::kCommandRejected);
   }
   return ShellErr(ShellError::kCommandRejected);
+}
+
+void ShellController::SetNewTabInputCallback(
+    base::RepeatingCallback<bool()> callback) {
+  new_tab_input_callback_ = std::move(callback);
+}
+
+void ShellController::SetCreateWorkspaceCallback(
+    base::RepeatingCallback<bool(bool)> callback) {
+  create_workspace_callback_ = std::move(callback);
 }
 
 void ShellController::SetBrowserPageCallbacks(

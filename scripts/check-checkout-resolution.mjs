@@ -26,14 +26,21 @@ const OWNERS = new Set([
   'scripts/check-checkout-resolution.mjs',
 ]);
 
-const tracked = execFileSync('git', ['-C', repoRoot, 'ls-files', '*.mjs', '*.js', '*.sh'], {
-  encoding: 'utf8',
-})
+// Every script that will be committed, not only the ones already tracked: a new
+// script is where a hand-rolled checkout path arrives, and until its first commit
+// this guard never read it. A tracked script deleted from the working tree has
+// nothing left to re-derive the location, and reading it crashed the guard.
+const scripts = execFileSync(
+  'git',
+  ['-C', repoRoot, 'ls-files', '--cached', '--others', '--exclude-standard', '*.mjs', '*.js', '*.sh'],
+  { encoding: 'utf8' },
+)
   .split('\n')
-  .filter(Boolean);
+  .filter(Boolean)
+  .filter((rel) => fs.existsSync(path.join(repoRoot, rel)));
 
 const offenders = [];
-for (const rel of tracked) {
+for (const rel of scripts) {
   // A test may name the directory in a fixture path: that is an expected
   // input to the resolver, not a second copy of it.
   if (OWNERS.has(rel) || /\.test\.mjs$|\/tests?\//.test(rel)) {
@@ -65,6 +72,6 @@ if (offenders.length > 0) {
 }
 
 console.log(
-  `checkout-resolution: OK (${tracked.length} scripts checked, ` +
+  `checkout-resolution: OK (${scripts.length} scripts checked, ` +
     `${OWNERS.size - 1} owners of the rule)`,
 );

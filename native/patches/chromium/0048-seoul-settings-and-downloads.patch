@@ -1,0 +1,1017 @@
+diff --git a/chrome/browser/extensions/api/settings_private/prefs_util.cc b/chrome/browser/extensions/api/settings_private/prefs_util.cc
+--- a/chrome/browser/extensions/api/settings_private/prefs_util.cc
++++ b/chrome/browser/extensions/api/settings_private/prefs_util.cc
+@@ -244,6 +244,9 @@
+       settings_api::PrefType::kBoolean;
+   (*s_allowlist)[::prefs::kSidePanelHorizontalAlignment] =
+       settings_api::PrefType::kBoolean;
++  (*s_allowlist)["seoul.appearance.layout_mode"] = settings_api::PrefType::kNumber;
++  (*s_allowlist)["seoul.urlbar.show_domain_only_in_sidebar"] = settings_api::PrefType::kBoolean;
++  (*s_allowlist)["seoul.downloads.download_animation"] = settings_api::PrefType::kBoolean;
+   (*s_allowlist)[::prefs::kVerticalTabsEnabled] =
+       settings_api::PrefType::kBoolean;
+   (*s_allowlist)[::prefs::kVerticalTabsExpandOnHoverEnabled] =
+diff --git a/chrome/browser/resources/downloads/item.css b/chrome/browser/resources/downloads/item.css
+--- a/chrome/browser/resources/downloads/item.css
++++ b/chrome/browser/resources/downloads/item.css
+@@ -33,16 +33,19 @@
+   font-weight: 500;
+   margin: 0;
+   min-width: auto;
++  border-radius: 8px;
+ }
+ 
+ #date {
+-  font-size: 0.875rem;
+-  font-weight: 400;
+   letter-spacing: .25px;
+   margin: 21px auto 6px;
+   padding-bottom: 4px;
+   padding-top: 8px;
+   width: var(--downloads-card-width);
++  color: var(--cr-secondary-text-color);
++  font-size: 12px;
++  font-weight: 600;
++  margin-top: 22px;
+ }
+ 
+ #date:empty {
+@@ -55,6 +58,8 @@
+   min-height: 75px;
+   width: var(--downloads-card-width);
+   max-width: calc(100% - 2 * var(--downloads-card-margin));
++  border: 1px solid var(--seoul-line);
++  box-sizing: border-box;
+ }
+ 
+ #main-content {
+@@ -63,8 +68,8 @@
+ }
+ 
+ #content.is-active {
+-  background-color: var(--cr-card-background-color);
+-  box-shadow: var(--cr-card-shadow);
++  background-color: var(--seoul-surface);
++  box-shadow: none;
+ }
+ 
+ @media (prefers-color-scheme: light) {
+@@ -99,7 +104,7 @@
+   }
+ }
+ 
+-#content:not(.is-active) #name {
++#content:not(.is-active):not(.show-progress) #name {
+   text-decoration: line-through;
+ }
+ 
+@@ -312,3 +317,17 @@
+ #deepScan {
+   margin-inline-end: 8px;
+ }
++
++#content:not(.is-active) {
++  background: transparent;
++}
++
++@media (max-width: 520px) {
++  .icon-wrapper {
++    margin: 18px 8px;
++  }
++
++  #details {
++    padding-inline: 8px;
++  }
++}
+diff --git a/chrome/browser/resources/downloads/manager.css b/chrome/browser/resources/downloads/manager.css
+--- a/chrome/browser/resources/downloads/manager.css
++++ b/chrome/browser/resources/downloads/manager.css
+@@ -20,6 +20,18 @@
+   height: 100%;
+   overflow: hidden;
+   z-index: 0;
++  background: var(--seoul-page);
++  color: var(--cr-primary-text-color);
++  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
++  --seoul-page: #f7f9fc;
++  --seoul-surface: #fff;
++  --seoul-line: #dce4ed;
++  --cr-primary-text-color: #172d42;
++  --cr-secondary-text-color: #51667b;
++  --cr-link-color: #14699c;
++  --cr-card-border-radius: 10px;
++  --cr-card-background-color: var(--seoul-surface);
++  --cr-card-shadow: none;
+ }
+ 
+ @media (prefers-color-scheme: dark) {
+@@ -39,9 +51,9 @@
+ downloads-item,
+ #downloadsList,
+ cr-toast-manager {
+-  --downloads-card-margin: 24px;
+-  --downloads-card-width: clamp(550px, 80%, 680px);
+   --cr-toast-max-width: var(--downloads-card-width);
++  --downloads-card-margin: 16px;
++  --downloads-card-width: min(924px, calc(100% - 32px));
+ }
+ 
+ #downloadsList {
+@@ -61,14 +73,15 @@
+ 
+ #no-downloads {
+   align-items: center;
+-  color: #6e6e6e;
+   display: flex;
+   font-size: 123.1%;
+   font-weight: 500;
+   justify-content: center;
+   /* To avoid overlapping with the header, we need this min-height
+    * until bug 596743 is fixed. */
+-  min-height: min-content;
++  color: var(--cr-secondary-text-color);
++  min-height: 260px;
++  text-align: center;
+ }
+ 
+ @media (prefers-color-scheme: dark) {
+@@ -78,11 +91,15 @@
+ }
+ 
+ #no-downloads .illustration {
+-  background: url(images/no_downloads.svg) no-repeat
+-      center center;
+-  background-size: contain;
+-  height: 144px;
+-  margin-bottom: 32px;
++  align-items: center;
++  background: var(--seoul-surface);
++  border: 1px solid var(--seoul-line);
++  border-radius: 14px;
++  display: flex;
++  height: 72px;
++  justify-content: center;
++  margin: 0 auto 22px;
++  width: 72px;
+ }
+ 
+ #mainContainer {
+@@ -91,6 +108,9 @@
+   flex-direction: column;
+   height: 100%;
+   overflow-y: overlay;
++  border-top: 1px solid var(--seoul-line);
++  min-height: 0;
++  padding-bottom: 24px;
+ }
+ 
+ managed-footnote {
+@@ -108,3 +128,26 @@
+    * is clickable. */
+   z-index: 1;
+ }
++
++#downloadsList,
++managed-footnote {
++  min-width: 0;
++}
++
++#no-downloads .illustration::after {
++  color: var(--cr-link-color);
++  content: '↓';
++  font-size: 34px;
++  font-weight: 400;
++}
++
++@media (prefers-color-scheme: dark) {
++  :host {
++    --seoul-page: #141d27;
++    --seoul-surface: #1e2b39;
++    --seoul-line: #344454;
++    --cr-primary-text-color: #e8f1fa;
++    --cr-secondary-text-color: #adc0d2;
++    --cr-link-color: #83caff;
++  }
++}
+diff --git a/chrome/browser/resources/downloads/manager.html.ts b/chrome/browser/resources/downloads/manager.html.ts
+--- a/chrome/browser/resources/downloads/manager.html.ts
++++ b/chrome/browser/resources/downloads/manager.html.ts
+@@ -48,7 +48,7 @@
+   </cr-infinite-list>
+   <div id="no-downloads" ?hidden="${this.hasDownloads_}">
+     <div>
+-      <div class="illustration"></div>
++      <div class="illustration" aria-hidden="true"></div>
+       <span>${this.noDownloadsText_()}</span>
+     </div>
+   </div>
+diff --git a/chrome/browser/resources/downloads/toolbar.css b/chrome/browser/resources/downloads/toolbar.css
+--- a/chrome/browser/resources/downloads/toolbar.css
++++ b/chrome/browser/resources/downloads/toolbar.css
+@@ -10,16 +10,72 @@
+  * #css_wrapper_metadata_end */
+ 
+ :host {
++  display: flex;
++  align-items: stretch;
++  box-sizing: border-box;
++  flex-direction: column;
++  gap: 22px;
++  margin-inline: auto;
++  max-width: 980px;
++  padding: 30px 28px 22px;
++  width: 100%;
++}
++
++.eyebrow {
++  color: var(--cr-secondary-text-color);
++  font-size: 12px;
++  font-weight: 600;
++  letter-spacing: .08em;
++}
++
++h1 {
++  color: var(--cr-primary-text-color);
++  font-size: 28px;
++  font-weight: 600;
++  letter-spacing: -.5px;
++  line-height: 1.3;
++  margin: 6px 0 0;
++}
++
++.actions {
+   align-items: center;
+   display: flex;
+-  min-height: 56px;
++  flex-wrap: wrap;
++  gap: 12px;
+ }
+ 
+-#toolbar {
+-  flex: 1;
+-  min-width: 0;
++#search {
++  flex: 1 1 260px;
++  --cr-toolbar-field-width: 100%;
++  --cr-toolbar-search-field-background: var(--seoul-surface);
++  --cr-toolbar-search-field-input-text-color: var(--cr-primary-text-color);
++  --cr-toolbar-search-field-prompt-color: var(--cr-secondary-text-color);
++  --cr-toolbar-search-field-input-icon-color: var(--cr-secondary-text-color);
++}
++
++.settings-link {
++  border-radius: 8px;
++  color: var(--cr-link-color);
++  font-size: 13px;
++  padding: 8px;
++  text-decoration: none;
++}
++
++.settings-link:hover {
++  background: var(--seoul-line);
+ }
+ 
+ #clearAll {
+   white-space: nowrap;
++  border-radius: 8px;
+ }
++
++@media (max-width: 520px) {
++  :host {
++    padding: 22px 16px 16px;
++  }
++
++  #search {
++    flex-basis: 100%;
++  }
++}
+diff --git a/chrome/browser/resources/downloads/toolbar.html.ts b/chrome/browser/resources/downloads/toolbar.html.ts
+--- a/chrome/browser/resources/downloads/toolbar.html.ts
++++ b/chrome/browser/resources/downloads/toolbar.html.ts
+@@ -8,14 +8,20 @@
+ 
+ export function getHtml(this: DownloadsToolbarElement) {
+   return html`<!--_html_template_start_-->
+-<cr-toolbar id="toolbar" page-name="$i18n{title}" autofocus
+-    hide-product-logo
+-    search-prompt="$i18n{search}" clear-label="$i18n{clearSearch}"
+-    .spinnerActive="${this.spinnerActive}"
+-    @search-changed="${this.onSearchChanged_}">
++<div class="heading">
++  <div class="eyebrow">Seoul</div>
++  <h1>$i18n{title}</h1>
++</div>
++<div class="actions">
++  <cr-toolbar-search-field id="search" autofocus
++      label="$i18n{search}" clear-label="$i18n{clearSearch}"
++      .spinnerActive="${this.spinnerActive}"
++      @search-changed="${this.onSearchChanged_}">
++  </cr-toolbar-search-field>
++  <a class="settings-link" href="chrome://settings/downloads">Download settings</a>
+   <cr-button id="clearAll" @click="${this.onClearAllClick_}">
+     $i18n{clearAll}
+   </cr-button>
+-</cr-toolbar>
++</div>
+ <!--_html_template_end_-->`;
+ }
+diff --git a/chrome/browser/resources/downloads/toolbar.ts b/chrome/browser/resources/downloads/toolbar.ts
+--- a/chrome/browser/resources/downloads/toolbar.ts
++++ b/chrome/browser/resources/downloads/toolbar.ts
+@@ -3,14 +3,14 @@
+ // found in the LICENSE file.
+ 
+ import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+-import 'chrome://resources/cr_elements/cr_toolbar/cr_toolbar.js';
++import 'chrome://resources/cr_elements/cr_toolbar/cr_toolbar_search_field.js';
+ import 'chrome://resources/cr_elements/icons.html.js';
+ import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
+ import 'chrome://resources/js/util.js';
+ import '/strings.m.js';
+ 
+ import {getToastManager} from 'chrome://resources/cr_elements/cr_toast/cr_toast_manager.js';
+-import type {CrToolbarElement} from 'chrome://resources/cr_elements/cr_toolbar/cr_toolbar.js';
++import type {CrToolbarSearchFieldElement} from 'chrome://resources/cr_elements/cr_toolbar/cr_toolbar_search_field.js';
+ import {assert} from 'chrome://resources/js/assert.js';
+ import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
+ import {CrLitElement} from 'chrome://resources/lit/v3_0/lit.rollup.js';
+@@ -26,7 +26,7 @@
+ export interface DownloadsToolbarElement {
+   $: {
+     clearAll: HTMLElement,
+-    toolbar: CrToolbarElement,
++    search: CrToolbarSearchFieldElement,
+   };
+ }
+ 
+@@ -80,15 +80,15 @@
+ 
+   /** @return The full text being searched. */
+   getSearchText(): string {
+-    return this.$.toolbar.getSearchField().getValue();
++    return this.$.search.getValue();
+   }
+ 
+   focusOnSearchInput() {
+-    this.$.toolbar.getSearchField().showAndFocus();
++    this.$.search.showAndFocus();
+   }
+ 
+   isSearchFocused(): boolean {
+-    return this.$.toolbar.getSearchField().isSearchFocused();
++    return this.$.search.isSearchFocused();
+   }
+ 
+   protected onClearAllClick_(e: Event) {
+diff --git a/chrome/browser/resources/settings/appearance_page/appearance_page.html b/chrome/browser/resources/settings/appearance_page/appearance_page.html
+--- a/chrome/browser/resources/settings/appearance_page/appearance_page.html
++++ b/chrome/browser/resources/settings/appearance_page/appearance_page.html
+@@ -33,9 +33,107 @@
+         padding-inline-start: 0;
+       }
+ 
++      .seoul-layouts {
++        container-type: inline-size;
++        padding: 20px;
++      }
++
++      .seoul-layouts h3 {
++        font-size: 15px;
++        margin: 0 0 6px;
++      }
++
++      .seoul-layouts p {
++        color: var(--cr-secondary-text-color);
++        margin: 0 0 16px;
++      }
++
++      .seoul-layout-choice {
++        border: 1px solid var(--seoul-line);
++        border-radius: 10px;
++        box-sizing: border-box;
++        margin: 4px 0;
++        padding: 12px;
++      }
++
++      .seoul-layout-choice[checked] {
++        background: var(--seoul-selected);
++        border-color: var(--cr-link-color);
++      }
++
++      .seoul-layout-choice::part(labelWrapper) {
++        align-items: flex-start;
++        display: flex;
++        flex: 1;
++        flex-direction: column;
++        gap: 6px;
++        min-width: 0;
++      }
++
++      .seoul-layout-preview {
++        background: var(--seoul-surface);
++        border: 1px solid var(--seoul-line);
++        border-radius: 6px;
++        display: inline-grid;
++        flex: 0 0 76px;
++        grid-template-columns: 22px 1fr;
++        height: 44px;
++        margin-inline: 12px;
++        overflow: hidden;
++        vertical-align: middle;
++        width: 76px;
++      }
++
++      .seoul-layout-preview::before {
++        background: var(--seoul-selected);
++        border-inline-end: 1px solid var(--seoul-line);
++        content: '';
++      }
++
++      .seoul-layout-preview.top {
++        border-top: 8px solid var(--seoul-line);
++        height: 37px;
++      }
++
++      .seoul-layout-preview.compact {
++        grid-template-columns: 8px 1fr;
++      }
++
++      @container (max-width: 340px) {
++        .seoul-layout-preview {
++          display: none;
++        }
++      }
+     </style>
+     <settings-section page-title="$i18n{appearancePageTitle}">
+       <div route-path="default">
++        <section class="seoul-layouts" aria-labelledby="seoulLayoutTitle">
++          <h3 id="seoulLayoutTitle">Browser layout</h3>
++          <p>Choose where your address bar and tabs live.</p>
++          <settings-radio-group id="seoulLayout" group-aria-label="Browser layout"
++              pref="{{prefs.seoul.appearance.layout_mode}}">
++            <controlled-radio-button class="seoul-layout-choice" name="0"
++                pref="[[prefs.seoul.appearance.layout_mode]]" label="Sidebar">
++              <span class="seoul-layout-preview" aria-hidden="true" slot="additional-content"></span>
++              Address bar and tabs together
++            </controlled-radio-button>
++            <controlled-radio-button class="seoul-layout-choice" name="1"
++                pref="[[prefs.seoul.appearance.layout_mode]]" label="Top toolbar">
++              <span class="seoul-layout-preview top" aria-hidden="true" slot="additional-content"></span>
++              Address bar above your page
++            </controlled-radio-button>
++            <controlled-radio-button class="seoul-layout-choice" name="2"
++                pref="[[prefs.seoul.appearance.layout_mode]]" label="Compact sidebar">
++              <span class="seoul-layout-preview top compact" aria-hidden="true" slot="additional-content"></span>
++              More room for your page
++            </controlled-radio-button>
++          </settings-radio-group>
++        </section>
++        <settings-toggle-button class="hr" id="seoulDomainOnly"
++            pref="{{prefs.seoul.urlbar.show_domain_only_in_sidebar}}"
++            label="Show only the site name in the sidebar address bar"
++            sub-label="The full address appears when you edit it.">
++        </settings-toggle-button>
+         <div class="settings-row first" id="themeRow"
+             hidden="[[!pageVisibility.setTheme]]">
+           <cr-link-row id="openTheme" class="first"
+diff --git a/chrome/browser/resources/settings/downloads_page/downloads_page.html b/chrome/browser/resources/settings/downloads_page/downloads_page.html
+--- a/chrome/browser/resources/settings/downloads_page/downloads_page.html
++++ b/chrome/browser/resources/settings/downloads_page/downloads_page.html
+@@ -50,4 +50,9 @@
+           label="$i18n{showDownloadsWhenFinished}">
+       </settings-toggle-button>
+     </template>
++    <settings-toggle-button class="hr" id="seoulDownloadAnimation"
++        pref="{{prefs.seoul.downloads.download_animation}}"
++        label="Animate downloads toward the sidebar"
++        sub-label="Show where to find a file when a download begins.">
++    </settings-toggle-button>
+   </settings-section>
+diff --git a/chrome/browser/resources/settings/route.ts b/chrome/browser/resources/settings/route.ts
+--- a/chrome/browser/resources/settings/route.ts
++++ b/chrome/browser/resources/settings/route.ts
+@@ -361,7 +361,7 @@
+ // Returns the "effective" route when at chrome://settings/.
+ export function getTopLevelRoute(): Route {
+   if (!loadTimeData.getBoolean('isGuest')) {
+-    return routes.PEOPLE;
++    return routes.APPEARANCE;
+   }
+ 
+   let guestTopLevelRoute = routes.SEARCH;
+diff --git a/chrome/browser/resources/settings/settings_menu/settings_menu.html b/chrome/browser/resources/settings/settings_menu/settings_menu.html
+--- a/chrome/browser/resources/settings/settings_menu/settings_menu.html
++++ b/chrome/browser/resources/settings/settings_menu/settings_menu.html
+@@ -39,39 +39,59 @@
+           border-bottom: var(--cr-separator-line);  /* override */
+         }
+       }
++      .cr-nav-menu-item {
++        --cr-nav-menu-item-color: var(--cr-primary-text-color);
++        --cr-nav-menu-item-color-selected: var(--cr-primary-text-color);
++        --cr-nav-menu-item-bg-color-hover: var(--seoul-selected);
++        --cr-nav-menu-item-bg-color-selected: var(--seoul-selected);
++        --cr-nav-menu-item-icon-color: var(--cr-secondary-text-color);
++        --cr-nav-menu-item-icon-color-hover: var(--cr-primary-text-color);
++        --cr-nav-menu-item-icon-color-selected: var(--cr-link-color);
++        border-radius: 8px;
++        font-size: 13px;
++        line-height: 20px;
++        margin: 2px 0;
++        min-height: 38px;
++        padding-inline: 12px;
++      }
++
++      .cr-nav-menu-item[selected] {
++        background: var(--seoul-selected);
++        color: var(--cr-primary-text-color);
++        font-weight: 600;
++      }
++
++      .cr-nav-menu-item:focus-visible {
++        outline: 2px solid var(--cr-link-color);
++        outline-offset: -2px;
++      }
++
++      .menu-separator {
++        border-color: var(--seoul-line);
++      }
++      .category-label {
++        color: var(--cr-secondary-text-color);
++        font-size: 11px;
++        font-weight: 600;
++        letter-spacing: .02em;
++        padding: 20px 12px 6px;
++      }
++
++      .category-label:first-child {
++        padding-top: 0;
++      }
+     </style>
+ 
+     <div role="navigation">
+       <cr-menu-selector id="menu" selectable="a:not(#extensionsLink)"
+           attr-for-selected="href" on-iron-activate="onSelectorActivate_"
+           on-click="onLinkClick_" selected-attribute="selected">
+-        <a role="menuitem"
+-            id="people" href="/people" hidden="[[!pageVisibility_.people]]"
+-            class="cr-nav-menu-item">
+-<if expr="not _google_chrome">
+-          <cr-icon icon="settings:person"></cr-icon>
+-</if>
+-<if expr="_google_chrome">
+-          <cr-icon icon="settings-internal:google-g"></cr-icon>
+-</if>
+-          $i18n{peoplePageTitle}
+-          <cr-ripple></cr-ripple>
+-        </a>
+-        <a role="menuitem" id="autofill" href="/autofill"
+-            on-click="onAutofillClick_"
+-            class="cr-nav-menu-item"
+-            hidden="[[!showAutofillMenuItem_(
+-                enableYourSavedInfoSettingsPage_,
+-                pageVisibility_.yourSavedInfo, pageVisibility_.autofill)]]">
+-          <cr-icon icon="settings:assignment"></cr-icon>
+-          $i18n{autofillPageTitle}
+-          <cr-ripple></cr-ripple>
+-        </a>
+-        <a role="menuitem" href="/privacy"
+-            hidden="[[!pageVisibility_.privacy]]"
+-            class="cr-nav-menu-item">
+-          <cr-icon icon="settings:security"></cr-icon>
+-          $i18n{privacyPageTitle}
++        <div class="category-label" role="presentation">Browser</div>
++        <a role="menuitem" id="appearance" href="/appearance"
++            hidden="[[!pageVisibility_.appearance]]"
++            class="cr-nav-menu-item">
++          <cr-icon icon="settings:palette"></cr-icon>
++          $i18n{appearancePageTitle}
+           <cr-ripple></cr-ripple>
+         </a>
+         <a role="menuitem" id="performance" href="/performance"
+@@ -81,24 +101,16 @@
+           $i18n{performancePageTitle}
+           <cr-ripple></cr-ripple>
+         </a>
+-        <a role="menuitem" href="/ai"
+-            hidden="[[!showAiPageMenuItem_(showAiPage_, pageVisibility_.ai)]]"
+-            on-click="onAiPageClick_"
+-            class="cr-nav-menu-item">
+-          <cr-icon icon="settings20:magic"></cr-icon>
+-          $i18n{aiInnovationsPageTitle}
+-          <cr-ripple></cr-ripple>
+-        </a>
+-        <a role="menuitem" id="appearance" href="/appearance"
+-            hidden="[[!pageVisibility_.appearance]]"
+-            class="cr-nav-menu-item">
+-          <cr-icon icon="settings:palette"></cr-icon>
+-          $i18n{appearancePageTitle}
+-          <cr-ripple></cr-ripple>
+-        </a>
+         <a role="menuitem" href="/search" class="cr-nav-menu-item">
+           <cr-icon icon="settings:search"></cr-icon>
+           $i18n{searchPageTitle}
++          <cr-ripple></cr-ripple>
++        </a>
++        <a role="menuitem" id="onStartup" href="/onStartup"
++            class="cr-nav-menu-item"
++            hidden="[[!pageVisibility_.onStartup]]">
++          <cr-icon icon="settings:power-settings"></cr-icon>
++          $i18n{onStartup}
+           <cr-ripple></cr-ripple>
+         </a>
+ <if expr="not is_chromeos">
+@@ -110,14 +122,52 @@
+           <cr-ripple></cr-ripple>
+         </a>
+ </if>
+-        <a role="menuitem" id="onStartup" href="/onStartup"
+-            class="cr-nav-menu-item"
+-            hidden="[[!pageVisibility_.onStartup]]">
+-          <cr-icon icon="settings:power-settings"></cr-icon>
+-          $i18n{onStartup}
+-          <cr-ripple></cr-ripple>
+-        </a>
+-        <div class="menu-separator"></div>
++        <div class="category-label" role="presentation">Privacy and accounts</div>
++        <a role="menuitem" href="/privacy"
++            hidden="[[!pageVisibility_.privacy]]"
++            class="cr-nav-menu-item">
++          <cr-icon icon="settings:security"></cr-icon>
++          $i18n{privacyPageTitle}
++          <cr-ripple></cr-ripple>
++        </a>
++        <a role="menuitem"
++            id="people" href="/people" hidden="[[!pageVisibility_.people]]"
++            class="cr-nav-menu-item">
++<if expr="not _google_chrome">
++          <cr-icon icon="settings:person"></cr-icon>
++</if>
++<if expr="_google_chrome">
++          <cr-icon icon="settings-internal:google-g"></cr-icon>
++</if>
++          $i18n{peoplePageTitle}
++          <cr-ripple></cr-ripple>
++        </a>
++        <a role="menuitem" id="autofill" href="/autofill"
++            on-click="onAutofillClick_"
++            class="cr-nav-menu-item"
++            hidden="[[!showAutofillMenuItem_(
++                enableYourSavedInfoSettingsPage_,
++                pageVisibility_.yourSavedInfo, pageVisibility_.autofill)]]">
++          <cr-icon icon="settings:assignment"></cr-icon>
++          $i18n{autofillPageTitle}
++          <cr-ripple></cr-ripple>
++        </a>
++        <a role="menuitem" href="/ai"
++            hidden="[[!showAiPageMenuItem_(showAiPage_, pageVisibility_.ai)]]"
++            on-click="onAiPageClick_"
++            class="cr-nav-menu-item">
++          <cr-icon icon="settings20:magic"></cr-icon>
++          $i18n{aiInnovationsPageTitle}
++          <cr-ripple></cr-ripple>
++        </a>
++        <div class="category-label" role="presentation">Files and accessibility</div>
++        <a role="menuitem" id="downloads" href="/downloads"
++            class="cr-nav-menu-item"
++            hidden="[[!pageVisibility_.downloads]]">
++          <cr-icon icon="settings:download"></cr-icon>
++          $i18n{downloadsPageTitle}
++          <cr-ripple></cr-ripple>
++        </a>
+         <a role="menuitem" id="languages" href="/languages"
+             class="cr-nav-menu-item"
+             hidden="[[!pageVisibility_.languages]]">
+@@ -125,13 +175,6 @@
+           $i18n{languagesPageTitle}
+           <cr-ripple></cr-ripple>
+         </a>
+-        <a role="menuitem" id="downloads" href="/downloads"
+-            class="cr-nav-menu-item"
+-            hidden="[[!pageVisibility_.downloads]]">
+-          <cr-icon icon="settings:download"></cr-icon>
+-          $i18n{downloadsPageTitle}
+-          <cr-ripple></cr-ripple>
+-        </a>
+         <a role="menuitem" id="accessibility" href="/accessibility"
+             class="cr-nav-menu-item"
+             hidden="[[!pageVisibility_.a11y]]">
+@@ -139,6 +182,7 @@
+           $i18n{a11yPageTitle}
+           <cr-ripple></cr-ripple>
+         </a>
++        <div class="category-label" role="presentation">Advanced</div>
+ <if expr="not is_chromeos">
+         <a role="menuitem" id="system" href="/system" class="cr-nav-menu-item"
+             hidden="[[!pageVisibility_.system]]">
+@@ -153,8 +197,6 @@
+           $i18n{resetPageTitle}
+           <cr-ripple></cr-ripple>
+         </a>
+-        <div hidden="[[hideBottomMenuSeparator_(pageVisibility_)]]"
+-            class="menu-separator"></div>
+         <a role="menuitem" id="extensionsLink" class="cr-nav-menu-item"
+             href="chrome://extensions" target="_blank"
+             hidden="[[!pageVisibility_.extensions]]"
+@@ -167,7 +209,7 @@
+         </a>
+         <a role="menuitem" id="about-menu" href="/help"
+             class="cr-nav-menu-item">
+-          <cr-icon icon="cr:chrome-product"></cr-icon>
++          <cr-icon icon="cr:info-outline"></cr-icon>
+           $i18n{aboutPageTitle}
+           <cr-ripple></cr-ripple>
+         </a>
+diff --git a/chrome/browser/resources/settings/settings_menu/settings_menu.ts b/chrome/browser/resources/settings/settings_menu/settings_menu.ts
+--- a/chrome/browser/resources/settings/settings_menu/settings_menu.ts
++++ b/chrome/browser/resources/settings/settings_menu/settings_menu.ts
+@@ -26,6 +26,7 @@
+ import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+ 
+ import {loadTimeData} from '../i18n_setup.js';
++import {getTopLevelRoute, routes} from '../route.js';
+ import type {MetricsBrowserProxy} from '../metrics_browser_proxy.js';
+ import {AutofillSettingsReferrer, MetricsBrowserProxyImpl} from '../metrics_browser_proxy.js';
+ import {pageVisibility} from '../page_visibility.js';
+@@ -99,6 +100,9 @@
+   }
+ 
+   override currentRouteChanged(newRoute: Route) {
++    if (newRoute === routes.BASIC) {
++      newRoute = getTopLevelRoute();
++    }
+     // Focus the initially selected path.
+     const anchors = this.shadowRoot!.querySelectorAll('a');
+     for (let i = 0; i < anchors.length; ++i) {
+diff --git a/chrome/browser/resources/settings/settings_page/settings_section.html b/chrome/browser/resources/settings/settings_page/settings_section.html
+--- a/chrome/browser/resources/settings/settings_page/settings_section.html
++++ b/chrome/browser/resources/settings/settings_page/settings_section.html
+@@ -14,8 +14,8 @@
+ 
+       #header .title {
+         color: var(--cr-primary-text-color);
+-        font-size: 108%;
+-        font-weight: 400;
++        font-size: 18px;
++        font-weight: 600;
+         letter-spacing: .25px;
+         margin-bottom: 12px;
+         margin-top: var(--cr-section-vertical-margin);
+diff --git a/chrome/browser/resources/settings/settings_shared.css b/chrome/browser/resources/settings/settings_shared.css
+--- a/chrome/browser/resources/settings/settings_shared.css
++++ b/chrome/browser/resources/settings/settings_shared.css
+@@ -360,3 +360,17 @@
+ .flex {
+   flex: 1;
+ }
++
++cr-button {
++  border-radius: 8px;
++}
++
++.md-select {
++  border-radius: 8px;
++}
++
++@media (prefers-reduced-motion: reduce) {
++  * {
++    scroll-behavior: auto;
++  }
++}
+diff --git a/chrome/browser/resources/settings/settings_ui/settings_ui.html b/chrome/browser/resources/settings/settings_ui/settings_ui.html
+--- a/chrome/browser/resources/settings/settings_ui/settings_ui.html
++++ b/chrome/browser/resources/settings/settings_ui/settings_ui.html
+@@ -3,7 +3,7 @@
+         display: flex;
+         flex-direction: column;
+         height: 100%;
+-        --settings-menu-width: 266px;
++        --settings-menu-width: 224px;
+         /* Centered cards has a max-width of var(--cr-centered-card-max-width)
+          * and a width of a certain percentage. Therefore, to make room for the
+          * cards to be at their max width, the flex-basis of #main needs to be
+@@ -23,7 +23,7 @@
+ 
+       @media (prefers-color-scheme: light) {
+         cr-toolbar {
+-          --iron-icon-fill-color: white;
++          --iron-icon-fill-color: var(--cr-primary-text-color);
+         }
+       }
+ 
+@@ -68,10 +68,60 @@
+           padding: 0 3px;
+         }
+       }
++      :host {
++        background: var(--seoul-page);
++        color: var(--cr-primary-text-color);
++        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
++        --cr-centered-card-min-width: 0;
++        --cr-centered-card-max-width: 820px;
++        --cr-centered-card-width-percentage: .94;
++      }
++
++      #toolbar {
++        background: var(--seoul-page);
++        border-bottom: 1px solid var(--seoul-line);
++        min-height: 76px;
++        padding-inline: 12px;
++        --cr-toolbar-header-font-weight: 600;
++        --cr-toolbar-field-max-width: 460px;
++        --cr-toolbar-search-field-background: var(--seoul-surface);
++        --cr-toolbar-search-field-input-text-color: var(--cr-primary-text-color);
++        --cr-toolbar-search-field-input-icon-color: var(--cr-secondary-text-color);
++        --cr-toolbar-search-field-prompt-color: var(--cr-secondary-text-color);
++      }
++
++      #left {
++        background: var(--seoul-rail);
++        border-inline-end: 1px solid var(--seoul-line);
++        box-sizing: border-box;
++        flex: 0 0 var(--settings-menu-width);
++        padding: 18px 12px;
++      }
++
++      #left settings-menu {
++        width: 100%;
++      }
++
++      #main {
++        box-sizing: border-box;
++        flex: 1 1 0;
++        min-width: 0;
++        padding: 8px 24px 40px;
++      }
++
++      #right {
++        display: none;
++      }
++
++      @media (max-width: 980px) {
++        #main {
++          padding: 8px 12px 28px;
++        }
++      }
+     </style>
+     <settings-prefs id="prefs" prefs="{{prefs}}"></settings-prefs>
+     <cr-toolbar id="toolbar"
+-        page-name="$i18n{settings}"
++        page-name="Seoul Settings" hide-product-logo
+         clear-label="$i18n{clearSearch}"
+         autofocus
+         search-prompt="$i18n{searchPrompt}"
+diff --git a/chrome/browser/resources/settings/settings_vars.css b/chrome/browser/resources/settings/settings_vars.css
+--- a/chrome/browser/resources/settings/settings_vars.css
++++ b/chrome/browser/resources/settings/settings_vars.css
+@@ -22,6 +22,18 @@
+   --iron-icon-width: var(--cr-icon-size);
+ 
+   --cr-radio-group-item-padding: 0;
++  --seoul-page: #f7f9fc;
++  --seoul-rail: #edf3fa;
++  --seoul-surface: #fff;
++  --seoul-line: #dce4ed;
++  --seoul-selected: #d8edff;
++  --cr-card-background-color: var(--seoul-surface);
++  --cr-card-border-radius: 12px;
++  --cr-card-shadow: 0 0 0 1px var(--seoul-line);
++  --cr-primary-text-color: #172d42;
++  --cr-secondary-text-color: #51667b;
++  --cr-link-color: #14699c;
++  --cr-section-vertical-margin: 20px;
+ }
+ 
+ @media (prefers-color-scheme: dark) {
+@@ -30,3 +42,16 @@
+     --settings-error-color: var(--google-red-300);
+   }
+ }
++
++@media (prefers-color-scheme: dark) {
++  html {
++    --seoul-page: #141d27;
++    --seoul-rail: #182431;
++    --seoul-surface: #1e2b39;
++    --seoul-line: #344454;
++    --seoul-selected: #24465e;
++    --cr-primary-text-color: #e8f1fa;
++    --cr-secondary-text-color: #adc0d2;
++    --cr-link-color: #83caff;
++  }
++}
+diff --git a/chrome/browser/ui/webui/downloads/downloads_ui.cc b/chrome/browser/ui/webui/downloads/downloads_ui.cc
+--- a/chrome/browser/ui/webui/downloads/downloads_ui.cc
++++ b/chrome/browser/ui/webui/downloads/downloads_ui.cc
+@@ -75,7 +75,7 @@
+   source->AddBoolean("requestsApVerdicts", requests_ap_verdicts);
+ 
+   static constexpr webui::LocalizedString kStrings[] = {
+-      {"title", IDS_DOWNLOAD_HISTORY_TITLE},
++      {"title", IDS_SETTINGS_DOWNLOADS},
+       {"searchResultsPlural", IDS_SEARCH_RESULTS_PLURAL},
+       {"searchResultsSingular", IDS_SEARCH_RESULTS_SINGULAR},
+       {"actionMenuDescription", IDS_DOWNLOAD_ACTION_MENU_DESCRIPTION},
+diff --git a/chrome/browser/ui/webui/settings/settings_localized_strings_provider.cc b/chrome/browser/ui/webui/settings/settings_localized_strings_provider.cc
+--- a/chrome/browser/ui/webui/settings/settings_localized_strings_provider.cc
++++ b/chrome/browser/ui/webui/settings/settings_localized_strings_provider.cc
+@@ -2103,7 +2103,7 @@
+ void AddPeopleStrings(content::WebUIDataSource* html_source, Profile* profile) {
+   static constexpr webui::LocalizedString kLocalizedStrings[] = {
+       // Top level people strings:
+-      {"peoplePageTitle", IDS_SETTINGS_PEOPLE},
++      {"peoplePageTitle", IDS_PROFILES_MENU_NAME},
+       {"syncSettingsSavedToast", IDS_SETTINGS_SYNC_SETTINGS_SAVED_TOAST_LABEL},
+       {"manageGoogleAccount", IDS_SETTINGS_MANAGE_GOOGLE_ACCOUNT},
+       {"syncAndNonPersonalizedServices",
+diff --git a/chrome/test/data/webui/downloads/toolbar_test.ts b/chrome/test/data/webui/downloads/toolbar_test.ts
+--- a/chrome/test/data/webui/downloads/toolbar_test.ts
++++ b/chrome/test/data/webui/downloads/toolbar_test.ts
+@@ -29,14 +29,14 @@
+   });
+ 
+   test('search starts spinner', function() {
+-    toolbar.$.toolbar.dispatchEvent(new CustomEvent(
++    toolbar.$.search.dispatchEvent(new CustomEvent(
+         'search-changed', {composed: true, bubbles: true, detail: 'a'}));
+     assertTrue(toolbar.spinnerActive);
+ 
+     // Pretend the manager got results and set this to false.
+     toolbar.spinnerActive = false;
+ 
+-    toolbar.$.toolbar.dispatchEvent(new CustomEvent(
++    toolbar.$.search.dispatchEvent(new CustomEvent(
+         'search-changed', {composed: true, bubbles: true, detail: 'a '}));
+     assertFalse(toolbar.spinnerActive);
+   });
+@@ -48,7 +48,7 @@
+     await microtasksFinished();
+     assertFalse(clearAll.hidden);
+ 
+-    toolbar.$.toolbar.getSearchField().setValue('test');
++    toolbar.$.search.setValue('test');
+     await microtasksFinished();
+     assertTrue(clearAll.hidden);
+   });
+diff --git a/chrome/test/data/webui/settings/settings_menu_test.ts b/chrome/test/data/webui/settings/settings_menu_test.ts
+--- a/chrome/test/data/webui/settings/settings_menu_test.ts
++++ b/chrome/test/data/webui/settings/settings_menu_test.ts
+@@ -91,7 +91,7 @@
+ 
+     Router.getInstance().navigateTo(routes.BASIC);
+     await microtasksFinished();
+-    assertFalse(!!selector.selected);
++    assertEquals('/appearance', selector.selected?.toString());
+   });
+ 
+   test('noExperimental', async function() {
+diff --git a/ui/webui/resources/cr_elements/cr_shared_style_lit.css b/ui/webui/resources/cr_elements/cr_shared_style_lit.css
+--- a/ui/webui/resources/cr_elements/cr_shared_style_lit.css
++++ b/ui/webui/resources/cr_elements/cr_shared_style_lit.css
+@@ -64,7 +64,7 @@
+   height: inherit;
+   margin: 0 auto;
+   max-width: var(--cr-centered-card-max-width);
+-  min-width: 550px;
++  min-width: var(--cr-centered-card-min-width, 550px);
+   position: relative;
+   width: calc(100% * var(--cr-centered-card-width-percentage));
+ }
+diff --git a/ui/webui/resources/cr_elements/cr_toolbar/cr_toolbar.css b/ui/webui/resources/cr_elements/cr_toolbar/cr_toolbar.css
+--- a/ui/webui/resources/cr_elements/cr_toolbar/cr_toolbar.css
++++ b/ui/webui/resources/cr_elements/cr_toolbar/cr_toolbar.css
+@@ -153,3 +153,10 @@
+ :host([hide-product-logo]) #leftSpacer {
+   padding-inline-start: 12px;
+ }
++
++@media (prefers-reduced-motion: reduce) {
++  :host([has-overlay]),
++  #leftContent {
++    transition: none;
++  }
++}
+diff --git a/ui/webui/resources/cr_elements/cr_toolbar/cr_toolbar_search_field.css b/ui/webui/resources/cr_elements/cr_toolbar/cr_toolbar_search_field.css
+--- a/ui/webui/resources/cr_elements/cr_toolbar/cr_toolbar_search_field.css
++++ b/ui/webui/resources/cr_elements/cr_toolbar/cr_toolbar_search_field.css
+@@ -170,7 +170,7 @@
+   padding: 0 6px;
+   position: relative;
+   width: var(--cr-toolbar-field-width, 680px);
+-  --cr-toolbar-search-field-border-radius: 100px;
++  --cr-toolbar-search-field-border-radius: 8px;
+ }
+ 
+ @media (prefers-color-scheme: dark) {
+@@ -254,3 +254,11 @@
+   position: relative;
+   z-index: 2;
+ }
++
++@media (prefers-reduced-motion: reduce) {
++  :host,
++  #icon,
++  #prompt {
++    transition: none;
++  }
++}

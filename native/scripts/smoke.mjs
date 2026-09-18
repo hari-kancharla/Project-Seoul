@@ -52,10 +52,20 @@ try {
   browser = await puppeteer.launch({
     executablePath: binary,
     headless: process.env.SEOUL_HEADFUL ? false : true,
+    // Puppeteer's defaults disable experimental browser features, which can
+    // make a broken normal startup appear healthy. Keep the product defaults.
+    // With ignoreDefaultArgs, the profile and headless switch must be explicit.
+    ignoreDefaultArgs: true,
     userDataDir: profile,
     protocolTimeout: 60000,
-    args: ['--no-first-run', '--no-default-browser-check', '--use-mock-keychain'],
+    args: [
+      `--user-data-dir=${profile}`,
+      ...(!process.env.SEOUL_HEADFUL ? ['--headless=new'] : []),
+      '--no-first-run', '--no-default-browser-check', '--use-mock-keychain',
+      'about:blank',
+    ],
   });
+  console.log(`launch arguments: ${JSON.stringify(browser.process().spawnargs.slice(1))}`);
   browser.on('disconnected', () => {
     if (!closingBrowser) {
       crashed = crashed || 'browser disconnected unexpectedly';
@@ -83,7 +93,7 @@ try {
     await customElements.whenDefined('seoul-canvas-app');
     const root = document.querySelector('seoul-canvas-app')?.shadowRoot;
     return root?.querySelector('.canvas-header h1')?.textContent?.trim() ===
-        'Ask, act, understand.';
+        'Seoul';
   });
   assert(
     await canvasTab.evaluate(() =>
@@ -140,7 +150,7 @@ try {
     const root = document.querySelector('seoul-canvas-app')?.shadowRoot;
     return {
       heading: root?.querySelector('.canvas-header h1')?.textContent?.trim(),
-      views: root?.querySelectorAll('.view-switcher button').length,
+      views: root?.querySelectorAll('.tools-menu-items button').length,
       voiceOff: root?.querySelector('.voice-button')?.getAttribute('aria-pressed'),
       sendDisabled: root?.querySelector('.send-button')?.disabled,
     };
@@ -150,8 +160,8 @@ try {
     canvasReadyMs < maxCanvasReadyMs,
     `Seoul Canvas becomes interactive below the ${maxCanvasReadyMs} ms smoke ceiling (${canvasReadyMs.toFixed(0)} ms)`,
   );
-  assert(canvasState.heading === 'Ask, act, understand.', 'Seoul Canvas renders its product heading');
-  assert(canvasState.views === 5, 'Seoul Canvas exposes all five product views');
+  assert(canvasState.heading === 'Seoul', 'Seoul Canvas renders its product heading');
+  assert(canvasState.views === 6, 'Seoul tools menu exposes the six supported destinations');
   assert(canvasState.voiceOff === 'false', 'voice remains explicit and default-off');
   assert(canvasState.sendDisabled === true, 'empty Canvas input cannot dispatch');
   assert(canvasErrors.length === 0, `Seoul Canvas reports no console errors (${canvasErrors.join('; ')})`);
@@ -163,19 +173,21 @@ try {
     const root = app?.shadowRoot;
     if (!app || !root) return { error: 'missing Canvas app' };
     const selectors = new Map([
-      ['Canvas', '#canvas-root'],
-      ['Boosts', '.boosts-view'],
+      ['Assistant', '#canvas-root'],
+      ['Saved Boosts', '.boosts-view'],
       ['Library', '.library-view[aria-label="Library"]'],
+      ['Context graph', '.context-map'],
       ['Boards', '.library-view[aria-label="Boards"]'],
-      ['Studio', '.studio-view'],
+      ['Settings', '.studio-view'],
     ]);
-    const buttons = [...root.querySelectorAll('.view-switcher button')];
+    const buttons = [...root.querySelectorAll('.tools-menu-items button')];
     const timings = [];
     const activate = async (name) => {
       const button = buttons.find(
           candidate => candidate.textContent.trim() === name);
       if (!button) throw new Error(`missing ${name} view button`);
       const started = performance.now();
+      root.querySelector('.tools-menu').open = true;
       button.click();
       await app.updateComplete;
       const elapsed = performance.now() - started;
@@ -219,7 +231,7 @@ try {
   assert(!viewSwitches.error, `all Canvas views switch correctly (${viewSwitches.error || 'ok'})`);
   assert(
     viewSwitches.soakMs < maxCanvasSwitchSoakMs,
-    `25 rapid Canvas view switches stay below the ${maxCanvasSwitchSoakMs} ms smoke ceiling (${viewSwitches.soakMs.toFixed(0)} ms)`,
+    `30 rapid assistant view switches stay below the ${maxCanvasSwitchSoakMs} ms smoke ceiling (${viewSwitches.soakMs.toFixed(0)} ms)`,
   );
   assert(viewSwitches.composerPresent, 'Canvas composer survives repeated view switching');
   assert(canvasErrors.length === 0, `rapid Canvas switching reports no console errors (${canvasErrors.join('; ')})`);

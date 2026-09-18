@@ -49,6 +49,7 @@ struct AdBlockCosmeticSelectorSet {
 
   std::vector<std::string> selectors;
   std::string isolated_script;
+  std::string main_world_script;
   std::vector<std::string> procedural_actions;
   bool query_generics = false;
 };

@@ -18,6 +18,35 @@ const types = await import(
     `data:text/javascript;base64,${
       Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 
+test('Boost summaries count code and explain execution gates', () => {
+  const layer = {enabled: true, scene_scope: '', adjustments: [],
+    has_custom_css: false, has_custom_javascript: true};
+  const settings = {boosts_enabled: true, javascript_enabled: false};
+  assert.deepEqual(types.boostSummary(layer, settings),
+      {changes: 1, state: 'JavaScript off', javascriptOff: true});
+  assert.equal(types.boostSummary({...layer, has_custom_css: true}, settings).state,
+      'Enabled');
+  assert.equal(types.boostSummary({...layer, has_custom_css: true}, settings).changes,
+      2);
+  assert.equal(types.boostSummary(layer, {...settings, boosts_enabled: false}).state,
+      'Off in Settings');
+  assert.equal(types.boostSummary({...layer, enabled: false}, settings).state,
+      'Paused');
+  assert.equal(types.boostSummary({...layer, has_custom_javascript: false}, settings).state,
+      'Empty');
+  assert.equal(types.boostSummary({...layer, scene_scope: 'focus',
+    matches_active_scene: false}, {...settings, javascript_enabled: true}).state,
+      'Scene inactive');
+});
+
+test('delayed Boost replies cannot replace a newer pushed snapshot', () => {
+  assert.equal(types.isOlderBoostSnapshot({revision: '9007199254740992'},
+      {revision: '9007199254740993'}), true);
+  assert.equal(types.isOlderBoostSnapshot({revision: '20'}, {revision: '20'}), false);
+  assert.equal(types.isOlderBoostSnapshot({revision: '21'}, {revision: '20'}), false);
+  assert.equal(types.isOlderBoostSnapshot({revision: '1'}, {}), false);
+});
+
 test('Boost editor binding preserves pause and Scene state', () => {
   const active = {
     tab_id: 'tab-original',

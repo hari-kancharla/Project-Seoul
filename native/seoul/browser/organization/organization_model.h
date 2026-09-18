@@ -57,18 +57,19 @@ class OrganizationModel {
   MutationStatus EnsureDefaultWorkspace();
 
   // --- Workspaces ---
-  MutationResult<WorkspaceId> CreateWorkspace(std::string_view name);
+  MutationResult<WorkspaceId> CreateWorkspace(std::string_view name,
+                                            bool isolated = false);
   MutationStatus RenameWorkspace(const WorkspaceId& id, std::string_view name);
   // Empty clears the explicit icon and restores Zen's neutral no-icon dot.
   // Non-empty values are validated opaque built-in tokens or UTF-8 emoji,
   // never navigable URLs.
   MutationStatus SetWorkspaceIcon(const WorkspaceId& id, std::string_view icon);
-  // Turns storage isolation on or off for a Space. Changing it does not move
-  // data between partitions - what was stored in one is simply no longer the
-  // partition the Space's tabs use - so callers are expected to make that
-  // consequence explicit to the user rather than treating this as a toggle
-  // with no cost.
+  // Changes storage isolation only before a non-default Space has held tabs.
+  // Closed-tab history can still reference the partition after tabs are closed.
   MutationStatus SetWorkspaceIsolated(const WorkspaceId& id, bool isolated);
+  // Recover the identity of an existing tab's container after its Space was
+  // deleted. Never assign that live container to a different account boundary.
+  MutationStatus RecoverContainerWorkspace(const WorkspaceId& id);
   MutationStatus ReorderWorkspace(const WorkspaceId& id, int new_order);
   MutationStatus ArchiveWorkspace(const WorkspaceId& id);
   MutationStatus RestoreWorkspace(const WorkspaceId& id);

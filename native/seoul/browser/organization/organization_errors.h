@@ -28,6 +28,7 @@ enum class OrganizationError {
   kDuplicateEssential,
   kDuplicateMembership,
   kCrossProfileReference,
+  kCrossContainerMove,
   kCrossWorkspaceSplit,
   kInvalidSplitArity,
   kInvalidDividerRatio,

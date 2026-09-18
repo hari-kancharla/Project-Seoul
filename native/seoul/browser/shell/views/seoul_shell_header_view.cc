@@ -16,15 +16,17 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/color/chrome_color_id.h"
+#include "chrome/browser/ui/tabs/vertical_tab_strip_state_controller.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 // nogncheck: //chrome/browser/ui reaches this shell target through the native
 // browser integration, so declaring it here would form a dependency cycle.
 // The TabUIHelper symbol links through //chrome/browser.
-#include "chrome/browser/ui/tab_ui_helper.h" // nogncheck
+#include "chrome/app/vector_icons/vector_icons.h"
+#include "chrome/browser/ui/tab_ui_helper.h"  // nogncheck
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "components/favicon/core/favicon_service.h"
 #include "components/favicon_base/favicon_types.h"
 #include "components/keyed_service/core/service_access_type.h"
-#include "chrome/app/vector_icons/vector_icons.h"
 #include "components/vector_icons/vector_icons.h"
 #include "seoul/browser/lifecycle/tab_strip_bridge.h"
 #include "seoul/browser/shell/essential_grid_layout.h"
@@ -57,7 +59,7 @@ constexpr int kEssentialCornerRadius = 8;
 constexpr int kEssentialHeight = 44;
 constexpr size_t kMaxVisibleEssentials = 12;
 
-void ConfigureEssentialButton(views::LabelButton *button) {
+void ConfigureEssentialButton(views::LabelButton* button) {
   button->SetHorizontalAlignment(gfx::ALIGN_CENTER);
   button->SetMinSize(gfx::Size(0, kEssentialHeight));
   button->SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(4, 4)));
@@ -72,18 +74,18 @@ void ConfigureEssentialButton(views::LabelButton *button) {
   views::InkDrop::Get(button)->SetHighlightOpacity(0.12f);
 }
 
-void SetEssentialButtonActive(views::LabelButton *button, bool active) {
+void SetEssentialButtonActive(views::LabelButton* button, bool active) {
   button->SetBackground(active ? views::CreateRoundedRectBackground(
                                      kColorToolbarBackgroundSubtleEmphasis,
                                      kEssentialCornerRadius)
                                : nullptr);
 }
 
-void SetNeutralEssentialIcon(views::LabelButton *button) {
-  button->SetImageModel(views::Button::STATE_NORMAL,
-                        ui::ImageModel::FromVectorIcon(vector_icons::kGlobeIcon,
-                                                       kColorToolbarButtonIcon,
-                                                       16));
+void SetNeutralEssentialIcon(views::LabelButton* button) {
+  button->SetImageModel(
+      views::Button::STATE_NORMAL,
+      ui::ImageModel::FromVectorIcon(vector_icons::kGlobeIcon,
+                                     kColorToolbarButtonIcon, 16));
   button->SetImageModel(
       views::Button::STATE_HOVERED,
       ui::ImageModel::FromVectorIcon(vector_icons::kGlobeIcon,
@@ -98,18 +100,18 @@ void SetNeutralEssentialIcon(views::LabelButton *button) {
                                      kColorToolbarButtonIconDisabled, 16));
 }
 
-std::u16string EssentialLabel(const ShellEssentialItem &essential) {
+std::u16string EssentialLabel(const ShellEssentialItem& essential) {
   return base::UTF8ToUTF16(essential.name.empty() ? essential.root_url
                                                   : essential.name);
 }
 
-bool IsCurrentWindowActive(const ShellEssentialItem &essential) {
+bool IsCurrentWindowActive(const ShellEssentialItem& essential) {
   return ShouldHighlightEssential(essential.is_active,
                                   essential.live_in_current_window);
 }
 
-void UpdateEssentialButton(views::LabelButton *button,
-                           const ShellEssentialItem &essential) {
+void UpdateEssentialButton(views::LabelButton* button,
+                           const ShellEssentialItem& essential) {
   const std::u16string label = EssentialLabel(essential);
   const bool active = IsCurrentWindowActive(essential);
   SetEssentialButtonActive(button, active);
@@ -123,10 +125,11 @@ void UpdateEssentialButton(views::LabelButton *button,
 
 class EssentialsOverflowMenuModel final : public ui::SimpleMenuModel,
                                           public ui::SimpleMenuModel::Delegate {
-public:
-  EssentialsOverflowMenuModel(ShellController *controller,
+ public:
+  EssentialsOverflowMenuModel(ShellController* controller,
                               std::vector<ShellEssentialItem> essentials)
-      : ui::SimpleMenuModel(this), controller_(controller),
+      : ui::SimpleMenuModel(this),
+        controller_(controller),
         essentials_(std::move(essentials)) {
     for (size_t index = 0; index < essentials_.size(); ++index) {
       AddItem(kEssentialOverflowCommandBase + static_cast<int>(index),
@@ -151,35 +154,50 @@ public:
     std::ignore = controller_->OpenEssential(essentials_[index].id);
   }
 
-private:
+ private:
   raw_ptr<ShellController> controller_;
   std::vector<ShellEssentialItem> essentials_;
 };
 
-} // namespace
+}  // namespace
 
 SeoulShellHeaderView::EssentialIconBinding::EssentialIconBinding() = default;
 SeoulShellHeaderView::EssentialIconBinding::EssentialIconBinding(
-    const EssentialIconBinding &) = default;
+    const EssentialIconBinding&) = default;
 SeoulShellHeaderView::EssentialIconBinding::EssentialIconBinding(
-    EssentialIconBinding &&) = default;
-SeoulShellHeaderView::EssentialIconBinding &
+    EssentialIconBinding&&) = default;
+SeoulShellHeaderView::EssentialIconBinding&
 SeoulShellHeaderView::EssentialIconBinding::operator=(
-    const EssentialIconBinding &) = default;
-SeoulShellHeaderView::EssentialIconBinding &
-SeoulShellHeaderView::EssentialIconBinding::operator=(EssentialIconBinding &&) =
+    const EssentialIconBinding&) = default;
+SeoulShellHeaderView::EssentialIconBinding&
+SeoulShellHeaderView::EssentialIconBinding::operator=(EssentialIconBinding&&) =
     default;
 SeoulShellHeaderView::EssentialIconBinding::~EssentialIconBinding() = default;
 
 SeoulShellHeaderView::SeoulShellHeaderView(
-    ShellController *controller, BrowserWindowInterface *browser_window,
-    Profile *profile)
+    ShellController* controller,
+    BrowserWindowInterface* browser_window,
+    Profile* profile)
     : browser_window_(browser_window), profile_(profile) {
-  auto *layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
+  auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical, gfx::Insets::TLBR(6, 6, 2, 6),
       4));
   layout->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kStretch);
+  expand_sidebar_button_ = AddChildView(std::make_unique<views::LabelButton>(
+      base::BindRepeating(&SeoulShellHeaderView::ExpandSidebar,
+                          base::Unretained(this)),
+      std::u16string()));
+  ConfigureEssentialButton(expand_sidebar_button_);
+  expand_sidebar_button_->SetImageModel(
+      views::Button::STATE_NORMAL,
+      ui::ImageModel::FromVectorIcon(kSeoulExpandSidebarIcon,
+                                     kColorToolbarButtonIcon, 18));
+  expand_sidebar_button_->SetTooltipText(u"Expand sidebar");
+  expand_sidebar_button_->GetViewAccessibility().SetName(u"Expand sidebar");
+  expand_sidebar_button_->GetViewAccessibility().SetDescription(
+      u"Show tab titles and move browser controls into the sidebar");
+  expand_sidebar_button_->SetVisible(false);
   BindController(controller);
 }
 
@@ -190,7 +208,7 @@ SeoulShellHeaderView::~SeoulShellHeaderView() {
   }
 }
 
-void SeoulShellHeaderView::BindController(ShellController *controller) {
+void SeoulShellHeaderView::BindController(ShellController* controller) {
   if (controller_ == controller) {
     return;
   }
@@ -213,14 +231,15 @@ void SeoulShellHeaderView::BindController(ShellController *controller) {
 }
 
 void SeoulShellHeaderView::BindBrowserContext(
-    BrowserWindowInterface *browser_window, Profile *profile) {
+    BrowserWindowInterface* browser_window,
+    Profile* profile) {
   if (browser_window_ == browser_window && profile_ == profile) {
     return;
   }
   CancelAllFaviconRequestsAndInvalidateCallbacks();
   browser_window_ = browser_window;
   profile_ = profile;
-  for (EssentialIconBinding &binding : essential_icon_bindings_) {
+  for (EssentialIconBinding& binding : essential_icon_bindings_) {
     binding.source = EssentialIconSource::kFallback;
     binding.task_id = base::CancelableTaskTracker::kBadTaskId;
     ++binding.generation;
@@ -245,7 +264,8 @@ void SeoulShellHeaderView::SetPresentationCollapsed(bool collapsed) {
 }
 
 void SeoulShellHeaderView::OnShellSnapshotChanged(
-    const ShellChange &change, const ShellSnapshot &snapshot) {
+    const ShellChange& change,
+    const ShellSnapshot& snapshot) {
   (void)change;
   RebuildFromSnapshot(snapshot);
 }
@@ -254,7 +274,7 @@ void SeoulShellHeaderView::SetCachedFaviconLookupForTesting(
     CachedFaviconLookupForTesting lookup) {
   CancelAllFaviconRequestsAndInvalidateCallbacks();
   cached_favicon_lookup_for_testing_ = std::move(lookup);
-  for (EssentialIconBinding &binding : essential_icon_bindings_) {
+  for (EssentialIconBinding& binding : essential_icon_bindings_) {
     binding.source = EssentialIconSource::kFallback;
     binding.task_id = base::CancelableTaskTracker::kBadTaskId;
     ++binding.generation;
@@ -265,14 +285,14 @@ void SeoulShellHeaderView::SetCachedFaviconLookupForTesting(
   }
 }
 
-ui::ImageModel
-SeoulShellHeaderView::EssentialIconForTesting(const EssentialId &id) const {
+ui::ImageModel SeoulShellHeaderView::EssentialIconForTesting(
+    const EssentialId& id) const {
   const auto binding = std::ranges::find(essential_icon_bindings_, id,
                                          &EssentialIconBinding::id);
   if (binding == essential_icon_bindings_.end() || !binding->button) {
     return ui::ImageModel();
   }
-  const std::optional<ui::ImageModel> &icon =
+  const std::optional<ui::ImageModel>& icon =
       binding->button->GetImageModel(views::Button::STATE_NORMAL);
   return icon.value_or(ui::ImageModel());
 }
@@ -280,43 +300,43 @@ SeoulShellHeaderView::EssentialIconForTesting(const EssentialId &id) const {
 void SeoulShellHeaderView::CancelAllFaviconRequestsAndInvalidateCallbacks() {
   favicon_task_tracker_.TryCancelAll();
   weak_factory_.InvalidateWeakPtrs();
-  for (EssentialIconBinding &binding : essential_icon_bindings_) {
+  for (EssentialIconBinding& binding : essential_icon_bindings_) {
     binding.task_id = base::CancelableTaskTracker::kBadTaskId;
     ++binding.generation;
   }
 }
 
-void SeoulShellHeaderView::CancelFaviconRequest(EssentialIconBinding &binding) {
+void SeoulShellHeaderView::CancelFaviconRequest(EssentialIconBinding& binding) {
   if (binding.task_id != base::CancelableTaskTracker::kBadTaskId) {
     favicon_task_tracker_.TryCancel(binding.task_id);
     binding.task_id = base::CancelableTaskTracker::kBadTaskId;
   }
 }
 
-ui::ImageModel
-SeoulShellHeaderView::FindLiveFavicon(const LiveTabKey &live_tab) const {
+ui::ImageModel SeoulShellHeaderView::FindLiveFavicon(
+    const LiveTabKey& live_tab) const {
   if (!live_tab.is_valid() || !browser_window_ || !profile_ ||
       browser_window_->GetProfile() != profile_ ||
       browser_window_->IsDeleteScheduled()) {
     return ui::ImageModel();
   }
-  TabStripModel *tab_strip = browser_window_->GetTabStripModel();
+  TabStripModel* tab_strip = browser_window_->GetTabStripModel();
   if (!tab_strip) {
     return ui::ImageModel();
   }
   for (int index = 0; index < tab_strip->count(); ++index) {
-    tabs::TabInterface *tab = tab_strip->GetTabAtIndex(index);
+    tabs::TabInterface* tab = tab_strip->GetTabAtIndex(index);
     if (!tab || TabStripBridge::KeyForTab(tab) != live_tab) {
       continue;
     }
-    TabUIHelper *helper = TabUIHelper::From(tab);
+    TabUIHelper* helper = TabUIHelper::From(tab);
     return helper ? helper->GetFavicon() : ui::ImageModel();
   }
   return ui::ImageModel();
 }
 
-void SeoulShellHeaderView::ApplyEssentialIcon(views::LabelButton *button,
-                                              const ui::ImageModel &icon) {
+void SeoulShellHeaderView::ApplyEssentialIcon(views::LabelButton* button,
+                                              const ui::ImageModel& icon) {
   if (!button || icon.IsEmpty()) {
     return;
   }
@@ -328,7 +348,7 @@ void SeoulShellHeaderView::ApplyEssentialIcon(views::LabelButton *button,
 }
 
 void SeoulShellHeaderView::ApplyDefaultEssentialIcon(
-    views::LabelButton *button) {
+    views::LabelButton* button) {
   ui::ImageModel icon = favicon::GetDefaultFaviconModel(kColorToolbar);
   if (icon.IsEmpty()) {
     SetNeutralEssentialIcon(button);
@@ -338,7 +358,8 @@ void SeoulShellHeaderView::ApplyDefaultEssentialIcon(
 }
 
 void SeoulShellHeaderView::ResolveEssentialIcon(
-    EssentialIconBinding &binding, const ShellEssentialItem &essential) {
+    EssentialIconBinding& binding,
+    const ShellEssentialItem& essential) {
   const GURL root_url(essential.root_url);
   const bool root_changed = binding.root_url != root_url;
   if (root_changed) {
@@ -377,7 +398,7 @@ void SeoulShellHeaderView::ResolveEssentialIcon(
 }
 
 void SeoulShellHeaderView::StartCachedFaviconLookup(
-    EssentialIconBinding &binding) {
+    EssentialIconBinding& binding) {
   CancelFaviconRequest(binding);
   binding.source = EssentialIconSource::kCachePending;
   const uint64_t generation = ++binding.generation;
@@ -390,7 +411,7 @@ void SeoulShellHeaderView::StartCachedFaviconLookup(
                                            std::move(callback));
     return;
   }
-  favicon::FaviconService *favicon_service =
+  favicon::FaviconService* favicon_service =
       profile_ ? FaviconServiceFactory::GetForProfile(
                      profile_, ServiceAccessType::EXPLICIT_ACCESS)
                : nullptr;
@@ -413,8 +434,10 @@ void SeoulShellHeaderView::StartCachedFaviconLookup(
 }
 
 void SeoulShellHeaderView::OnCachedFaviconAvailable(
-    EssentialId id, GURL requested_url, uint64_t generation,
-    const favicon_base::FaviconImageResult &result) {
+    EssentialId id,
+    GURL requested_url,
+    uint64_t generation,
+    const favicon_base::FaviconImageResult& result) {
   auto binding = std::ranges::find(essential_icon_bindings_, id,
                                    &EssentialIconBinding::id);
   if (binding == essential_icon_bindings_.end() ||
@@ -438,7 +461,7 @@ void SeoulShellHeaderView::OnCachedFaviconAvailable(
   ApplyEssentialIcon(binding->button, ui::ImageModel::FromImage(result.image));
 }
 
-void SeoulShellHeaderView::RebuildFromSnapshot(const ShellSnapshot &snapshot) {
+void SeoulShellHeaderView::RebuildFromSnapshot(const ShellSnapshot& snapshot) {
   if (!essentials_container_) {
     essentials_container_ = AddChildView(std::make_unique<views::View>());
     essentials_layout_ = essentials_container_->SetLayoutManager(
@@ -471,8 +494,8 @@ void SeoulShellHeaderView::RebuildFromSnapshot(const ShellSnapshot &snapshot) {
     essentials_container_->RemoveAllChildViews();
     const size_t columns =
         EssentialColumnsForVisibleCount(visible_count, collapsed);
-    views::View *row = nullptr;
-    views::BoxLayout *row_layout = nullptr;
+    views::View* row = nullptr;
+    views::BoxLayout* row_layout = nullptr;
     for (size_t index = 0; index < visible_count; ++index) {
       if (index % columns == 0) {
         row = essentials_container_->AddChildView(
@@ -482,10 +505,10 @@ void SeoulShellHeaderView::RebuildFromSnapshot(const ShellSnapshot &snapshot) {
         row_layout->set_cross_axis_alignment(
             views::BoxLayout::CrossAxisAlignment::kStretch);
       }
-      const ShellEssentialItem &essential = snapshot.essentials[index];
-      auto *button = row->AddChildView(std::make_unique<views::LabelButton>(
+      const ShellEssentialItem& essential = snapshot.essentials[index];
+      auto* button = row->AddChildView(std::make_unique<views::LabelButton>(
           base::BindRepeating(
-              [](ShellController *controller, EssentialId id) {
+              [](ShellController* controller, EssentialId id) {
                 if (controller) {
                   std::ignore = controller->OpenEssential(id);
                 }
@@ -554,9 +577,21 @@ void SeoulShellHeaderView::RebuildFromSnapshot(const ShellSnapshot &snapshot) {
   essentials_initialized_ = true;
   const bool has_essentials = !snapshot.essentials.empty();
   essentials_container_->SetVisible(has_essentials);
-  // Do not leave the header's interior insets in the flex layout when a Space
-  // has no Essentials. That empty box was a second, invisible titlebar gap.
-  SetVisible(has_essentials);
+  // A fixed icon rail needs an explicit way back to labelled tabs. Compact
+  // hover mode already has its own reveal path and must retain its edge size.
+  const bool show_expand = collapsed && !snapshot.compact_mode.enabled;
+  expand_sidebar_button_->SetVisible(show_expand);
+  SetVisible(has_essentials || show_expand);
+}
+
+void SeoulShellHeaderView::ExpandSidebar() {
+  auto* browser_view = BrowserView::GetBrowserViewForBrowser(browser_window_);
+  auto* tabs = tabs::VerticalTabStripStateController::From(browser_window_);
+  if (!browser_view || !tabs)
+    return;
+  browser_view->SetSeoulLayoutMode(SeoulLayoutMode::kSingle);
+  tabs->SetExpandOnHoverEnabledForWindow(false);
+  tabs->RequestCollapse(false);
 }
 
 void SeoulShellHeaderView::ShowSplitChooser() {
@@ -585,4 +620,4 @@ void SeoulShellHeaderView::OnEssentialsOverflowPressed() {
 BEGIN_METADATA(SeoulShellHeaderView)
 END_METADATA
 
-} // namespace seoul
+}  // namespace seoul

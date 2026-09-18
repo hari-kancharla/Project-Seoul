@@ -78,6 +78,10 @@ public:
   void SubmitRealtimeToolCall(canvas::mojom::RealtimeToolCallPtr call,
                               SubmitRealtimeToolCallCallback callback) override;
   void ListTasks(ListTasksCallback callback) override;
+  void GetTaskHistory(GetTaskHistoryCallback callback) override;
+  void GetContextGraph(GetContextGraphCallback callback) override;
+  void ActivateContextTab(const std::string& node_id,
+                          ActivateContextTabCallback callback) override;
   void PauseTask(const std::string &task_id) override;
   void ResumeTask(const std::string &task_id) override;
   void CancelActiveTask(const std::string &task_id) override;
@@ -133,6 +137,10 @@ public:
       const std::string &collection_id, const std::string &stable_key,
       OpenLiveCollectionItemCallback callback) override;
   void GetSiteLayerSnapshot(GetSiteLayerSnapshotCallback callback) override;
+  void SetBoostsEnabled(bool enabled,
+                        SetBoostsEnabledCallback callback) override;
+  void SetBoostJavaScriptEnabled(
+      bool enabled, SetBoostJavaScriptEnabledCallback callback) override;
   void UpsertSiteLayer(
       const std::string &layer_id, const std::string &expected_tab_id,
       const std::string &expected_page_origin, const std::string &name,
@@ -206,6 +214,7 @@ public:
   // LiveWindowStateObserver:
   void OnLiveWindowSnapshotChanged(const LiveWindowSnapshot &snapshot) override;
   void OnLiveWindowRemoved(LiveWindowKey window) override;
+  void OnLiveWindowStateProviderDestroying() override;
 
   // LibraryServiceObserver:
   void OnLibraryChanged(uint64_t revision) override;
@@ -239,6 +248,7 @@ private:
   std::string ThreadSnapshotJson(const std::string& thread_id) const;
   void PushThreadSnapshot(const std::string& thread_id);
   std::string SiteLayerSnapshotJson() const;
+  void PushSiteLayerSnapshot();
   std::string StudioSnapshotJson() const;
 
   mojo::Receiver<canvas::mojom::PageHandler> receiver_;
@@ -252,6 +262,7 @@ private:
   base::ScopedObservation<LibraryService, LibraryServiceObserver>
       library_observation_{this};
   base::CallbackListSubscription boost_editor_request_subscription_;
+  base::CallbackListSubscription site_layers_changed_subscription_;
   std::map<std::string, std::string> task_threads_;
   base::WeakPtrFactory<SeoulCanvasPageHandler> weak_factory_{this};
 };

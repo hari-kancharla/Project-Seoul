@@ -296,7 +296,21 @@ void LifecycleCoordinator::HandleTabInserted(const NormalizedEvent &event) {
     return;
   }
 
-  const WorkspaceId ws = ActiveOrDefaultWorkspace(event.window);
+  WorkspaceId ws = ActiveOrDefaultWorkspace(event.window);
+  if (event.storage_workspace.has_value()) {
+    if (event.storage_workspace->is_valid()) {
+      if (!model_->RecoverContainerWorkspace(*event.storage_workspace)
+               .has_value()) {
+        return;
+      }
+      ws = *event.storage_workspace;
+    } else if (!event.storage_workspace->is_valid()) {
+      const auto* active = model_->FindWorkspace(ws);
+      if (active && active->isolated) {
+        ws = model_->default_workspace();
+      }
+    }
+  }
   if (!ws.is_valid()) {
     return;
   }

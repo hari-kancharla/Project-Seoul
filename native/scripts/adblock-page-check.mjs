@@ -4,7 +4,7 @@ import puppeteer from 'puppeteer-core';
 import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { productBinary } from './native/scripts/checkout-root.mjs';
+import { productBinary } from './checkout-root.mjs';
 
 // Resolved, never spelled out: a hardcoded path is right on exactly one machine
 // and silently wrong everywhere else, which check-checkout-resolution.mjs exists

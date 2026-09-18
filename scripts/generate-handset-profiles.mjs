@@ -122,11 +122,10 @@ for (const d of rawDevices) {
       ? (/Version\/[\d.]+ (Mobile\/\S+ )?Safari/.test(ua) &&
          !/CriOS|FxiOS|GSA|FBAN/.test(ua))
       : (/Chrome\/(%s|[\d.]+)/.test(ua) &&
-         !/FB_IAB|FBAN|EdgA|OPR\/|SamsungBrowser|UCBrowser/.test(ua));
+         !/Windows Phone|IEMobile|FB_IAB|FBAN|EdgA|OPR\/|SamsungBrowser|UCBrowser/.test(ua));
   if (!stock) { reasonSkip('non-stock browser UA'); continue; }
-  // Portrait means width < height by definition. Upstream's list is not
-  // guaranteed to agree - the Lumia 550 entry records its vertical screen as
-  // 640x360 - so normalize rather than inherit the quirk.
+  // Normalize portrait dimensions; unsupported browser identities were
+  // excluded above even when their compatibility UA mentions Android.
   const width = Math.min(vertical.width, vertical.height);
   const height = Math.max(vertical.width, vertical.height);
   if (width < BOUNDS.minW || width > BOUNDS.maxW || height < BOUNDS.minH || height > BOUNDS.maxH ||
@@ -137,7 +136,7 @@ for (const d of rawDevices) {
     id: slug(d['title']),
     label: d['title'],
     platform,
-    form_factor: type,
+    form_factor: /Galaxy Tab/.test(d['title']) ? 'tablet' : type,
     width, height,
     dpr,
     // iOS versions are underscored in the UA CPU clause; the builder converts
@@ -154,6 +153,19 @@ const overlay = JSON.parse(readFileSync(overlayPath, 'utf8'));
 const byTitle = new Map(catalog.map((p) => [p.label, p]));
 const notes = [];
 for (const o of overlay.devices) {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(o.id) || !o.label?.trim() ||
+      !['iOS', 'Android'].includes(o.platform) ||
+      !['phone', 'tablet'].includes(o.form_factor) ||
+      !Number.isInteger(o.width) || !Number.isInteger(o.height) ||
+      o.width < BOUNDS.minW || o.width > BOUNDS.maxW ||
+      o.height < BOUNDS.minH || o.height > BOUNDS.maxH || o.width >= o.height ||
+      !Number.isFinite(o.dpr) || o.dpr < BOUNDS.minDpr || o.dpr > BOUNDS.maxDpr ||
+      typeof o.platform_version !== 'string' || !o.platform_version ||
+      typeof o.model !== 'string' || (o.platform === 'Android' && !o.model))
+    fail('invalid overlay device: ' + o.id);
+  if (o.source && (!o.source.startsWith('https://') || !o.metrics_basis ||
+                   !/^\d{4}-\d{2}-\d{2}$/.test(o.reviewed)))
+    fail('incomplete source record: ' + o.id);
   if (byTitle.has(o.label)) {
     notes.push(`upstream now carries "${o.label}" - overlay keeps id continuity; ` +
                'compare metrics and retire the overlay entry when they agree');
@@ -186,14 +198,12 @@ for (const family of FAMILIES) {
   if (best) featured.add(best.id);
 }
 
-// Stable order: phones before tablets, featured first within each. Featured
-// entries run narrow-to-wide - the picker reads as a size ramp, which is the
-// choice being made - while the long tail sorts by label for scanning.
-const rank = (p) => (p.form_factor === 'phone' ? 0 : 1) * 2 + (featured.has(p.id) ? 0 : 1);
-profiles.sort((a, b) =>
-  rank(a) - rank(b) ||
-  (featured.has(a.id) ? a.width - b.width : a.label.localeCompare(b.label)) ||
-  a.label.localeCompare(b.label));
+// Featured current families come first, with every device available in the
+// same searchable list. Use numeric collation for the remaining device names.
+const rank = (p) => (featured.has(p.id) ? 0 : 1) * 2 +
+                    (p.form_factor === 'phone' ? 0 : 1);
+profiles.sort((a, b) => rank(a) - rank(b) ||
+  a.label.localeCompare(b.label, 'en', { numeric: true }));
 
 // --- 5. Emit -----------------------------------------------------------------
 const esc = (s) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -230,8 +240,8 @@ namespace seoul {
 // Every device this build can emulate, phones first, featured first.
 const std::vector<HandsetProfile>& GeneratedHandsetProfiles();
 
-// Ids of the profiles the picker shows at top level; the rest live under
-// "All devices". Computed at generation time - see the generator header.
+// Ids promoted to the start of the searchable picker. The entire catalog
+// remains accessible without nested menus.
 const std::vector<std::string>& GeneratedFeaturedHandsetProfileIds();
 
 }  // namespace seoul

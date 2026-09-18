@@ -2,7 +2,7 @@
 
 This matrix records the local working tree as inspected on 2026-07-12. It is
 evidence-first: no native Chromium target was compiled or launched on this host.
-The sibling checkout at `/Users/hk/Documents/Projects/seoul-chromium.noindex`
+The sibling checkout at `../seoul-chromium.noindex`
 (the `.noindex` suffix keeps Spotlight from indexing it) is a clean pinned
 Chromium checkout used for include and patch verification. It has
 no Project Seoul implementation source to merge; the only "seoul" filename

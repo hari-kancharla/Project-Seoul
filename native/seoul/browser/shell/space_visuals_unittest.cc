@@ -42,7 +42,7 @@ TEST(SpaceVisualsTest, UsesZenSwitcherAndIndicatorMetrics) {
   // name, fully rounded, and bounded so a long name elides rather than pushing
   // the other controls out of the footer.
   EXPECT_EQ(kCurrentSpacePillHeight, 26);
-  EXPECT_EQ(kCurrentSpacePillCornerRadius, kCurrentSpacePillHeight / 2);
+  EXPECT_LT(kCurrentSpacePillCornerRadius, kCurrentSpacePillHeight / 2);
   EXPECT_EQ(kCurrentSpacePillMinWidth, 64);
   EXPECT_EQ(kCurrentSpacePillMaxWidth, 132);
   EXPECT_GT(kCurrentSpacePillMaxWidth, kCurrentSpacePillMinWidth);

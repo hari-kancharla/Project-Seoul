@@ -14,6 +14,7 @@
 #include <string>
 
 #include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "seoul/browser/intelligence/credential_store.h"
 #include "seoul/browser/intelligence/http_transport.h"
 #include "seoul/browser/intelligence/model_provider.h"
@@ -58,6 +59,7 @@ class CloudModelProvider : public ModelProvider {
   std::unique_ptr<StreamingAccumulator> accumulator_;
   GenerateCallback pending_;
   int active_handle_ = 0;
+  base::WeakPtrFactory<CloudModelProvider> weak_factory_{this};
 };
 
 }  // namespace seoul

@@ -16,6 +16,8 @@
 #include "seoul/browser/adblock/ad_block_service.h"
 #include "seoul/browser/adblock/ad_block_service_factory.h"
 #include "seoul/browser/onboarding/onboarding_state.h"
+#include "seoul/browser/product/browser/seoul_runtime_service.h"
+#include "seoul/browser/product/browser/seoul_runtime_service_factory.h"
 
 namespace seoul {
 
@@ -42,11 +44,6 @@ std::string FilterSourceName(adblock::AdBlockFilterListSource source) {
   return "none";
 }
 
-tabs::VerticalTabStripStateController* RailController(
-    BrowserWindowInterface* window) {
-  return window ? tabs::VerticalTabStripStateController::From(window) : nullptr;
-}
-
 }  // namespace
 
 SeoulWelcomePageHandler::SeoulWelcomePageHandler(
@@ -55,7 +52,7 @@ SeoulWelcomePageHandler::SeoulWelcomePageHandler(
     BrowserWindowInterface* browser_window)
     : receiver_(this, std::move(receiver)),
       profile_(profile),
-      browser_window_(browser_window) {}
+      browser_window_(browser_window ? browser_window->GetWeakPtr() : nullptr) {}
 
 SeoulWelcomePageHandler::~SeoulWelcomePageHandler() = default;
 
@@ -106,12 +103,14 @@ welcome::mojom::WelcomeStatePtr SeoulWelcomePageHandler::BuildState() const {
     state->filter_source = "none";
   }
 
-  const tabs::VerticalTabStripStateController* const rail =
-      browser_window_ ? tabs::VerticalTabStripStateController::From(
-                            const_cast<BrowserWindowInterface*>(
-                                browser_window_.get()))
-                      : nullptr;
-  state->rail_collapsed = rail && rail->IsCollapsed();
+  // Read the accepted workspace preference, not an animation's intermediate
+  // frame. The same runtime path owns both this choice and the toolbar toggle.
+  SeoulRuntimeService* runtime = profile_ ?
+      SeoulRuntimeServiceFactory::GetForProfile(profile_) : nullptr;
+  const auto binding = runtime && browser_window_ ?
+      runtime->CreateWindowBinding(browser_window_.get()) : WindowRuntimeBinding{};
+  state->rail_collapsed = runtime && binding.is_valid() &&
+      runtime->CompactModeForWindow(binding.window).value_or(false);
 
   return state;
 }
@@ -133,23 +132,20 @@ void SeoulWelcomePageHandler::CompleteStep(const std::string& step_id,
   std::move(callback).Run(BuildState());
 }
 
-void SeoulWelcomePageHandler::Skip() {
+void SeoulWelcomePageHandler::Skip(SkipCallback callback) {
   onboarding::MarkSkipped(profile_ ? profile_->GetPrefs() : nullptr);
+  std::move(callback).Run();
 }
 
-void SeoulWelcomePageHandler::SetRailCollapsed(bool collapsed) {
-  tabs::VerticalTabStripStateController* const rail =
-      RailController(browser_window_);
-  if (!rail) {
-    return;
-  }
-  // Compact is expand-on-hover plus collapsed, which is what the toolbar's own
-  // compact control does. Collapsing alone produces the sixty-DIP icon rail,
-  // not the five-DIP edge - CollapsedRegionWidth() only returns the compact
-  // width when expand-on-hover is enabled - so the first-run screen was
-  // offering "Compact" and delivering something else.
-  rail->SetExpandOnHoverEnabledForWindow(collapsed);
-  rail->RequestCollapse(collapsed);
+void SeoulWelcomePageHandler::SetRailCollapsed(
+    bool collapsed, SetRailCollapsedCallback callback) {
+  SeoulRuntimeService* runtime = profile_ ?
+      SeoulRuntimeServiceFactory::GetForProfile(profile_) : nullptr;
+  const auto binding = runtime && browser_window_ ?
+      runtime->CreateWindowBinding(browser_window_.get()) : WindowRuntimeBinding{};
+  const bool accepted = runtime && binding.is_valid() &&
+      runtime->SetCompactMode(collapsed, binding.window);
+  std::move(callback).Run(accepted, BuildState());
 }
 
 void SeoulWelcomePageHandler::RequestDefaultBrowser(

@@ -57,11 +57,11 @@ interface PageHandler {
 
   // Ends the flow without completing the remaining steps. Distinct from
   // completing them: a person who skipped chose nothing.
-  Skip();
+  Skip() => ();
 
   // Sets the rail's resting state for the hosting window, applied live so the
   // choice is visible behind the surface as it is made.
-  SetRailCollapsed(bool collapsed);
+  SetRailCollapsed(bool collapsed) => (bool accepted, WelcomeState state);
 
   // Asks the platform to make Seoul the default, and reports whether it
   // actually became the default. On macOS this opens a system prompt the user

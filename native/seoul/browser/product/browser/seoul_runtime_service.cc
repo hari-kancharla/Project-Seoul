@@ -2,6 +2,7 @@
 
 #include "seoul/browser/product/browser/seoul_capture.h"
 #include "seoul/browser/product/browser/seoul_runtime_service.h"
+#include "seoul/browser/product/browser/seoul_settings_window.h"
 
 #include "seoul/browser/onboarding/onboarding_state.h"
 
@@ -10,6 +11,8 @@
 #include <utility>
 
 #include "base/functional/bind.h"
+#include "base/command_line.h"
+#include "chrome/common/chrome_switches.h"
 #include "base/json/values_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -190,6 +193,13 @@ SeoulRuntimeService::SeoulRuntimeService(
                               base::Unretained(this)))),
       runtime_(
           MakeSceneResolvers(organization, themes_.get(), site_layers_.get())) {
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kNoFirstRun)) {
+    const auto decision = onboarding::Decide(prefs_, !profile_->IsNewProfile());
+    welcome_pending_ = decision == onboarding::Decision::kShowFirstRun ||
+                       decision == onboarding::Decision::kResume;
+    if (decision == onboarding::Decision::kExistingProfile)
+      onboarding::MarkExistingProfileOnboarded(prefs_);
+  }
   // Concrete transports: the general one for cloud/connectors, a
   // loopback-only one for the local reasoning provider.
   scoped_refptr<network::SharedURLLoaderFactory> factory =
@@ -449,6 +459,13 @@ SeoulRuntimeService::SeoulRuntimeService(
             },
             base::Unretained(this)));
   }
+  boost_pref_registrar_.Init(prefs_);
+  for (const char* pref : {kSeoulBoostsEnabledPref,
+                           kSeoulBoostJavaScriptEnabledPref}) {
+    boost_pref_registrar_.Add(
+        pref, base::BindRepeating(&SeoulRuntimeService::RefreshSiteLayers,
+                                  base::Unretained(this)));
+  }
   // Applicators may already exist because live-window state is replayed during
   // construction, while the registry is restored only by LoadState(). Apply
   // the restored layers now rather than waiting for a later tab event.
@@ -476,13 +493,27 @@ SeoulRuntimeService::SeoulRuntimeService(
       FROM_HERE,
       base::BindOnce(&SeoulRuntimeService::RunLiveCollectionMaintenance,
                      weak_factory_.GetWeakPtr()));
+  for (const auto& [window, tabs] : live_tabs_by_window_) MaybeShowWelcome(window);
 }
 
 SeoulRuntimeService::~SeoulRuntimeService() = default;
 
+std::unique_ptr<SettingsWindowOwner> SeoulRuntimeService::TakeSettingsWindow() {
+  return std::move(settings_window_);
+}
+
+void SeoulRuntimeService::SetSettingsWindow(
+    std::unique_ptr<SettingsWindowOwner> owner) {
+  settings_window_ = std::move(owner);
+}
+
 LiveWindowStateProvider *
 SeoulRuntimeService::live_window_state_provider() const {
   return organization_ ? organization_->live_window_state_provider() : nullptr;
+}
+
+void SeoulRuntimeService::OnLiveWindowStateProviderDestroying() {
+  live_window_observation_.Reset();
 }
 
 void SeoulRuntimeService::OnLiveWindowSnapshotChanged(
@@ -534,8 +565,11 @@ void SeoulRuntimeService::OnLiveWindowSnapshotChanged(
   it->second = std::move(current_tabs);
   if (RestorePresentationForWindow(snapshot.window)) {
     RefreshSiteLayers();
+  } else {
+    NotifySiteLayersChanged();
   }
   if (product_state_loaded_) {
+    if (snapshot.eligible) MaybeShowWelcome(snapshot.window);
     ApplyStandaloneCompactMode(snapshot.window, /*seed_if_missing=*/true);
     // A restored collection may have been waiting for this exact live window.
     // Post the sweep so a synchronous lifecycle publication cannot recursively
@@ -545,6 +579,19 @@ void SeoulRuntimeService::OnLiveWindowSnapshotChanged(
         base::BindOnce(&SeoulRuntimeService::RunLiveCollectionMaintenance,
                        weak_factory_.GetWeakPtr()));
   }
+}
+
+void SeoulRuntimeService::MaybeShowWelcome(const LiveWindowKey& window) {
+  if (!welcome_pending_ || shutting_down_ || !product_state_loaded_ ||
+      !window.is_valid() || onboarding::IsFinished(prefs_)) return;
+  welcome_pending_ = false;
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE,
+      base::BindOnce([](base::WeakPtr<SeoulRuntimeService> runtime, LiveWindowKey key) {
+        if (!runtime || runtime->shutting_down_ || onboarding::IsFinished(runtime->prefs_)) return;
+        if (OpenSeoulProjectRoute(runtime->profile_, key, GURL("chrome://seoul-welcome")))
+          onboarding::MarkStarted(runtime->prefs_);
+        else runtime->welcome_pending_ = true;
+      }, weak_factory_.GetWeakPtr(), window));
 }
 
 void SeoulRuntimeService::OnLiveWindowRemoved(LiveWindowKey window) {
@@ -587,6 +634,7 @@ void SeoulRuntimeService::OnTaskUpdated(const TaskId &task_id) {
   }
   if (std::optional<TaskSnapshot> snapshot = task_service_->Snapshot(task_id)) {
     PublishShellTaskSummary(snapshot->window);
+    SchedulePersist();
   }
 }
 
@@ -1442,6 +1490,8 @@ void SeoulRuntimeService::ContinueSceneRestore(const LiveWindowKey &window) {
 void SeoulRuntimeService::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable *registry) {
   registry->RegisterDictionaryPref(kProductRuntimePref);
+  registry->RegisterIntegerPref(kSettingsLastPanePref,
+                               static_cast<int>(SettingsPane::kAppearance));
   // Arc's Settings > Advanced switch. Defaults on, because a Boost the user
   // created should apply; turning it off silences every Boost without
   // deleting any of them.
@@ -1761,7 +1811,7 @@ TaskId SeoulRuntimeService::StartGoal(const std::string &goal,
   const bool use_model =
       provider_registry_ &&
       provider_registry_->HasUsableProvider(allow_cloud_models);
-  const bool prefer_local = !allow_cloud_models;
+  const bool prefer_local = true;
   return task_service_->StartTask(goal, window, BuildPermissionContext(window),
                                   use_model, prefer_local, allow_cloud_models);
 }
@@ -1811,13 +1861,20 @@ RealtimeVoiceAgentSnapshot SeoulRuntimeService::RealtimeVoiceSnapshot() const {
                                : RealtimeVoiceAgentSnapshot();
 }
 
-SiteLayerStatusResult SeoulRuntimeService::UpsertSiteLayer(SiteLayer layer) {
+SiteLayerStatusResult SeoulRuntimeService::UpsertSiteLayer(
+    SiteLayer layer, std::optional<bool> javascript_enabled) {
   if (shutting_down_ || !site_layers_) {
     return base::unexpected(SiteLayerError::kUnknownLayer);
   }
   SiteLayerStatusResult result = site_layers_->Upsert(std::move(layer));
   if (!result.has_value()) {
     return result;
+  }
+  // Commit code before changing execution policy. Rejected edits change
+  // neither the saved program nor its permission; turning permission off
+  // never briefly executes the newly saved program.
+  if (javascript_enabled.has_value()) {
+    prefs_->SetBoolean(kSeoulBoostJavaScriptEnabledPref, *javascript_enabled);
   }
   RefreshSiteLayers();
   SchedulePersist();
@@ -1848,16 +1905,40 @@ void SeoulRuntimeService::RefreshSiteLayers() {
   if (shutting_down_) {
     return;
   }
-  for (auto &[tab, applicator] : site_layer_applicators_) {
+  for (auto& [tab, applicator] : site_layer_applicators_) {
     if (applicator) {
       applicator->Refresh(SceneForTab(tab));
     }
   }
+  NotifySiteLayersChanged();
 }
 
-bool SeoulRuntimeService::BeginCaptureForWindow(const LiveWindowKey &window) {
+void SeoulRuntimeService::NotifySiteLayersChanged() {
+  ++site_layers_revision_;
+  if (!site_layers_notification_pending_ &&
+      !site_layers_changed_callbacks_.empty()) {
+    site_layers_notification_pending_ = true;
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(
+                       [](base::WeakPtr<SeoulRuntimeService> service) {
+                         if (!service || service->shutting_down_)
+                           return;
+                         service->site_layers_notification_pending_ = false;
+                         service->site_layers_changed_callbacks_.Notify();
+                       },
+                       weak_factory_.GetWeakPtr()));
+  }
+}
+
+base::CallbackListSubscription
+SeoulRuntimeService::AddSiteLayersChangedCallback(
+    base::RepeatingClosure callback) {
+  return site_layers_changed_callbacks_.Add(std::move(callback));
+}
+
+bool SeoulRuntimeService::BeginCaptureForWindow(const LiveWindowKey& window) {
   const std::optional<LiveTabDescriptor> active = ActiveTabDescriptor(window);
-  content::WebContents *const contents =
+  content::WebContents* const contents =
       active.has_value() && web_contents_resolver_
           ? web_contents_resolver_.Run(active->tab)
           : nullptr;
@@ -2743,6 +2824,7 @@ bool SeoulRuntimeService::PersistState() {
   if (surface_service_) {
     state.Set("surfaces", surface_service_->TakePersistedState());
   }
+  if (task_service_) state.Set("tasks", task_service_->TakePersistedState());
   if (thread_service_) {
     state.Set("threads", thread_service_->TakePersistedState());
   }
@@ -2787,6 +2869,9 @@ void SeoulRuntimeService::LoadState() {
     return;
   }
   const base::DictValue &state = prefs_->GetDict(kProductRuntimePref);
+  if (const base::DictValue* tasks = state.FindDict("tasks")) {
+    task_service_->RestorePersistedState(*tasks);
+  }
   if (const base::DictValue *surfaces = state.FindDict("surfaces")) {
     surface_service_->RestorePersistedState(*surfaces);
   }
@@ -2846,6 +2931,8 @@ void SeoulRuntimeService::Shutdown() {
   if (shutting_down_) {
     return;
   }
+  settings_window_.reset();
+  boost_pref_registrar_.RemoveAll();
   if (organization_ && organization_->shell_service()) {
     organization_->shell_service()->SetOpenBoostCallback({});
     organization_->shell_service()->SetBeginCaptureCallback({});

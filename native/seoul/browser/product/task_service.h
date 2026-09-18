@@ -7,8 +7,8 @@
 // STATE OWNERSHIP
 //   owner:        one TaskService per profile runtime.
 //   lifetime:     the profile runtime.
-//   persistence:  none in V1 beyond checkpoints handed to callers; the deck
-//                 is rebuilt per session. Receipts are bounded per task.
+//   persistence:  bounded recent history and receipts, via the profile owner.
+//                 Execution capabilities and approvals are never restored.
 //   recovery:     a task interrupted by shutdown reports kOutcomeUnknown for
 //                 in-progress mutations; nothing replays automatically.
 //   teardown:     Shutdown() cancels executors, stops timers, and drops
@@ -23,6 +23,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/functional/callback.h"
@@ -154,6 +155,11 @@ class TaskService {
   // notified. Called by the runtime service during profile shutdown.
   void Shutdown();
 
+  // Recent history is profile-wide, separate from live window-bound tasks.
+  // Restored entries are read-only. Interrupted work never resumes implicitly.
+  base::DictValue TakePersistedState() const;
+  void RestorePersistedState(const base::DictValue& state);
+
   size_t task_count() const { return tasks_.size(); }
 
  private:
@@ -188,10 +194,15 @@ class TaskService {
     bool driving = false;
     bool pump_pending = false;
     bool finished_notified = false;
+    bool eligible_for_eviction = false;
+    std::optional<TaskState> planning_terminal_state;
+    base::OneShotTimer planning_timer;
     std::map<std::string, std::unique_ptr<base::OneShotTimer>> step_timers;
   };
 
   static TaskState EffectiveState(const ActiveTask& task);
+  bool ReserveTaskSlot();
+  void ArmPlanningTimeout(const TaskId& task_id);
 
   void OnPlanned(TaskId task_id, PlannerResult result);
   // Installs a newly validated plan after either bounded failure recovery or
@@ -222,6 +233,8 @@ class TaskService {
   raw_ptr<AgentPermissionService> permissions_ = nullptr;
   PermissionScopeResolver permission_scope_resolver_;
   std::map<TaskId, std::unique_ptr<ActiveTask>> tasks_;
+  std::vector<TaskId> task_order_;
+  std::vector<std::pair<TaskSnapshot, bool>> history_;
   base::ObserverList<TaskServiceObserver> observers_;
   bool shutting_down_ = false;
   base::WeakPtrFactory<TaskService> weak_factory_{this};

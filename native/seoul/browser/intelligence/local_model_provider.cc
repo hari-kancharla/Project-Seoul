@@ -23,7 +23,7 @@ LocalModelProvider::LocalModelProvider(LocalModelConfig config,
   config_.capabilities.locality = ModelLocality::kLocal;
 }
 
-LocalModelProvider::~LocalModelProvider() = default;
+LocalModelProvider::~LocalModelProvider() { Cancel(); }
 
 std::string LocalModelProvider::provider_id() const {
   return "local:" + config_.model_id;
@@ -35,6 +35,12 @@ ModelCapabilities LocalModelProvider::capabilities() const {
 
 void LocalModelProvider::Generate(const GenerationRequest& request,
                                   GenerateCallback callback) {
+  if (pending_) {
+    std::move(callback).Run(base::unexpected(
+        "The model is answering another request. Try again when it finishes."));
+    return;
+  }
+  weak_factory_.InvalidateWeakPtrs();
   // Hard local-only guard: refuse before any bytes leave if the endpoint is
   // not loopback. This is what makes "local" trustworthy.
   if (!IsLocalOnlyEndpoint(config_.endpoint_url)) {
@@ -61,14 +67,15 @@ void LocalModelProvider::Generate(const GenerationRequest& request,
 
   HttpStreamCallbacks callbacks;
   callbacks.on_chunk = base::BindRepeating(
-      [](StreamingAccumulator* acc, std::string_view chunk) {
-        acc->Feed(chunk);
+      [](base::WeakPtr<LocalModelProvider> self, std::string_view chunk) {
+        if (self && self->pending_) self->accumulator_->Feed(chunk);
       },
-      accumulator_.get());
+      weak_factory_.GetWeakPtr());
   callbacks.on_complete = base::BindOnce(
-      [](LocalModelProvider* self, int http_status,
+      [](base::WeakPtr<LocalModelProvider> self, int http_status,
          const std::string& transport_error) {
-        if (!self->pending_) return;
+        if (!self || !self->pending_) return;
+        self->active_handle_ = 0;
         if (!transport_error.empty()) {
           std::move(self->pending_).Run(base::unexpected(transport_error));
           return;
@@ -84,18 +91,31 @@ void LocalModelProvider::Generate(const GenerationRequest& request,
               .Run(base::unexpected(self->accumulator_->error()));
           return;
         }
-        std::move(self->pending_).Run(self->accumulator_->Finish());
+        GenerationResult result = self->accumulator_->Finish();
+        if (self->accumulator_->has_error() || result.truncated ||
+            result.text.empty()) {
+          std::move(self->pending_).Run(base::unexpected(
+              self->accumulator_->has_error() ? self->accumulator_->error() :
+              "The local model response was interrupted or empty. Try again."));
+          return;
+        }
+        std::move(self->pending_).Run(std::move(result));
       },
-      base::Unretained(this));
+      weak_factory_.GetWeakPtr());
 
-  active_handle_ = transport_->Start(http, std::move(callbacks));
+  const auto self = weak_factory_.GetWeakPtr();
+  const int handle = transport_->Start(http, std::move(callbacks));
+  if (self && self->pending_) self->active_handle_ = handle;
 }
 
 void LocalModelProvider::Cancel() {
+  weak_factory_.InvalidateWeakPtrs();
+  pending_.Reset();
   if (transport_ && active_handle_ != 0) {
     transport_->Cancel(active_handle_);
   }
-  pending_.Reset();
+  active_handle_ = 0;
+  accumulator_.reset();
 }
 
 int64_t LocalModelProvider::EstimateCostMicrodollars(int, int) const {

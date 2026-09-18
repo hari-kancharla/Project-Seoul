@@ -24,12 +24,15 @@ source_set("product_chromium") {
     "page_agent.cc",
     "page_agent.h",
     "seoul_runtime_service.cc",
+    "context_graph_bridge.cc",
     "seoul_runtime_service.h",
     "seoul_runtime_service_factory.cc",
     "seoul_runtime_service_factory.h",
     "site_layer_applicator.cc",
     "site_layer_applicator.h",
     "seoul_boost_bubble.cc",
+    "seoul_boost_code_dialog.cc",
+    "seoul_boost_code_dialog.h",
     "seoul_capture.cc",
     "seoul_capture.h",
     "seoul_boost_bubble.h",
@@ -39,6 +42,10 @@ source_set("product_chromium") {
     "seoul_chip_button.h",
     "seoul_shields_bubble.cc",
     "seoul_shields_bubble.h",
+    "seoul_site_controls_menu.cc",
+    "seoul_site_controls_menu.h",
+    "seoul_settings_window.cc",
+    "seoul_settings_window.h",
     "site_identity.cc",
     "site_identity.h",
     "seoul_handset_size_dialog.cc",
@@ -51,10 +58,13 @@ source_set("product_chromium") {
   # of the target is portable.
   if (is_mac) {
     sources += [
+      "seoul_settings_toolbar_mac.h",
+      "seoul_settings_toolbar_mac.mm",
       "keychain_credential_store.h",
       "keychain_credential_store.mm",
     ]
     frameworks = [
+      "AppKit.framework",
       "Foundation.framework",
       "Security.framework",
     ]
@@ -68,10 +78,12 @@ source_set("product_chromium") {
 
   deps = [
     "//base",
+    "//seoul/browser/context_map:context_map_core",
     "//base/version_info",
     "//chrome/browser/browsing_data:constants",
     "//chrome/browser/profiles:profile",
     "//chrome/browser/ui/browser_window",
+    "//chrome/browser/ui/select_file_policy",
     "//chrome/browser/ui/tabs",
     "//chrome/browser/ui/tabs:tab_strip",
     "//chrome/common",
@@ -83,6 +95,7 @@ source_set("product_chromium") {
     "//components/pref_registry",
     "//components/embedder_support:user_agent",
     "//components/prefs",
+    "//components/vector_icons",
     "//components/sessions",
     "//components/sessions:session_id",
     "//components/tabs:public",
@@ -99,7 +112,6 @@ source_set("product_chromium") {
     "//seoul/browser/lifecycle:lifecycle_core",
     "//seoul/browser/containers:containers_core",
     "//seoul/browser/onboarding:onboarding_core",
-    "//seoul/browser/onboarding:welcome_ui",
     "//seoul/browser/organization",
     "//seoul/browser/organization:organization_model",
     "//seoul/browser/policy:policy_core",
@@ -115,6 +127,10 @@ source_set("product_chromium") {
     "//seoul/browser/voice:voice_core",
     "//services/network/public/cpp",
     "//ui/accessibility",
+    "//ui/base",
+    "//ui/gfx",
+    "//ui/shell_dialogs",
+    "//ui/views",
     "//url",
   ]
 }
@@ -131,12 +147,14 @@ source_set("product_browser_tests") {
     sources += [
       "seoul_capture_util.h",
       "seoul_capture_util.mm",
+      "seoul_settings_browsertest.cc",
     ]
     frameworks = [ "AppKit.framework" ]
   }
   deps = [
     ":product_chromium",
     "//base/test:test_support",
+    "//components/policy/core/common:test_support",
     "//seoul/browser/adblock:adblock",
     "//chrome/browser:browser_public_dependencies",
     "//chrome/test:test_support",
@@ -144,6 +162,7 @@ source_set("product_browser_tests") {
     "//content/test:test_support",
     "//net:test_support",
     "//seoul/browser/canvas",
+    "//seoul/browser/onboarding:welcome_ui",
     "//seoul/browser/handset:handset_core",
     "//seoul/browser/preview:preview_chromium",
     "//seoul/browser/preview:preview_core",

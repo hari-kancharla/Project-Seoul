@@ -1,0 +1,19 @@
+diff --git a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
+--- a/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
++++ b/chrome/browser/ui/views/frame/vertical_tab_strip_region_view.cc
+@@ -522,6 +522,15 @@
+ 
+ void VerticalTabStripRegionView::SetToolbarHeightForLayout(int toolbar_height) {
+   top_button_container_->SetToolbarHeightForLayout(toolbar_height);
++  // Seoul hides the stock top container. When the toolbar is above the page,
++  // preserve the height that container would reserve beside the native window
++  // controls. The layout passes only the toolbar's overlap with this rail, so
++  // a collapsed rail that already starts below it receives zero extra inset.
++  const bool integrated = browser_view_ && browser_view_->toolbar() &&
++                          browser_view_->toolbar()->parent() == this;
++  gfx::Insets margin = flex_layout_->interior_margin();
++  margin.set_top(integrated ? 0 : toolbar_height);
++  flex_layout_->SetInteriorMargin(margin);
+ }
+ 
+ void VerticalTabStripRegionView::SetCaptionButtonWidthForLayout(

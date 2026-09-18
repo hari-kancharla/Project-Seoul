@@ -100,6 +100,12 @@ mojom::CosmeticSelectorSetPtr ToMojom(AdBlockCosmeticSelectorSet source,
     *script_bytes += source.isolated_script.size();
     result->isolated_script = std::move(source.isolated_script);
   }
+  // Dependency-complete upstream bundles can exceed the small DOM-script
+  // budget. Cap the page-world bundle independently; never truncate JavaScript.
+  if (!source.main_world_script.empty() && source.main_world_script.size() <= 256 * 1024 &&
+      source.main_world_script.find('\0') == std::string::npos && base::IsStringUTF8(source.main_world_script)) {
+    result->main_world_script = std::move(source.main_world_script);
+  }
   result->query_generics = source.query_generics;
   return result;
 }

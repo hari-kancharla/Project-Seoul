@@ -1,0 +1,114 @@
+--- a/chrome/browser/ui/color/chrome_color_mixers.cc
++++ b/chrome/browser/ui/color/chrome_color_mixers.cc
+@@ -57,39 +57,27 @@
+                                const ui::ColorProviderKey& key) {
+   const bool dark_mode =
+       key.color_mode == ui::ColorProviderKey::ColorMode::kDark;
+-  // Seoul's palette, and the whole product's.
+-  //
+-  // These were previously Zen's unthemed macOS material - a cool neutral at
+-  // #F0F0F4 / #17171A. That made the browser chrome cool grey while every
+-  // first-party surface Seoul actually renders (the Canvas, the first-run
+-  // flow) is a warm cream at #F2F1EB / #171715, so the frame and its contents
+-  // read as two different applications sitting next to each other. Copying a
+-  // competitor's neutral was also the wrong goal: Seoul is not a Zen skin, and
+-  // its chrome should look like the product it is.
+-  //
+-  // Warm, and shared with the WebUI surfaces to the exact hex. Chromium uses
+-  // these tokens in contrast calculations that require opaque backgrounds, so
+-  // they remain fully opaque endpoints; native window compositing still
+-  // supplies the surrounding macOS material.
+-  const SkColor rail = dark_mode ? SkColorSetRGB(0x17, 0x17, 0x15)
+-                                 : SkColorSetRGB(0xF2, 0xF1, 0xEB);
++  // Shared sky surfaces with the assistant and first-run WebUI. Keep native
++  // contrast endpoints opaque and preserve an explicitly selected Space accent.
++  const SkColor rail = dark_mode ? SkColorSetRGB(0x0E, 0x19, 0x24)
++                                 : SkColorSetRGB(0xEE, 0xF6, 0xFC);
+   const SkColor rail_inactive = rail;
+-  const SkColor reverse_brand = dark_mode ? SkColorSetRGB(0xF4, 0xF2, 0xEC)
+-                                          : SkColorSetRGB(0x16, 0x15, 0x0F);
+-  const SkColor canvas = dark_mode ? SkColorSetRGB(0x10, 0x0F, 0x0E)
+-                                   : SkColorSetRGB(0xEA, 0xE8, 0xE0);
++  const SkColor reverse_brand = dark_mode ? SkColorSetRGB(0xEE, 0xF7, 0xFF)
++                                          : SkColorSetRGB(0x17, 0x2B, 0x3A);
++  const SkColor canvas = dark_mode ? SkColorSetRGB(0x0B, 0x16, 0x20)
++                                   : SkColorSetRGB(0xE3, 0xF1, 0xFB);
+   const SkColor canvas_text = reverse_brand;
+-  const SkColor canvas_text_muted = dark_mode ? SkColorSetRGB(0xA5, 0xA1, 0x96)
+-                                              : SkColorSetRGB(0x5D, 0x5A, 0x51);
+-  // The field the omnibox sits in. Warm white in light mode; in dark mode the
+-  // active Space colour is mixed into a warm near-black rather than a neutral
+-  // one, so a themed Space tints the field without turning it blue.
++  const SkColor canvas_text_muted = dark_mode ? SkColorSetRGB(0xA9, 0xC0, 0xD2)
++                                              : SkColorSetRGB(0x53, 0x6B, 0x7C);
+   const ui::ColorTransform command_surface =
+       dark_mode ? ui::AlphaBlend({ui::kColorAccent},
+-                                 {SkColorSetRGB(0x1F, 0x1E, 0x1B)}, 0x4D)
+-                : ui::ColorTransform{SkColorSetRGB(0xFD, 0xFC, 0xF8)};
++                                 {SkColorSetRGB(0x15, 0x27, 0x37)}, 0x4D)
++                : ui::ColorTransform{SkColorSetRGB(0xFF, 0xFF, 0xFF)};
+ 
+   ui::ColorMixer& mixer = provider->AddMixer();
++  mixer[ui::kColorAccent] = {key.user_color.value_or(
++      dark_mode ? SkColorSetRGB(0x7D, 0xD3, 0xFC)
++                : SkColorSetRGB(0x03, 0x69, 0xA1))};
+   mixer[ui::kColorFrameActive] = {rail};
+   mixer[ui::kColorFrameInactive] = {rail_inactive};
+   mixer[kColorToolbar] = {rail};
+--- a/chrome/app/vector_icons/seoul_boost.icon
++++ b/chrome/app/vector_icons/seoul_boost.icon
+@@ -1,27 +1,31 @@
+ // Copyright 2026 The Project Seoul Authors
+-// Use of this source code is governed by a BSD-style license that can be
+-// found in the LICENSE file.
++// Use of this source code is governed by the MPL-2.0 licence.
+ 
+-// Paintbrush, for the Boost affordance in the address field. Arc uses a
+-// paintbrush for the same action, so the glyph is the one users of that idiom
+-// already read as "restyle this site"; the drawing is Seoul's own and matches
+-// the 18-DIP, 1.5-stroke rail set.
+-//
+-// Three parts, so it cannot be misread as a tag: a tapering bristle wedge
+-// pointing down-left, a ferrule band across it, and a handle running to the
+-// upper right.
+ CANVAS_DIMENSIONS, 18,
+-STROKE, 1.5,
+-MOVE_TO, 6.5, 8.5,
+-LINE_TO, 3, 13,
+-LINE_TO, 5, 15,
+-LINE_TO, 9.5, 11.5,
++MOVE_TO, 7.5f, 1,
++LINE_TO, 9.4f, 6.1f,
++LINE_TO, 14.5f, 8,
++LINE_TO, 9.4f, 9.9f,
++LINE_TO, 7.5f, 15,
++LINE_TO, 5.6f, 9.9f,
++LINE_TO, 0.5f, 8,
++LINE_TO, 5.6f, 6.1f,
+ CLOSE,
+-NEW_PATH,
+-STROKE, 1.5,
+-MOVE_TO, 7.5, 7.5,
+-LINE_TO, 10.5, 10.5,
+-NEW_PATH,
+-STROKE, 1.5,
+-MOVE_TO, 9, 9,
+-LINE_TO, 14.5, 3.5,
++MOVE_TO, 14.5f, 0.5f,
++LINE_TO, 15.2f, 2.8f,
++LINE_TO, 17.5f, 3.5f,
++LINE_TO, 15.2f, 4.2f,
++LINE_TO, 14.5f, 6.5f,
++LINE_TO, 13.8f, 4.2f,
++LINE_TO, 11.5f, 3.5f,
++LINE_TO, 13.8f, 2.8f,
++CLOSE,
++MOVE_TO, 14, 11.5f,
++LINE_TO, 14.7f, 13.8f,
++LINE_TO, 17, 14.5f,
++LINE_TO, 14.7f, 15.2f,
++LINE_TO, 14, 17.5f,
++LINE_TO, 13.3f, 15.2f,
++LINE_TO, 11, 14.5f,
++LINE_TO, 13.3f, 13.8f,
++CLOSE

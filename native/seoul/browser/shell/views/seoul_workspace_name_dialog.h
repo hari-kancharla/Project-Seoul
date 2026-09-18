@@ -31,7 +31,8 @@ std::unique_ptr<ui::DialogModel> BuildWorkspaceNameDialogModel(
     const std::u16string& title,
     const std::u16string& field_label,
     const std::u16string& initial_name,
-    base::OnceCallback<void(std::string)> on_accept);
+    base::OnceCallback<void(std::string)> on_accept,
+    const std::u16string& description = std::u16string());
 
 // Shows a modal "name a workspace" dialog anchored to `parent`. On accept with
 // a non-empty, bounded name, `on_accept` runs with that name; cancel runs
@@ -42,7 +43,8 @@ views::Widget* ShowWorkspaceNameDialog(
     const std::u16string& title,
     const std::u16string& field_label,
     const std::u16string& initial_name,
-    base::OnceCallback<void(std::string)> on_accept);
+    base::OnceCallback<void(std::string)> on_accept,
+    const std::u16string& description = std::u16string());
 
 }  // namespace seoul
 

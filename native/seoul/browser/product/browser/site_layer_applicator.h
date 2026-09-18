@@ -3,12 +3,12 @@
 // A SiteLayerApplicator is owned by the profile runtime for one live tab. It
 // compiles the profile's validated declarative layers for the tab's committed
 // origin and installs the resulting CSS through one fixed, reviewed isolated-
-// world script as a browser-owned constructable sheet. Layer content never
-// becomes executable JavaScript, and constructable sheets are not weakened by
-// or exceptions to the page's own CSP. Navigation replaces the document, so
-// the applicator reapplies after every primary-main-frame commit and
-// DOMContentLoaded. Clearing or disabling the matching layers removes Seoul's
-// sheet immediately.
+// world script as a browser-owned constructable sheet. Declarative CSS never
+// becomes executable JavaScript. Optional author scripts use a separate,
+// explicitly enabled path and remain subject to the page's CSP. Navigation
+// replaces the document, so the applicator reapplies after every
+// primary-main-frame commit and DOMContentLoaded. Clearing or disabling the
+// matching layers removes Seoul's sheet immediately.
 
 #ifndef SEOUL_BROWSER_PRODUCT_BROWSER_SITE_LAYER_APPLICATOR_H_
 #define SEOUL_BROWSER_PRODUCT_BROWSER_SITE_LAYER_APPLICATOR_H_
@@ -27,31 +27,32 @@ namespace content {
 class NavigationHandle;
 class RenderFrameHost;
 class WebContents;
-} // namespace content
+}  // namespace content
 
 namespace seoul {
 
 class SiteLayerRegistry;
 
 class SiteLayerApplicator : public content::WebContentsObserver {
-public:
+ public:
   using ZapCallback =
       base::OnceCallback<void(std::optional<std::string> selector)>;
 
-  SiteLayerApplicator(content::WebContents *web_contents,
-                      SiteLayerRegistry *registry);
-  SiteLayerApplicator(const SiteLayerApplicator &) = delete;
-  SiteLayerApplicator &operator=(const SiteLayerApplicator &) = delete;
+  SiteLayerApplicator(content::WebContents* web_contents,
+                      SiteLayerRegistry* registry);
+  SiteLayerApplicator(const SiteLayerApplicator&) = delete;
+  SiteLayerApplicator& operator=(const SiteLayerApplicator&) = delete;
   ~SiteLayerApplicator() override;
 
-  // Recompiles against the current committed origin and replaces the applied
-  // stylesheet. `scene_id` is empty for globally scoped browsing.
-  void Refresh(const std::string &scene_id);
+  // Recompiles against the current committed origin and updates the applied
+  // stylesheet only when the result changes. `scene_id` is empty for globally
+  // scoped browsing.
+  void Refresh(const std::string& scene_id);
 
   // The most recent successfully compiled CSS, exposed only so the integration
   // layer can report truthful state and browser tests can assert rollback.
-  const std::string &compiled_css_for_testing() const { return compiled_css_; }
-  bool IsAttachedTo(content::WebContents *contents) const {
+  const std::string& compiled_css_for_testing() const { return compiled_css_; }
+  bool IsAttachedTo(content::WebContents* contents) const {
     return web_contents() == contents;
   }
   bool automatic_dark_mode_enabled_for_testing() const {
@@ -66,16 +67,17 @@ public:
   void CancelZap();
 
   // content::WebContentsObserver:
-  void
-  DidFinishNavigation(content::NavigationHandle *navigation_handle) override;
-  void DOMContentLoaded(content::RenderFrameHost *render_frame_host) override;
+  void DidFinishNavigation(
+      content::NavigationHandle* navigation_handle) override;
+  void DOMContentLoaded(content::RenderFrameHost* render_frame_host) override;
   void WebContentsDestroyed() override;
+  void OnVisibilityChanged(content::Visibility visibility) override;
 
-private:
+ private:
   void OnZapInstalled(uint64_t generation, base::Value result);
   void PollZap(uint64_t generation);
   void OnZapPoll(uint64_t generation, base::Value result);
-  void ApplyToPrimaryMainFrame();
+  void ApplyToPrimaryMainFrame(bool repair_style = false);
 
   raw_ptr<SiteLayerRegistry> registry_;
   std::string scene_id_;
@@ -88,6 +90,6 @@ private:
   base::WeakPtrFactory<SiteLayerApplicator> weak_factory_{this};
 };
 
-} // namespace seoul
+}  // namespace seoul
 
-#endif // SEOUL_BROWSER_PRODUCT_BROWSER_SITE_LAYER_APPLICATOR_H_
+#endif  // SEOUL_BROWSER_PRODUCT_BROWSER_SITE_LAYER_APPLICATOR_H_

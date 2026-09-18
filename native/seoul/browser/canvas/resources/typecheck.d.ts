@@ -25,6 +25,7 @@ declare module '*canvas.mojom-webui.js' {
     pushThreadSnapshot: Listener;
     pushLibrarySnapshot: Listener;
     openBoostEditor: Listener;
+    pushSiteLayerSnapshot: Listener;
   }
 
   export class PageHandlerRemote {
@@ -40,7 +41,12 @@ declare module '*canvas.mojom-webui.js' {
     approveStep(taskId: string, stepId: string, approved: boolean): void;
     provideTaskInput(taskId: string, stepId: string, input: string): void;
     getLibrarySnapshot(): Promise<{snapshotJson: string}>;
+    getTaskHistory(): Promise<{historyJson: string}>;
+    getContextGraph(): Promise<{graphJson: string}>;
+    activateContextTab(nodeId: string): Promise<{activated: boolean}>;
     getSiteLayerSnapshot(): Promise<{snapshotJson: string}>;
+    setBoostsEnabled(enabled: boolean): Promise<{snapshotJson: string}>;
+    setBoostJavaScriptEnabled(enabled: boolean): Promise<{snapshotJson: string}>;
     upsertSiteLayer(
         layerId: string, expectedTabId: string, expectedPageOrigin: string,
         name: string, originPattern: string, sceneScope: string,
@@ -173,6 +179,8 @@ declare module '*canvas.mojom-webui.js' {
   export const PageHandlerFactory: {
     getRemote(): {
       createPageHandler(page: unknown, handler: unknown): void;
+      showUI(): Promise<{embedded: boolean}>;
+      closeUI(): void;
     };
   };
 }

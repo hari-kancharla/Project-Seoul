@@ -129,6 +129,7 @@ ShellSnapshot ShellViewModel::Build(const OrganizationModel& model,
     space.workspace_id = workspace.id;
     space.name = workspace.name;
     space.icon = workspace.icon;
+    space.isolated = workspace.isolated;
     space.is_active = workspace.id == active;
     space.switching = space.is_active && snapshot.workspace.switching;
     snapshot.spaces.push_back(std::move(space));
@@ -277,6 +278,10 @@ ShellSnapshot ShellViewModel::Build(const OrganizationModel& model,
   const bool mutations_ok =
       snapshot.status != ShellStatus::kReconciliationRequired &&
       snapshot.status != ShellStatus::kRecoveryRequired;
+  AddAction(&snapshot, ShellUtilityAction::kNewWorkspace, mutations_ok,
+            mutations_ok ? "" : "Reconciliation required.");
+  AddAction(&snapshot, ShellUtilityAction::kNewContainerWorkspace, mutations_ok,
+            mutations_ok ? "" : "Reconciliation required.");
   AddAction(&snapshot, ShellUtilityAction::kNewTemporaryTab, mutations_ok,
             mutations_ok ? "" : "Reconciliation required.");
   AddAction(&snapshot, ShellUtilityAction::kCommandLauncher, true, "");

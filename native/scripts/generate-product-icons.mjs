@@ -222,14 +222,14 @@ function renderMaster() {
       const midpoint = Math.min(1, t / 0.48);
       const tail = Math.max(0, (t - 0.48) / 0.52);
       const red = t <= 0.48 ?
-          Math.round(0x82 + (0x5f - 0x82) * midpoint) :
-          Math.round(0x5f + (0x34 - 0x5f) * tail);
+          Math.round(0x7d + (0x38 - 0x7d) * midpoint) :
+          Math.round(0x38 + (0x03 - 0x38) * tail);
       const green = t <= 0.48 ?
-          Math.round(0xaa + (0x8d - 0xaa) * midpoint) :
-          Math.round(0x8d + (0x5f - 0x8d) * tail);
+          Math.round(0xd3 + (0xa9 - 0xd3) * midpoint) :
+          Math.round(0xa9 + (0x69 - 0xa9) * tail);
       const blue = t <= 0.48 ?
-          Math.round(0x8e + (0x6e - 0x8e) * midpoint) :
-          Math.round(0x6e + (0x47 - 0x6e) * tail);
+          Math.round(0xfc + (0xe5 - 0xfc) * midpoint) :
+          Math.round(0xe5 + (0xa1 - 0xe5) * tail);
       const index = (y * masterSize + x) * 4;
       rgba[index] = red;
       rgba[index + 1] = green;
@@ -242,7 +242,7 @@ function renderMaster() {
       const inInner =
           roundedRectContains(logicalX, logicalY, 86, 72, 852, 852, 206);
       if (!inInner) {
-        blendPixel(rgba, index, 233, 241, 232, 46);
+        blendPixel(rgba, index, 224, 242, 254, 46);
       }
     }
   }
@@ -255,10 +255,10 @@ function renderMaster() {
   for (let pixel = 0; pixel < shadowMask.length; ++pixel) {
     const index = pixel * 4;
     if (shadowMask[pixel]) {
-      blendPixel(rgba, index, 23, 54, 36, 74);
+      blendPixel(rgba, index, 11, 58, 85, 74);
     }
     if (markMask[pixel]) {
-      blendPixel(rgba, index, 247, 244, 234, 255);
+      blendPixel(rgba, index, 244, 250, 255, 255);
     }
   }
   return rgba;

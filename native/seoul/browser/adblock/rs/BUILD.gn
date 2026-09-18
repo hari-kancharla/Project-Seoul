@@ -6,6 +6,7 @@ rust_static_library("rust_lib") {
   crate_name = "seoul_adblock_cxx"
   crate_root = "src/lib.rs"
   sources = [ "src/lib.rs" ]
+  inputs = [ "../../../third_party/ublock_scriptlets/resources.json" ]
   edition = "2021"
   allow_unsafe = true
 

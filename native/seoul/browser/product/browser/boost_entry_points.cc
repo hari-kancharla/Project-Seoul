@@ -41,16 +41,8 @@ bool OpenBoostEditorForWebContents(content::WebContents *web_contents) {
   if (!CanBoostWebContents(web_contents)) {
     return false;
   }
-  BrowserWindowInterface *browser = EligibleBrowserFor(web_contents);
-  SeoulRuntimeService *runtime =
-      browser ? SeoulRuntimeServiceFactory::GetForProfile(browser->GetProfile())
-              : nullptr;
-  if (!runtime) {
-    return false;
-  }
-  const LiveWindowKey window =
-      LiveWindowKey::FromSessionId(browser->GetSessionID().id());
-  runtime->RequestBoostEditor(window);
+  // Opening the site editor must not switch an unrelated assistant or project
+  // chat to a second editor, or queue that switch for the next assistant open.
   // The editor is the native bubble - on the page being boosted, the way Arc
   // does it - rather than the Canvas side panel, which was a different surface
   // asking you to edit a site you were no longer looking at.

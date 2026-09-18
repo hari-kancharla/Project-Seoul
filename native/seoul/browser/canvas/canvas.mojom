@@ -142,6 +142,10 @@ interface PageHandler {
   // tasks; snapshots are canonical task-snapshot JSON documents
   // (protocol/task-snapshot.schema.json).
   ListTasks() => (array<string> task_snapshots_json);
+  // Explicit, read-only profile history, distinct from live window tasks.
+  GetTaskHistory() => (string history_json);
+  GetContextGraph() => (string graph_json);
+  ActivateContextTab(string node_id) => (bool activated);
   PauseTask(string task_id);
   ResumeTask(string task_id);
   CancelActiveTask(string task_id);
@@ -204,6 +208,8 @@ interface PageHandler {
   // layers. Mutations apply to matching live pages immediately and persist
   // only after browser-side validation.
   GetSiteLayerSnapshot() => (string snapshot_json);
+  SetBoostsEnabled(bool enabled) => (string snapshot_json);
+  SetBoostJavaScriptEnabled(bool enabled) => (string snapshot_json);
   UpsertSiteLayer(string layer_id,
                   string expected_tab_id,
                   string expected_page_origin,
@@ -280,6 +286,9 @@ interface Page {
 
   // A native entry point requested a fresh Boost for the current site.
   OpenBoostEditor();
+  // Profile settings, authored Boosts or Scene applicability changed. This
+  // metadata-only snapshot includes a monotonic revision; no code bodies.
+  PushSiteLayerSnapshot(string snapshot_json);
 
   // A task changed: the full canonical task-snapshot JSON document. Replaces
   // status-string task notifications; the Canvas renders plan, current step,
@@ -299,4 +308,7 @@ interface Page {
 interface PageHandlerFactory {
   CreatePageHandler(pending_remote<Page> page,
                     pending_receiver<PageHandler> handler);
+  // Native panels stay hidden until the renderer has completed its first paint.
+  ShowUI() => (bool embedded);
+  CloseUI();
 };

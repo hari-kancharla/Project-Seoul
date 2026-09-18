@@ -17,3 +17,21 @@
 ! its own first-party analytics is not broken by the baseline.
 ||*/analytics.js$script,third-party
 ||*/gtm.js$script,third-party
+
+! YouTube first-navigation safety floor; maintained upstream lists still apply.
+youtube.com##+js(set, ytInitialPlayerResponse.adPlacements, undefined)
+youtube.com##+js(set, ytInitialPlayerResponse.playerAds, undefined)
+youtube.com##+js(set, ytInitialPlayerResponse.adSlots, undefined)
+youtube.com##+js(json-prune, adPlacements playerAds adSlots playerResponse.adPlacements playerResponse.playerAds playerResponse.adSlots [].playerResponse.adPlacements [].playerResponse.playerAds [].playerResponse.adSlots)
+youtube.com##+js(json-prune-fetch-response, adPlacements playerAds adSlots playerResponse.adPlacements playerResponse.playerAds playerResponse.adSlots [].playerResponse.adPlacements [].playerResponse.playerAds [].playerResponse.adSlots, , propsToMatch, url:youtubei/v1/player)
+youtube.com##+js(json-prune-fetch-response, adPlacements playerAds adSlots playerResponse.adPlacements playerResponse.playerAds playerResponse.adSlots [].playerResponse.adPlacements [].playerResponse.playerAds [].playerResponse.adSlots, , propsToMatch, url:youtubei/v1/get_watch)
+youtube.com##+js(json-prune-xhr-response, adPlacements playerAds adSlots playerResponse.adPlacements playerResponse.playerAds playerResponse.adSlots [].playerResponse.adPlacements [].playerResponse.playerAds [].playerResponse.adSlots, , propsToMatch, url:youtubei/v1/player)
+youtube.com##+js(json-prune-xhr-response, adPlacements playerAds adSlots playerResponse.adPlacements playerResponse.playerAds playerResponse.adSlots [].playerResponse.adPlacements [].playerResponse.playerAds [].playerResponse.adSlots, , propsToMatch, url:youtubei/v1/get_watch)
+youtube.com##ytd-ad-slot-renderer
+youtube.com##ytd-display-ad-renderer
+youtube.com##ytd-in-feed-ad-layout-renderer
+youtube.com##ytd-promoted-sparkles-web-renderer
+youtube.com##ytd-promoted-video-renderer
+youtube.com##ytm-promoted-video-renderer
+youtube.com###player-ads
+youtube.com##ytd-rich-item-renderer:has(ytd-ad-slot-renderer)

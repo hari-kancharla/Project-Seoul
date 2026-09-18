@@ -61,6 +61,7 @@ source_set("lifecycle") {
     "//components/split_tabs",
     "//components/tabs:public",
     "//content/public/browser",
+    "//seoul/browser/containers:containers_core",
     "//seoul/browser/organization:organization_model",
     "//url",
   ]

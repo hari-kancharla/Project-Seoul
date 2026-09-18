@@ -21,7 +21,8 @@ if [ ! -d "$CHROMIUM_SRC/base" ]; then
   exit 0
 fi
 
-STUB_DIR="${TMPDIR:-/tmp}/seoul-syntax-stubs"
+STUB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/seoul-syntax-stubs.XXXXXX")"
+trap 'rm -rf "$STUB_DIR"' EXIT
 FLAGS_FILE="$STUB_DIR/flags.rsp"
 mkdir -p "$STUB_DIR"
 # Buildflag discovery is deterministic per invocation. Never inherit flags

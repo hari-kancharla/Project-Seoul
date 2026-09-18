@@ -1,0 +1,25 @@
+--- a/chrome/browser/ui/views/frame/browser_view.h
++++ b/chrome/browser/ui/views/frame/browser_view.h
+@@ -940,6 +940,7 @@
+   void MaybeShowActiveSeoulNewTabPlaceholderSurface();
+   void OnLiveWindowSnapshotChanged(
+       const seoul::LiveWindowSnapshot& snapshot) override;
++  void OnLiveWindowStateProviderDestroying() override;
+   void LayoutSeoulOmniboxSurface();
+   void RefreshSeoulOmniboxSurfaceBackground();
+   void StartSeoulOmniboxEntranceAnimation();
+--- a/chrome/browser/ui/views/frame/browser_view.cc
++++ b/chrome/browser/ui/views/frame/browser_view.cc
+@@ -5553,6 +5553,12 @@
+   MaybeShowSeoulNewTabPlaceholderSurface(GetActiveWebContents());
+ }
+ 
++// The profile service can be destroyed before the native browser window.
++// Detach while the provider is alive, rather than from a later view destructor.
++void BrowserView::OnLiveWindowStateProviderDestroying() {
++  seoul_live_window_observation_.Reset();
++}
++
+ void BrowserView::OnLiveWindowSnapshotChanged(
+     const seoul::LiveWindowSnapshot& snapshot) {
+   const SessionID window = browser_->session_id();

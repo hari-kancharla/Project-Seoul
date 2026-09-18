@@ -12,9 +12,15 @@
 // and a compiling, unit-tested implementation can still deliver none of them.
 
 #include <string>
+#include <vector>
 
+#include "base/run_loop.h"
+#include "base/strings/utf_string_conversions.h"
+#include "base/test/run_until.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/test/browser_test.h"
@@ -28,9 +34,33 @@
 #include "seoul/browser/product/browser/handset_mode.h"
 #include "seoul/browser/product/browser/handset_picker_menu.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/events/test/event_generator.h"
+#include "ui/events/test/test_event.h"
+#include "ui/views/accessibility/view_accessibility.h"
+#include "ui/views/controls/button/button.h"
+#include "ui/views/controls/textfield/textfield.h"
+#include "ui/views/focus/focus_manager.h"
+#include "ui/views/test/button_test_api.h"
+#include "ui/views/test/widget_test.h"
+#include "ui/views/view_utils.h"
+#include "ui/views/widget/widget.h"
+#include "ui/views/widget/widget_utils.h"
 
 namespace seoul {
 namespace {
+
+views::View* FindHandsetView(views::View* root,
+                             std::u16string_view name,
+                             bool text_only = false) {
+  if (root->GetViewAccessibility().GetCachedName() == name &&
+      (!text_only || views::IsViewClass<views::Textfield>(root)))
+    return root;
+  for (views::View* child : root->children()) {
+    if (auto* found = FindHandsetView(child, name, text_only))
+      return found;
+  }
+  return nullptr;
+}
 
 class HandsetBrowserTest : public InProcessBrowserTest {
  public:
@@ -46,10 +76,11 @@ class HandsetBrowserTest : public InProcessBrowserTest {
     // which is what a real phone does with a site that never adapted. Serving
     // both lets the same suite assert that Seoul honours the declaration
     // rather than simply forcing every page to the device width.
-    embedded_test_server()->RegisterRequestHandler(
-        base::BindRepeating([](const net::test_server::HttpRequest& request)
-                                -> std::unique_ptr<net::test_server::HttpResponse> {
-          auto response = std::make_unique<net::test_server::BasicHttpResponse>();
+    embedded_test_server()->RegisterRequestHandler(base::BindRepeating(
+        [](const net::test_server::HttpRequest& request)
+            -> std::unique_ptr<net::test_server::HttpResponse> {
+          auto response =
+              std::make_unique<net::test_server::BasicHttpResponse>();
           response->set_content_type("text/html");
           if (request.relative_url == "/responsive.html") {
             response->set_content(
@@ -122,7 +153,8 @@ IN_PROC_BROWSER_TEST_F(HandsetBrowserTest, PresentsThePageAsAPhone) {
   //    not merely that the window was made narrow.
   EXPECT_EQ(phone->portrait_width_dip, EvalInt("screen.width"));
   EXPECT_EQ(phone->portrait_height_dip, EvalInt("screen.height"));
-  EXPECT_EQ(phone->device_scale_factor, EvalInt("Math.round(devicePixelRatio)"));
+  EXPECT_EQ(phone->device_scale_factor,
+            EvalInt("Math.round(devicePixelRatio)"));
 
   // 2. The viewport lays out at the device width, because this page asks for
   //    it. This is the signal that separates a real mobile viewport from a
@@ -253,11 +285,11 @@ IN_PROC_BROWSER_TEST_F(HandsetBrowserTest, PickerSelectsARealProfile) {
   ASSERT_TRUE(active);
   EXPECT_EQ(active->id, "android");
   EXPECT_EQ(android->portrait_width_dip,
-           content::EvalJs(handset_tab, "screen.width").ExtractInt());
+            content::EvalJs(handset_tab, "screen.width").ExtractInt());
   EXPECT_NE(std::string::npos,
-           content::EvalJs(handset_tab, "navigator.userAgent")
-               .ExtractString()
-               .find("Android"));
+            content::EvalJs(handset_tab, "navigator.userAgent")
+                .ExtractString()
+                .find("Android"));
 
   // The selected device's item is checked when the picker is reopened on the
   // tab that is now the Handset; an unselected one, such as whichever
@@ -288,16 +320,292 @@ IN_PROC_BROWSER_TEST_F(HandsetBrowserTest, PickerRotateFlipsRealDimensions) {
   // never happens; the real signal is the screen dimensions changing
   // synchronously with the call.
   HandsetPickerMenu picker;
-  picker.ExecuteCommandForTesting(contents(),
-                                  kHandsetPickerCommandRotate);
+  picker.ExecuteCommandForTesting(contents(), kHandsetPickerCommandRotate);
 
   // A real rotation, not a relabel: width and height genuinely change in the
   // live page to the device's own landscape dimensions.
   EXPECT_EQ(HandsetWidthForOrientation(*phone, HandsetOrientation::kLandscape),
-           EvalInt("screen.width"));
-  EXPECT_EQ(
-      HandsetHeightForOrientation(*phone, HandsetOrientation::kLandscape),
-      EvalInt("screen.height"));
+            EvalInt("screen.width"));
+  EXPECT_EQ(HandsetHeightForOrientation(*phone, HandsetOrientation::kLandscape),
+            EvalInt("screen.height"));
+}
+
+IN_PROC_BROWSER_TEST_F(HandsetBrowserTest, PickerSearchesTheCompleteCatalog) {
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/responsive.html")));
+  HandsetPickerMenu picker;
+  auto* anchor =
+      FindHandsetView(BrowserView::GetBrowserViewForBrowser(browser()),
+                      u"Site controls");
+  ASSERT_TRUE(anchor);
+  picker.Show(anchor, contents());
+  auto* bubble = picker.GetWidgetForTesting();
+  ASSERT_TRUE(bubble);
+  ASSERT_TRUE(bubble->IsVisible());
+  auto* root = bubble->GetContentsView();
+  for (const auto& device : HandsetProfiles())
+    EXPECT_TRUE(FindHandsetView(root, base::UTF8ToUTF16(device.label)))
+        << device.label;
+  const int full_height = bubble->GetWindowBoundsInScreen().height();
+  EXPECT_LT(full_height, 550);
+  auto* search = views::AsViewClass<views::Textfield>(
+      FindHandsetView(root, u"Search devices"));
+  ASSERT_TRUE(search);
+  search->RequestFocus();
+  ui::test::EventGenerator events(views::GetRootWindow(bubble));
+  for (const auto& device : HandsetProfiles()) {
+    events.PressAndReleaseKey(ui::VKEY_DOWN, 0);
+    auto* focused = bubble->GetFocusManager()->GetFocusedView();
+    ASSERT_TRUE(focused);
+    EXPECT_EQ(base::UTF8ToUTF16(device.label),
+              focused->GetViewAccessibility().GetCachedName());
+    EXPECT_GE(focused->GetVisibleBounds().height(), 40) << device.label;
+  }
+  search->RequestFocus();
+  search->InsertOrReplaceText(u"pixel 8");
+  EXPECT_TRUE(FindHandsetView(root, u"Pixel 8"));
+  EXPECT_LT(bubble->GetWindowBoundsInScreen().height(), full_height);
+  EXPECT_FALSE(FindHandsetView(root, u"iPhone 15"));
+  search->SelectAll(false);
+  search->InsertOrReplaceText(u"no such phone 99999");
+  EXPECT_FALSE(FindHandsetView(root, u"Pixel 8"));
+  auto* empty = FindHandsetView(root, u"No matching devices");
+  ASSERT_TRUE(empty);
+  EXPECT_TRUE(empty->GetVisible());
+  search->SelectAll(false);
+  search->RequestFocus();
+  events.PressAndReleaseKey(ui::VKEY_BACK, 0);
+  for (const auto& device : HandsetProfiles())
+    EXPECT_TRUE(FindHandsetView(root, base::UTF8ToUTF16(device.label)))
+        << device.label;
+  EXPECT_FALSE(empty->GetVisible());
+}
+
+IN_PROC_BROWSER_TEST_F(HandsetBrowserTest,
+                       PickerKeyboardSelectionReleasesPopupBeforeOpeningTab) {
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/responsive.html")));
+  auto* desktop = contents();
+  const int before = browser()->tab_strip_model()->count();
+  HandsetPickerMenu picker;
+  auto* anchor =
+      FindHandsetView(BrowserView::GetBrowserViewForBrowser(browser()),
+                      u"Site controls");
+  ASSERT_TRUE(anchor);
+  picker.Show(anchor, desktop);
+  auto* bubble = picker.GetWidgetForTesting();
+  ASSERT_TRUE(bubble);
+  auto* search = views::AsViewClass<views::Textfield>(
+      FindHandsetView(bubble->GetContentsView(), u"Search devices"));
+  ASSERT_TRUE(search);
+  search->InsertOrReplaceText(u"pixel 8");
+  search->RequestFocus();
+  ui::test::EventGenerator events(views::GetRootWindow(bubble));
+  events.PressAndReleaseKey(ui::VKEY_DOWN, 0);
+  EXPECT_EQ(FindHandsetView(bubble->GetContentsView(), u"Pixel 8"),
+            bubble->GetFocusManager()->GetFocusedView());
+  events.PressAndReleaseKey(ui::VKEY_UP, 0);
+  EXPECT_EQ(search, bubble->GetFocusManager()->GetFocusedView());
+  events.PressAndReleaseKey(ui::VKEY_RETURN, 0);
+  ASSERT_TRUE(base::test::RunUntil([&] {
+    return browser()->tab_strip_model()->count() == before + 1 &&
+           IsHandsetModeEnabled(contents());
+  }));
+  ASSERT_TRUE(content::WaitForLoadStop(contents()));
+  EXPECT_FALSE(picker.GetWidgetForTesting() &&
+               !picker.GetWidgetForTesting()->IsClosed());
+  EXPECT_FALSE(IsHandsetModeEnabled(desktop));
+  ASSERT_TRUE(HandsetProfileFor(contents()));
+  EXPECT_EQ("android", HandsetProfileFor(contents())->id);
+  EXPECT_EQ(FindHandsetProfile("android")->portrait_width_dip,
+            EvalInt("screen.width"));
+}
+
+IN_PROC_BROWSER_TEST_F(HandsetBrowserTest,
+                       ToolbarPointerSelectionAndDesktopReturn) {
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/responsive.html")));
+  auto* desktop = contents();
+  const int before = browser()->tab_strip_model()->count();
+  auto* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
+  auto* anchor = FindHandsetView(browser_view, u"Site controls");
+  ASSERT_TRUE(anchor);
+  browser_view->GetWidget()->LayoutRootViewIfNecessary();
+  ui::test::EventGenerator events(
+      views::GetRootWindow(browser_view->GetWidget()));
+  auto click = [&](views::View* view) {
+    events.SetTargetWindow(views::GetRootWindow(view->GetWidget()));
+    events.MoveMouseTo(view->GetBoundsInScreen().CenterPoint());
+    events.ClickLeftButton();
+  };
+  auto find_bubble = [&]() -> views::Widget* {
+    for (views::Widget* widget : views::test::WidgetTest::GetAllWidgets()) {
+      if (!widget->IsClosed() && widget->widget_delegate() &&
+          widget->widget_delegate()->GetAccessibleWindowTitle() ==
+              u"Phone view")
+        return widget;
+    }
+    return nullptr;
+  };
+  click(anchor);
+  events.PressAndReleaseKey(ui::VKEY_DOWN, 0);
+  events.PressAndReleaseKey(ui::VKEY_DOWN, 0);
+  events.PressAndReleaseKey(ui::VKEY_RETURN, 0);
+  ASSERT_TRUE(base::test::RunUntil([&] { return find_bubble(); }));
+  auto* bubble = find_bubble();
+  auto* search = views::AsViewClass<views::Textfield>(
+      FindHandsetView(bubble->GetContentsView(), u"Search devices"));
+  ASSERT_TRUE(search);
+  // Real key input goes through the field's controller, not a model setter.
+  events.SetTargetWindow(views::GetRootWindow(bubble));
+  events.PressAndReleaseKey(ui::VKEY_S, 0);
+  events.PressAndReleaseKey(ui::VKEY_2, 0);
+  events.PressAndReleaseKey(ui::VKEY_6, 0);
+  EXPECT_EQ(u"s26", search->GetText());
+  const auto* profile = FindHandsetProfile("galaxy-s26-ultra-qhd");
+  ASSERT_TRUE(profile);
+  auto* row = FindHandsetView(bubble->GetContentsView(),
+                              base::UTF8ToUTF16(profile->label));
+  ASSERT_TRUE(row);
+  bubble->LayoutRootViewIfNecessary();
+  EXPECT_GT(row->GetVisibleBounds().height(), 20);
+  click(row);
+  ASSERT_TRUE(base::test::RunUntil([&] {
+    return browser()->tab_strip_model()->count() == before + 1 &&
+           IsHandsetModeEnabled(contents());
+  }));
+  ASSERT_TRUE(content::WaitForLoadStop(contents()));
+  EXPECT_FALSE(IsHandsetModeEnabled(desktop));
+  ASSERT_TRUE(HandsetProfileFor(contents()));
+  EXPECT_EQ(profile->id, HandsetProfileFor(contents())->id);
+  EXPECT_EQ(384, EvalInt("screen.width"));
+  EXPECT_EQ(832, EvalInt("screen.height"));
+  EXPECT_EQ(3.75,
+            content::EvalJs(contents(), "devicePixelRatio").ExtractDouble());
+  EXPECT_EQ("SM-S948W",
+            content::EvalJs(contents(),
+                            "navigator.userAgentData.getHighEntropyValues(['"
+                            "model']).then(v=>v.model)")
+                .ExtractString());
+  click(anchor);
+  events.PressAndReleaseKey(ui::VKEY_DOWN, 0);
+  events.PressAndReleaseKey(ui::VKEY_DOWN, 0);
+  events.PressAndReleaseKey(ui::VKEY_RETURN, 0);
+  ASSERT_TRUE(base::test::RunUntil([&] { return find_bubble(); }));
+  bubble = find_bubble();
+  auto* return_button = FindHandsetView(bubble->GetContentsView(), u"Desktop");
+  ASSERT_TRUE(return_button);
+  content::TestNavigationObserver navigation(contents());
+  click(return_button);
+  navigation.Wait();
+  EXPECT_FALSE(IsHandsetModeEnabled(contents()));
+  EXPECT_EQ(before + 1, browser()->tab_strip_model()->count());
+  EXPECT_EQ(false, EvalBool("matchMedia('(pointer: coarse)').matches"));
+}
+
+IN_PROC_BROWSER_TEST_F(HandsetBrowserTest,
+                       CustomSizeValidatesBeforeChangingThePage) {
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/responsive.html")));
+  auto* desktop = contents();
+  const int before = browser()->tab_strip_model()->count();
+  HandsetPickerMenu picker;
+  auto* anchor =
+      FindHandsetView(BrowserView::GetBrowserViewForBrowser(browser()),
+                      u"Site controls");
+  ASSERT_TRUE(anchor);
+  auto open_size = [&]() -> views::Widget* {
+    picker.Show(anchor, desktop);
+    auto* bubble = picker.GetWidgetForTesting();
+    if (!bubble)
+      return nullptr;
+    auto* custom = views::AsViewClass<views::Button>(
+        FindHandsetView(bubble->GetContentsView(), u"Custom size…"));
+    if (!custom)
+      return nullptr;
+    views::test::ButtonTestApi(custom).NotifyClick(ui::test::TestEvent());
+    views::Widget* dialog = nullptr;
+    const bool shown = base::test::RunUntil([&] {
+      for (views::Widget* widget : views::test::WidgetTest::GetAllWidgets()) {
+        if (!widget->IsClosed() && widget->widget_delegate() &&
+            widget->widget_delegate()->GetAccessibleWindowTitle() ==
+                u"Custom phone size")
+          dialog = widget;
+      }
+      return dialog != nullptr;
+    });
+    return shown ? dialog : nullptr;
+  };
+  auto* dialog = open_size();
+  ASSERT_TRUE(dialog);
+  auto* cancel = views::AsViewClass<views::Button>(
+      FindHandsetView(dialog->GetRootView(), u"Cancel"));
+  ASSERT_TRUE(cancel);
+  views::test::ButtonTestApi(cancel).NotifyClick(ui::test::TestEvent());
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(before, browser()->tab_strip_model()->count());
+  EXPECT_FALSE(IsHandsetModeEnabled(desktop));
+  dialog = open_size();
+  ASSERT_TRUE(dialog);
+  auto* width = views::AsViewClass<views::Textfield>(
+      FindHandsetView(dialog->GetRootView(), u"Width (CSS pixels)", true));
+  auto* height = views::AsViewClass<views::Textfield>(
+      FindHandsetView(dialog->GetRootView(), u"Height (CSS pixels)", true));
+  auto* apply = views::AsViewClass<views::Button>(
+      FindHandsetView(dialog->GetRootView(), u"Apply"));
+  ASSERT_TRUE(width);
+  ASSERT_TRUE(height);
+  ASSERT_TRUE(apply);
+  EXPECT_FALSE(width->GetText().empty());
+  EXPECT_FALSE(height->GetText().empty());
+  const auto replace = [](views::Textfield* field, std::u16string text) {
+    field->SelectAll(false);
+    field->InsertOrReplaceText(text);
+  };
+  for (const auto* invalid : {u"letters", u"0", u"239", u"1367", u"500.5"}) {
+    replace(width, invalid);
+    EXPECT_FALSE(apply->GetEnabled());
+    EXPECT_EQ(before, browser()->tab_strip_model()->count());
+  }
+  replace(width, u"500");
+  replace(height, u"1601");
+  EXPECT_FALSE(apply->GetEnabled());
+  replace(height, u"900");
+  EXPECT_TRUE(apply->GetEnabled());
+  views::test::ButtonTestApi(apply).NotifyClick(ui::test::TestEvent());
+  ASSERT_TRUE(base::test::RunUntil([&] {
+    return browser()->tab_strip_model()->count() == before + 1 &&
+           IsHandsetModeEnabled(contents());
+  }));
+  ASSERT_TRUE(content::WaitForLoadStop(contents()));
+  EXPECT_EQ(500, EvalInt("screen.width"));
+  EXPECT_EQ(900, EvalInt("screen.height"));
+  EXPECT_FALSE(IsHandsetModeEnabled(desktop));
+}
+
+IN_PROC_BROWSER_TEST_F(HandsetBrowserTest, PickerClosesWhenItsTabChanges) {
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/responsive.html")));
+  auto* first = contents();
+  HandsetPickerMenu picker;
+  auto* anchor =
+      FindHandsetView(BrowserView::GetBrowserViewForBrowser(browser()),
+                      u"Site controls");
+  ASSERT_TRUE(anchor);
+  picker.Show(anchor, first);
+  ASSERT_TRUE(picker.GetWidgetForTesting());
+  chrome::NewTab(browser());
+  ASSERT_TRUE(base::test::RunUntil([&] {
+    return !picker.GetWidgetForTesting() ||
+           picker.GetWidgetForTesting()->IsClosed();
+  }));
+  EXPECT_FALSE(IsHandsetModeEnabled(first));
+  EXPECT_FALSE(IsHandsetModeEnabled(contents()));
+  browser()->tab_strip_model()->ActivateTabAt(0);
+  picker.Show(anchor, first);
+  ASSERT_TRUE(picker.GetWidgetForTesting());
+  picker.Show(anchor, first);
+  EXPECT_FALSE(picker.GetWidgetForTesting());
 }
 
 IN_PROC_BROWSER_TEST_F(HandsetBrowserTest, PickerTurnOffRestoresDesktop) {
@@ -311,13 +619,120 @@ IN_PROC_BROWSER_TEST_F(HandsetBrowserTest, PickerTurnOffRestoresDesktop) {
 
   content::TestNavigationObserver observer(contents());
   HandsetPickerMenu picker;
-  picker.ExecuteCommandForTesting(contents(),
-                                  kHandsetPickerCommandTurnOff);
+  picker.ExecuteCommandForTesting(contents(), kHandsetPickerCommandTurnOff);
   observer.Wait();
 
   EXPECT_FALSE(IsHandsetModeEnabled(contents()));
   EXPECT_EQ(desktop_width, EvalInt("screen.width"));
   EXPECT_EQ(desktop_ua, EvalString("navigator.userAgent"));
+}
+
+IN_PROC_BROWSER_TEST_F(HandsetBrowserTest,
+                       QueuedPickerSelectionDoesNotStealAnotherTab) {
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/responsive.html")));
+  auto* source = contents();
+  chrome::NewTab(browser());
+  auto* other = contents();
+  auto* tabs = browser()->tab_strip_model();
+  tabs->ActivateTabAt(tabs->GetIndexOfWebContents(source));
+  HandsetPickerMenu picker;
+  auto* anchor =
+      FindHandsetView(BrowserView::GetBrowserViewForBrowser(browser()),
+                      u"Site controls");
+  ASSERT_TRUE(anchor);
+  picker.Show(anchor, source);
+  auto* bubble = picker.GetWidgetForTesting();
+  ASSERT_TRUE(bubble);
+  auto* choice = views::AsViewClass<views::Button>(
+      FindHandsetView(bubble->GetContentsView(), u"Pixel 10"));
+  ASSERT_TRUE(choice);
+  views::test::ButtonTestApi(choice).NotifyClick(ui::test::TestEvent());
+  // Selection posts its action after closing the popup. Change the active tab
+  // before that task runs, as another input or agent action can do.
+  tabs->ActivateTabAt(tabs->GetIndexOfWebContents(other));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(2, tabs->count());
+  EXPECT_EQ(other, contents());
+  EXPECT_FALSE(IsHandsetModeEnabled(source));
+  EXPECT_FALSE(IsHandsetModeEnabled(other));
+}
+
+IN_PROC_BROWSER_TEST_F(HandsetBrowserTest,
+                       CustomSizeClosesWhenItsDocumentChanges) {
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/responsive.html")));
+  HandsetPickerMenu picker;
+  picker.ExecuteCommandForTesting(contents(), kHandsetPickerCommandCustomSize);
+  base::WeakPtr<views::Widget> dialog;
+  for (views::Widget* widget : views::test::WidgetTest::GetAllWidgets())
+    if (!widget->IsClosed() && widget->widget_delegate() &&
+        widget->widget_delegate()->GetAccessibleWindowTitle() ==
+            u"Custom phone size")
+      dialog = widget->GetWeakPtr();
+  ASSERT_TRUE(dialog);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/unadapted.html")));
+  EXPECT_TRUE(!dialog || dialog->IsClosed());
+  EXPECT_EQ(1, browser()->tab_strip_model()->count());
+  EXPECT_FALSE(IsHandsetModeEnabled(contents()));
+  if (dialog && !dialog->IsClosed())
+    dialog->CloseNow();
+}
+
+IN_PROC_BROWSER_TEST_F(HandsetBrowserTest, CustomSizeClosesWhenItsTabChanges) {
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/responsive.html")));
+  auto* source = contents();
+  chrome::NewTab(browser());
+  auto* other = contents();
+  auto* tabs = browser()->tab_strip_model();
+  tabs->ActivateTabAt(tabs->GetIndexOfWebContents(source));
+  HandsetPickerMenu picker;
+  picker.ExecuteCommandForTesting(source, kHandsetPickerCommandCustomSize);
+  base::WeakPtr<views::Widget> dialog;
+  for (views::Widget* widget : views::test::WidgetTest::GetAllWidgets())
+    if (!widget->IsClosed() && widget->widget_delegate() &&
+        widget->widget_delegate()->GetAccessibleWindowTitle() ==
+            u"Custom phone size")
+      dialog = widget->GetWeakPtr();
+  ASSERT_TRUE(dialog);
+  tabs->ActivateTabAt(tabs->GetIndexOfWebContents(other));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(!dialog || dialog->IsClosed());
+  EXPECT_EQ(other, contents());
+  if (dialog && !dialog->IsClosed())
+    dialog->CloseNow();
+}
+
+IN_PROC_BROWSER_TEST_F(HandsetBrowserTest,
+                       QueuedCustomSizeDoesNotStealAnotherTab) {
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/responsive.html")));
+  auto* source = contents();
+  chrome::NewTab(browser());
+  auto* other = contents();
+  auto* tabs = browser()->tab_strip_model();
+  tabs->ActivateTabAt(tabs->GetIndexOfWebContents(source));
+  HandsetPickerMenu picker;
+  picker.ExecuteCommandForTesting(source, kHandsetPickerCommandCustomSize);
+  views::Widget* dialog = nullptr;
+  for (views::Widget* widget : views::test::WidgetTest::GetAllWidgets())
+    if (!widget->IsClosed() && widget->widget_delegate() &&
+        widget->widget_delegate()->GetAccessibleWindowTitle() ==
+            u"Custom phone size")
+      dialog = widget;
+  ASSERT_TRUE(dialog);
+  auto* apply = views::AsViewClass<views::Button>(
+      FindHandsetView(dialog->GetRootView(), u"Apply"));
+  ASSERT_TRUE(apply);
+  views::test::ButtonTestApi(apply).NotifyClick(ui::test::TestEvent());
+  tabs->ActivateTabAt(tabs->GetIndexOfWebContents(other));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(2, tabs->count());
+  EXPECT_EQ(other, contents());
+  EXPECT_FALSE(IsHandsetModeEnabled(source));
+  EXPECT_FALSE(IsHandsetModeEnabled(other));
 }
 
 // The regression this guards: EnableHandsetMode's free_width_dip/
@@ -354,6 +769,13 @@ IN_PROC_BROWSER_TEST_F(HandsetBrowserTest, ArbitraryCustomSizeReachesThePage) {
   // silently drop back to the profile default.
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL("/responsive.html?second")));
+  EXPECT_EQ(500, EvalInt("screen.width"));
+  EXPECT_EQ(920, EvalInt("screen.height"));
+
+  ASSERT_TRUE(RotateHandsetMode(contents()));
+  EXPECT_EQ(920, EvalInt("screen.width"));
+  EXPECT_EQ(500, EvalInt("screen.height"));
+  ASSERT_TRUE(RotateHandsetMode(contents()));
   EXPECT_EQ(500, EvalInt("screen.width"));
   EXPECT_EQ(920, EvalInt("screen.height"));
 }
